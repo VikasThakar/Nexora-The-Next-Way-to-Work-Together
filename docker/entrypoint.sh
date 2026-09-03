@@ -62,8 +62,31 @@ php artisan event:cache
 # Set RUN_MIGRATIONS=true on exactly one service, or run them from a release
 # command instead.
 if [ "${RUN_MIGRATIONS:-false}" = "true" ]; then
-    echo "[entrypoint] running database migrations"
-    php artisan migrate --force --isolated
+    # `--isolated` stops two services racing the schema, and it takes its lock
+    # from the DEFAULT CACHE STORE. On the database store — the default here —
+    # that lock lives in `cache_locks`, which is itself created by a migration.
+    #
+    # So on a first deploy against an empty database the lock cannot be taken:
+    # the table it needs is one of the tables it is guarding the creation of.
+    # Passing --isolated there fails with "Base table or view not found:
+    # cache_locks" and, with `set -e`, restart-loops the container.
+    #
+    # The probe is `migrate:status`, which exits non-zero while the migrations
+    # table is absent. So the first run is unisolated and every run after it is
+    # isolated — which is when isolation actually earns its keep, because that
+    # is when a rollback or a second replica can overlap with a deploy.
+    #
+    # The residual gap is two replicas migrating a genuinely empty database at
+    # the same instant. RUN_MIGRATIONS is meant to be set on exactly one
+    # service (see the note above), and railway.json pins that service to one
+    # replica, so nothing in this deployment can reach it.
+    if php artisan migrate:status >/dev/null 2>&1; then
+        echo "[entrypoint] running database migrations"
+        php artisan migrate --force --isolated
+    else
+        echo "[entrypoint] initialising an empty database (migrating without the isolation lock)"
+        php artisan migrate --force
+    fi
 fi
 
 if [ "${RUN_SEEDERS:-false}" = "true" ]; then
