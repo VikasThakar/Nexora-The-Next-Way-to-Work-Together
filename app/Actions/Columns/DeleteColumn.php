@@ -8,6 +8,7 @@ use App\Enums\TicketEventType;
 use App\Models\BoardColumn;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Services\ActivityLogger;
 use App\Services\TicketActivity;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -29,7 +30,10 @@ use RuntimeException;
  */
 class DeleteColumn
 {
-    public function __construct(private readonly TicketActivity $activity) {}
+    public function __construct(
+        private readonly TicketActivity $activity,
+        private readonly ActivityLogger $workspaceActivity,
+    ) {}
 
     public function handle(BoardColumn $column, ?BoardColumn $destination = null, ?User $actor = null): void
     {
@@ -39,12 +43,32 @@ class DeleteColumn
             $this->assertUsableDestination($column, $destination);
         }
 
-        DB::transaction(function () use ($column, $destination, $ticketCount, $actor): void {
+        $column->loadMissing('board');
+        $board = $column->board;
+        $name = (string) $column->name;
+
+        DB::transaction(function () use ($column, $destination, $ticketCount, $actor, $board, $name): void {
             if ($ticketCount > 0 && $destination instanceof BoardColumn) {
                 $this->moveTickets($column, $destination, $actor);
             }
 
             $column->delete();
+
+            /*
+             * Two kinds of record, deliberately.
+             *
+             * Each ticket that had to move out is a movement in its own
+             * timeline, written above through TicketActivity — which also puts
+             * each one in the workspace feed, marked with the reason, so
+             * "everything jumped columns at 4am" is explainable.
+             *
+             * This is the other half: the column itself going away. Its subject
+             * is the board rather than the column, because the column row no
+             * longer exists to point at.
+             */
+            if ($board !== null) {
+                $this->workspaceActivity->columnDeleted($board, $name, $destination, $actor);
+            }
         });
     }
 

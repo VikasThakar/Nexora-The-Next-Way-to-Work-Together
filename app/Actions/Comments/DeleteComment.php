@@ -6,6 +6,7 @@ namespace App\Actions\Comments;
 
 use App\Models\Comment;
 use App\Models\User;
+use App\Services\ActivityLogger;
 use App\Services\BoardBroadcaster;
 
 /**
@@ -25,12 +26,20 @@ use App\Services\BoardBroadcaster;
  */
 class DeleteComment
 {
-    public function __construct(private readonly BoardBroadcaster $broadcaster) {}
+    public function __construct(
+        private readonly BoardBroadcaster $broadcaster,
+        private readonly ActivityLogger $activity,
+    ) {}
 
     public function handle(Comment $comment, User $actor): void
     {
         $comment->deleted_by_id = $actor->getKey();
         $comment->save();
+
+        // Before the soft delete, so the ticket relation still resolves without
+        // needing the trashed scope. (`subject_returns_soft_deleted_models` is
+        // on for the activity row itself; see config/activitylog.php.)
+        $this->activity->commentDeleted($comment, null, $actor);
 
         $comment->delete();
 

@@ -7,6 +7,7 @@ namespace App\Actions\Boards;
 use App\Models\Attachment;
 use App\Models\Board;
 use App\Models\DocPage;
+use App\Services\ActivityLogger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
@@ -28,8 +29,30 @@ use Illuminate\Support\Facades\Storage;
  */
 class DeleteBoard
 {
+    public function __construct(private readonly ActivityLogger $activity) {}
+
     public function handle(Board $board): void
     {
+        /*
+         * Recorded before anything is removed, for two reasons.
+         *
+         * The board's name is still readable now, and the activity row has to
+         * carry it — after this method there is nothing left to look it up
+         * from.
+         *
+         * And `activity_log.board_id` cascades with the board, so the row is
+         * filed with no board at all: a row pointing at this board would be
+         * deleted by the same statement that deletes the board, which would
+         * make a board deletion the one change the feed could never show. A
+         * board-less row is workspace-level and administrator-only, which is
+         * the right audience for it in any case. See
+         * App\Services\ActivityLogger::boardDeleted().
+         *
+         * Every other activity on this board goes with the board, which is
+         * intended: none of it names anything a reader could still open.
+         */
+        $this->activity->boardDeleted($board);
+
         /** @var array<int, array{disk: string, path: string}> $files */
         $files = Attachment::query()
             ->where('board_id', $board->getKey())

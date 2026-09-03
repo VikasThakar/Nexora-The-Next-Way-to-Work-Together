@@ -59,6 +59,22 @@
                 </x-slot:icon>
                 Statistics
             </x-app.nav-link>
+
+            {{--
+                The workspace activity feed. Staff only, so the link is absent
+                for a customer — and as everywhere else in this file that is a
+                usability decision, not the security one: /activity is behind
+                `role:admin,team`, re-checks on every render, and its query
+                refuses a non-staff viewer outright.
+            --}}
+            @if ($canSeeInternal)
+                <x-app.nav-link :href="route('activity')" :active="request()->routeIs('activity')">
+                    <x-slot:icon>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </x-slot:icon>
+                    Activity
+                </x-app.nav-link>
+            @endif
         </div>
 
         @if ($boards->isNotEmpty())

@@ -8,6 +8,7 @@ use App\Enums\CommentStream;
 use App\Models\Comment;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Services\ActivityLogger;
 use App\Services\AttachmentStorage;
 use App\Services\BoardBroadcaster;
 use App\Services\MentionParser;
@@ -39,6 +40,7 @@ class PostComment
         private readonly NotificationDispatcher $notifications,
         private readonly BoardBroadcaster $broadcaster,
         private readonly AttachmentStorage $storage,
+        private readonly ActivityLogger $activity,
     ) {}
 
     /**
@@ -70,6 +72,18 @@ class PostComment
             foreach ($files as $file) {
                 $this->storage->store($file, $comment, $ticket->board, $author);
             }
+
+            /*
+             * The workspace feed, inside the transaction with the comment.
+             *
+             * The body is never recorded — see ActivityLogger::commentPosted().
+             * The stream that was actually stored is, because "replied to the
+             * customer" and "added an internal note" are different events to
+             * anybody reading a delivery feed, and because reading it from
+             * $comment rather than from $stream means the customer rule above
+             * has already been applied.
+             */
+            $this->activity->commentPosted($comment, $ticket, $author);
 
             return $comment;
         });

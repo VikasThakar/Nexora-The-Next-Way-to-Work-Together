@@ -7,6 +7,7 @@ namespace App\Actions\Docs;
 use App\Models\Board;
 use App\Models\DocPage;
 use App\Models\User;
+use App\Services\ActivityLogger;
 use App\Support\DocPageTree;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -27,7 +28,10 @@ use RuntimeException;
  */
 class CreatePage
 {
-    public function __construct(private readonly DocPageTree $tree) {}
+    public function __construct(
+        private readonly DocPageTree $tree,
+        private readonly ActivityLogger $activity,
+    ) {}
 
     /**
      * @param  array{title: string, body_md?: ?string, parent_id?: int|string|null}  $attributes
@@ -59,6 +63,8 @@ class CreatePage
             $page->customer_visible = false;
 
             $page->save();
+
+            $this->activity->pageCreated($page, $author);
 
             return $page;
         });

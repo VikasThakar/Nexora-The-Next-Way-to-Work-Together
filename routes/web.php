@@ -6,6 +6,7 @@ use App\Http\Controllers\AttachmentController;
 use App\Http\Controllers\Auth\LogoutController;
 use App\Http\Controllers\GitHubWebhookController;
 use App\Http\Controllers\HealthController;
+use App\Livewire\Activity\Index as ActivityIndex;
 use App\Livewire\Ai\Chat as AiChat;
 use App\Livewire\Auth\ConfirmPassword;
 use App\Livewire\Auth\ForgotPassword;
@@ -108,6 +109,27 @@ Route::middleware('auth')->group(function (): void {
      */
     Route::get('/stats', TeamStats::class)->middleware('role:admin,team')->name('stats');
     Route::get('/stats/customer', CustomerStats::class)->name('stats.customer');
+
+    /*
+     * Activity.
+     *
+     * The workspace-wide history: ticket movement, assignments, comments,
+     * documentation and board settings, newest first.
+     *
+     * Same gate as the team statistics screen, and for a stronger reason. Every
+     * description in this feed is written for the delivery team and names
+     * internal tickets, internal notes and board configuration; there is no
+     * per-row rewriting that would make it safe for a customer, so customers do
+     * not get the screen at all. The middleware stops the request before a
+     * component is constructed, the component re-checks on mount and on every
+     * re-render, and App\Models\Activity::readableBy() refuses a non-staff
+     * viewer in SQL regardless — see that scope for the full rule.
+     *
+     * There is no per-board activity route. A board is a filter on this screen
+     * (?board=slug), which keeps one query, one authorization path and one set
+     * of filters rather than two of each.
+     */
+    Route::get('/activity', ActivityIndex::class)->middleware('role:admin,team')->name('activity');
 
     /*
      * Boards.

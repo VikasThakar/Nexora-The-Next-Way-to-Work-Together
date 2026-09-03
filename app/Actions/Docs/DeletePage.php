@@ -6,6 +6,7 @@ namespace App\Actions\Docs;
 
 use App\Models\Attachment;
 use App\Models\DocPage;
+use App\Services\ActivityLogger;
 use App\Support\DocPageTree;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -28,7 +29,10 @@ use Illuminate\Support\Facades\Storage;
  */
 class DeletePage
 {
-    public function __construct(private readonly DocPageTree $tree) {}
+    public function __construct(
+        private readonly DocPageTree $tree,
+        private readonly ActivityLogger $activity,
+    ) {}
 
     /**
      * @return int the number of pages removed, including the page itself
@@ -50,6 +54,11 @@ class DeletePage
                 'path' => $attachment->path,
             ])
             ->all();
+
+        // Recorded before the transaction, while the page and its title are
+        // still there to name. The count says how much went with it: deleting a
+        // parent takes its children, and "deleted one page" would understate it.
+        $this->activity->pageDeleted($page, count($ids));
 
         DB::transaction(function () use ($subtree, $page, $ids): void {
             Attachment::query()

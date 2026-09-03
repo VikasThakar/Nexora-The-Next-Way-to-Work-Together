@@ -6,6 +6,7 @@ namespace App\Actions\Comments;
 
 use App\Models\Comment;
 use App\Models\User;
+use App\Services\ActivityLogger;
 use App\Services\BoardBroadcaster;
 
 /**
@@ -23,7 +24,10 @@ use App\Services\BoardBroadcaster;
  */
 class UpdateComment
 {
-    public function __construct(private readonly BoardBroadcaster $broadcaster) {}
+    public function __construct(
+        private readonly BoardBroadcaster $broadcaster,
+        private readonly ActivityLogger $activity,
+    ) {}
 
     public function handle(Comment $comment, string $body, User $actor): Comment
     {
@@ -37,6 +41,11 @@ class UpdateComment
         $comment->edited_at = now();
 
         $comment->save();
+
+        // After the early return above, so a save that changed nothing — or one
+        // that was rejected for being empty — does not appear in the feed as an
+        // edit that never happened.
+        $this->activity->commentEdited($comment, null, $actor);
 
         $this->broadcaster->commentPosted($comment);
 

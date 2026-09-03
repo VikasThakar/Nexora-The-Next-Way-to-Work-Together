@@ -7,6 +7,7 @@ namespace App\Actions\Tickets;
 use App\Models\Attachment;
 use App\Models\Comment;
 use App\Models\Ticket;
+use App\Services\ActivityLogger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
@@ -27,8 +28,25 @@ use Illuminate\Support\Facades\Storage;
  */
 class DeleteTicket
 {
+    public function __construct(private readonly ActivityLogger $activity) {}
+
     public function handle(Ticket $ticket): void
     {
+        /*
+         * The one piece of ticket history that cannot be written by
+         * App\Services\TicketActivity.
+         *
+         * `ticket_events` rows cascade with the ticket, so an event recording
+         * this deletion would be removed by the deletion it describes. The
+         * workspace feed is a separate table and keeps it, with the key and
+         * title in its properties so the row still reads once the ticket it
+         * names is gone.
+         *
+         * Recorded before the transaction, while the ticket and its board are
+         * both still readable.
+         */
+        $this->activity->ticketDeleted($ticket);
+
         // Comments are soft-deleted, so withTrashed() is needed to find the
         // files belonging to notes that were already removed from the thread.
         $commentIds = Comment::query()

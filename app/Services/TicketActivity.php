@@ -22,9 +22,21 @@ use Illuminate\Support\Facades\Auth;
  * Recording must never break the operation that triggered it, so callers wrap
  * their work in a transaction and events are written inside it: either the
  * change and its history both land, or neither does.
+ *
+ * This is also the single point at which ticket activity reaches the
+ * workspace-wide feed. Every event written here is mirrored into
+ * `activity_log` by App\Services\ActivityLogger — see its class comment for
+ * why there are two tables. The mirroring lives here, and only here, precisely
+ * so that it cannot double up: a card dragged on the board, moved from the
+ * status dropdown on the ticket screen, or moved by the column-delete flow all
+ * arrive at this one method, and each call produces exactly one activity.
+ * Nothing observes the Ticket model for the same purpose, and the package's
+ * LogsActivity trait is deliberately not attached to it.
  */
 class TicketActivity
 {
+    public function __construct(private readonly ActivityLogger $activityLogger) {}
+
     /**
      * @param  array<string, mixed>  $payload
      */
@@ -34,7 +46,7 @@ class TicketActivity
         array $payload = [],
         ?User $actor = null,
     ): TicketEvent {
-        return TicketEvent::query()->create([
+        $event = TicketEvent::query()->create([
             'ticket_id' => $ticket->getKey(),
             'board_id' => $ticket->board_id,
             'type' => $type,
@@ -47,6 +59,13 @@ class TicketActivity
             'payload' => $payload === [] ? null : $payload,
             'actor_id' => ($actor ?? $this->currentUser())?->getKey(),
         ]);
+
+        // The workspace feed. Passed the event rather than the arguments so the
+        // two rows cannot describe different things, and written inside the
+        // caller's transaction like the event itself.
+        $this->activityLogger->ticketEvent($event, $ticket);
+
+        return $event;
     }
 
     /**

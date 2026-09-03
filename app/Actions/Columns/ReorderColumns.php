@@ -6,10 +6,13 @@ namespace App\Actions\Columns;
 
 use App\Models\Board;
 use App\Models\BoardColumn;
+use App\Services\ActivityLogger;
 use Illuminate\Support\Facades\DB;
 
 class ReorderColumns
 {
+    public function __construct(private readonly ActivityLogger $activity) {}
+
     /**
      * Rewrite column order from an ordered list of ids.
      *
@@ -38,10 +41,19 @@ class ReorderColumns
             return;
         }
 
+        // Dropping a column back where it came from is not a change. The
+        // settings screen calls this on every drop, so without the comparison
+        // the feed would fill with reorderings that reordered nothing.
+        if ($final === $owned) {
+            return;
+        }
+
         DB::transaction(function () use ($final): void {
             foreach ($final as $position => $id) {
                 BoardColumn::query()->whereKey($id)->update(['position' => $position]);
             }
         });
+
+        $this->activity->columnsReordered($board);
     }
 }

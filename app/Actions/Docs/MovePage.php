@@ -6,6 +6,7 @@ namespace App\Actions\Docs;
 
 use App\Models\DocPage;
 use App\Models\User;
+use App\Services\ActivityLogger;
 use App\Support\DocPageTree;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -31,7 +32,10 @@ use RuntimeException;
  */
 class MovePage
 {
-    public function __construct(private readonly DocPageTree $tree) {}
+    public function __construct(
+        private readonly DocPageTree $tree,
+        private readonly ActivityLogger $activity,
+    ) {}
 
     public function handle(DocPage $page, ?DocPage $parent, int $position, ?User $actor = null): DocPage
     {
@@ -56,7 +60,7 @@ class MovePage
             );
         }
 
-        return DB::transaction(function () use ($page, $parent, $position): DocPage {
+        return DB::transaction(function () use ($page, $parent, $position, $actor): DocPage {
             $originalParentId = $page->parent_id === null ? null : (int) $page->parent_id;
             $newParentId = $parent?->getKey();
 
@@ -67,6 +71,13 @@ class MovePage
 
             if ($originalParentId !== $newParentId) {
                 $this->tree->resequence($page->board_id, $originalParentId);
+
+                // Only a change of parent reaches the feed. Dragging a page up
+                // or down among its siblings happens constantly while somebody
+                // tidies a tree, and a feed that reported each one would bury
+                // everything else — which is the failure mode this feature is
+                // meant to avoid.
+                $this->activity->pageMoved($page, $actor);
             }
 
             return $page->refresh();

@@ -32,9 +32,21 @@ return [
     | production. Add S3-compatible disks (R2, MinIO, B2) as they are defined
     | in config/filesystems.php.
     |
+    | The two entries are durable for different reasons, and the production
+    | check in App\Providers\AppServiceProvider treats them differently:
+    |
+    |   s3       durable by construction. The bucket is somewhere else; there is
+    |            nothing local to verify.
+    |   volume   durable only while a persistent volume is mounted at its root.
+    |            Being named here is therefore not sufficient proof, so the
+    |            check stats the root and refuses to boot when the mount is
+    |            absent — otherwise a forgotten volume writes into the container
+    |            and loses every file at the next deploy, silently, which is the
+    |            exact failure this list exists to prevent.
+    |
     */
 
-    'durable_disks' => ['s3'],
+    'durable_disks' => ['s3', 'volume'],
 
     /*
     |--------------------------------------------------------------------------

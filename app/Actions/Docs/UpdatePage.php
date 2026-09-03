@@ -6,6 +6,7 @@ namespace App\Actions\Docs;
 
 use App\Models\DocPage;
 use App\Models\User;
+use App\Services\ActivityLogger;
 
 /**
  * Edit a page's title and body.
@@ -20,6 +21,8 @@ use App\Models\User;
  */
 class UpdatePage
 {
+    public function __construct(private readonly ActivityLogger $activity) {}
+
     /**
      * @param  array{title?: string, body_md?: ?string}  $attributes
      */
@@ -39,9 +42,13 @@ class UpdatePage
             $page->body_md = trim($body) === '' ? null : $body;
         }
 
+        // Inside the existing dirty check, so opening a page and saving it
+        // unchanged does not put an edit in the feed.
         if ($page->isDirty()) {
             $page->updated_by_id = $actor->getKey();
             $page->save();
+
+            $this->activity->pageUpdated($page, $actor);
         }
 
         return $page;

@@ -25,6 +25,25 @@ mkdir -p \
     bootstrap/cache
 chown -R www-data:www-data storage bootstrap/cache
 
+# Attachment storage on a mounted persistent volume (FILESYSTEM_DISK=volume).
+#
+# A volume is mounted owned by root, while php-fpm runs as www-data — so
+# without this the first upload fails with a permission error rather than a
+# useful message. Non-recursive on purpose: files inside are created by
+# www-data already, and a recursive chown would walk the whole volume on every
+# boot.
+#
+# This does NOT create the mount. If the path is missing, mkdir makes an
+# ordinary container directory and the durability check in AppServiceProvider
+# then refuses to boot — which is the intended outcome, because writing
+# attachments into the container would lose them at the next deploy.
+ATTACHMENT_ROOT="${ATTACHMENT_VOLUME_PATH:-}"
+if [ -n "${ATTACHMENT_ROOT}" ]; then
+    echo "[entrypoint] preparing attachment volume at ${ATTACHMENT_ROOT}"
+    mkdir -p "${ATTACHMENT_ROOT}"
+    chown www-data:www-data "${ATTACHMENT_ROOT}"
+fi
+
 if [ -z "${APP_KEY:-}" ]; then
     echo "[entrypoint] FATAL: APP_KEY is not set. Generate one with 'php artisan key:generate --show'" >&2
     exit 1

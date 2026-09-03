@@ -6,6 +6,7 @@ namespace App\Actions\Docs;
 
 use App\Models\DocPage;
 use App\Models\User;
+use App\Services\ActivityLogger;
 use App\Support\DocPageTree;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -29,7 +30,10 @@ use RuntimeException;
  */
 class SetPageVisibility
 {
-    public function __construct(private readonly DocPageTree $tree) {}
+    public function __construct(
+        private readonly DocPageTree $tree,
+        private readonly ActivityLogger $activity,
+    ) {}
 
     /**
      * @return int the number of pages whose visibility changed
@@ -40,9 +44,23 @@ class SetPageVisibility
             return 0;
         }
 
-        return $customerVisible
+        $affected = $customerVisible
             ? $this->publish($page, $actor)
             : $this->retract($page, $actor);
+
+        /*
+         * Recorded after the change, and only once it has happened: publishing
+         * under an internal ancestor throws, and a refused publish must not
+         * leave a row in the feed saying it succeeded.
+         *
+         * A separate activity type from an ordinary page edit, for the same
+         * reason a ticket's visibility change has its own: this is the change
+         * that decides whether a customer can read the page at all, and it is
+         * the one somebody will come looking for.
+         */
+        $this->activity->pageVisibilityChanged($page, $customerVisible, $affected, $actor);
+
+        return $affected;
     }
 
     private function publish(DocPage $page, User $actor): int

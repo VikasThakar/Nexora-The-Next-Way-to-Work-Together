@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Events\BoardCreated;
+use App\Events\BoardMemberAdded;
+use App\Events\BoardMemberRemoved;
 use App\Models\AiRun;
 use App\Models\Attachment;
 use App\Models\Board;
+use App\Models\BoardColumn;
 use App\Models\Comment;
 use App\Models\DocPage;
 use App\Models\Ticket;
@@ -21,6 +25,7 @@ use App\Policies\CommentPolicy;
 use App\Policies\DocPagePolicy;
 use App\Policies\TicketPolicy;
 use App\Policies\UserPolicy;
+use App\Services\ActivityLogger;
 use App\Services\AI\AiProviderInterface;
 use App\Services\AI\ClaudeService;
 use App\Services\AI\CodeGeneration\ClaudeCodeGenerator;
@@ -35,6 +40,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\RateLimiter;
@@ -117,6 +123,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureModels();
         $this->configureAuthorization();
+        $this->configureActivityListeners();
         $this->configurePasswords();
         $this->configureUrls();
         $this->configureRateLimiting();
@@ -148,6 +155,15 @@ class AppServiceProvider extends ServiceProvider
             // so every model that appears in a morph column has to be named,
             // not only the attachable ones.
             'user' => User::class,
+
+            // `activity_log.subject_type` and `activity_log.causer_type`. The
+            // workspace feed records changes to boards and columns as well as
+            // to the three above, and enforcement means an unnamed subject
+            // would throw at the moment somebody archived a board rather than
+            // quietly storing a class name that a later namespace change would
+            // orphan. `user` above doubles as the causer alias.
+            'board' => Board::class,
+            'board_column' => BoardColumn::class,
         ]);
 
         // Every ticket change is announced to the realtime channels and, where
@@ -162,12 +178,58 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
+     * Board lifecycle goes into the workspace activity feed.
+     *
+     * These three events were raised from the start and had no listeners; their
+     * class comments say they exist so that later work can hang off board
+     * lifecycle without going back into the actions. This is that work.
+     *
+     * Registered explicitly rather than left to listener discovery, for the
+     * same reason the policies above are: a rename must not be able to silently
+     * drop a listener.
+     *
+     * Board *edits* are not here. An edit is only interesting as a diff — what
+     * the name was before, which group of settings moved — and an event
+     * carrying only the board cannot answer that, so App\Actions\Boards\
+     * UpdateBoard records its own change with the diff in hand.
+     */
+    private function configureActivityListeners(): void
+    {
+        Event::listen(function (BoardCreated $event): void {
+            app(ActivityLogger::class)->boardCreated($event->board, $event->createdBy);
+        });
+
+        Event::listen(function (BoardMemberAdded $event): void {
+            app(ActivityLogger::class)->memberAdded($event->board, $event->member, $event->addedBy);
+        });
+
+        Event::listen(function (BoardMemberRemoved $event): void {
+            app(ActivityLogger::class)->memberRemoved($event->board, $event->member, $event->removedBy);
+        });
+    }
+
+    /**
      * Refuse to run in production with ephemeral attachment storage.
      *
-     * The container filesystem on Railway is replaced on every deploy, so files
+     * The container filesystem on a PaaS is replaced on every deploy, so files
      * written to the local disk disappear at the next release. Failing at boot
      * is far better than discovering it when a customer reopens a ticket and
      * their attachment is gone.
+     *
+     * Two checks, because there are two ways to be durable and only one of them
+     * can be trusted from the configuration alone:
+     *
+     *   the disk must be named in config/attachments.php's `durable_disks`;
+     *
+     *   and if that disk uses the `local` driver — the `volume` disk does — its
+     *     root must actually exist and be writable. A disk called "volume" is
+     *     durable because something is mounted there, not because of its name,
+     *     and an unmounted path fails in the worst possible way: every upload
+     *     appears to work, and the files are gone at the next deploy. One stat
+     *     turns that into a boot failure with a message naming the fix.
+     *
+     * Both run on every request in production, which costs two cached stat
+     * calls and removes an entire class of silent data loss.
      */
     private function assertAttachmentStorageIsDurable(): void
     {
@@ -180,7 +242,24 @@ class AppServiceProvider extends ServiceProvider
         if (! in_array($disk, (array) config('attachments.durable_disks', []), true)) {
             throw new RuntimeException(
                 "Attachment storage is configured to use the [{$disk}] disk, which does not survive a deploy. "
-                .'Set FILESYSTEM_DISK (or ATTACHMENT_DISK) to an S3-compatible disk in production.'
+                .'Set FILESYSTEM_DISK (or ATTACHMENT_DISK) to a durable disk in production: '
+                .'`volume` with a persistent volume mounted at ATTACHMENT_VOLUME_PATH, '
+                .'or `s3` with an S3-compatible bucket configured.'
+            );
+        }
+
+        if ((string) config('filesystems.disks.'.$disk.'.driver') !== 'local') {
+            return;
+        }
+
+        $root = (string) config('filesystems.disks.'.$disk.'.root');
+
+        if ($root === '' || ! is_dir($root) || ! is_writable($root)) {
+            throw new RuntimeException(
+                "Attachment storage uses the [{$disk}] disk, whose root [{$root}] is not a writable directory. "
+                .'That path is expected to be a mounted persistent volume; without the mount, uploads would be '
+                .'written into the container and lost at the next deploy. Attach the volume, mount it at that '
+                .'path, and make sure it is writable by the web user.'
             );
         }
     }
