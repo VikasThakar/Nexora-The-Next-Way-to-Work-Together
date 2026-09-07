@@ -76,6 +76,29 @@ RUN set -eux; \
     apk del .build-deps; \
     rm -rf /var/cache/apk/*
 
+# ---------------------------------------------------------------------------
+# Worker tooling: git for the isolated checkout, Claude Code for apply mode.
+#
+# Neither is used by the web service. Both are in the shared image because the
+# queue worker runs the SAME image with a different start command, and an apply
+# run refuses immediately without them.
+#
+# Alpine is musl, so Claude Code needs libgcc, libstdc++ and a real ripgrep
+# rather than its bundled glibc-linked copy. USE_BUILTIN_RIPGREP=0 is passed to
+# the CLI by App\Services\AI\CodeGeneration\ClaudeCodeGenerator.
+# ---------------------------------------------------------------------------
+RUN set -eux; \
+    grep -q '/community' /etc/apk/repositories || \
+        echo "https://dl-cdn.alpinelinux.org/alpine/v$(cut -d. -f1,2 /etc/alpine-release)/community" \
+            >> /etc/apk/repositories; \
+    wget -qO /etc/apk/keys/claude-code.rsa.pub \
+        https://downloads.claude.ai/keys/claude-code.rsa.pub; \
+    echo "https://downloads.claude.ai/claude-code/apk/stable" >> /etc/apk/repositories; \
+    apk add --no-cache git bash libgcc libstdc++ ripgrep claude-code; \
+    rm -rf /var/cache/apk/*; \
+    git --version; \
+    claude --version
+
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html

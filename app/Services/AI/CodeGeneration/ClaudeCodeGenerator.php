@@ -165,6 +165,10 @@ class ClaudeCodeGenerator implements CodeChangeGeneratorInterface
             'PATH' => (string) (getenv('PATH') ?: '/usr/local/bin:/usr/bin:/bin'),
             'LANG' => 'C.UTF-8',
             'CI' => 'true',
+            // Alpine/musl worker: the CLI's bundled ripgrep is glibc-linked, so
+            // it is pointed at the apk-installed binary the Dockerfile puts on
+            // PATH. Without this its own file search silently finds nothing.
+            'USE_BUILTIN_RIPGREP' => '0',
             // No terminal on a worker; stop git or any tool from prompting.
             'GIT_TERMINAL_PROMPT' => '0',
         ];
