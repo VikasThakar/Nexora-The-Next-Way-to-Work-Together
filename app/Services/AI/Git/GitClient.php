@@ -111,7 +111,11 @@ class GitClient
 
         $files = [];
 
-        foreach (preg_split('/\r\n|\n|\r/', trim($output)) ?: [] as $line) {
+        // rtrim, not trim: the leading space of porcelain's two-character status
+        // field is significant. Trimming the whole output eats it on the FIRST line
+        // only, and the fixed-width cut below then drops one character of that path,
+        // so `frontend/x.tsx` was reported as `rontend/x.tsx`.
+        foreach (preg_split('/\r\n|\n|\r/', rtrim($output)) ?: [] as $line) {
             if (trim($line) === '') {
                 continue;
             }

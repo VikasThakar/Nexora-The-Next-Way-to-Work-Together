@@ -47,6 +47,22 @@ Schedule::command('queue:prune-failed --hours=168')
     ->weekly()
     ->onOneServer();
 
+/*
+ * AI runs stranded by a worker that died mid-run.
+ *
+ * A run is owned by the job that claimed it, so if that job disappears — a
+ * deploy, a container restart, an OOM — nothing can ever finish the run and the
+ * ticket shows "Running" for ever, blocking any further run on it. An apply run
+ * takes minutes and every deploy restarts the worker, so this is ordinary rather
+ * than exceptional.
+ *
+ * Every ten minutes, because the cost of a stranded run is a person noticing.
+ * The command refuses to touch a run that still has a job on the queue.
+ */
+Schedule::command('ai:reap-stalled')
+    ->everyTenMinutes()
+    ->withoutOverlapping()
+    ->onOneServer();
 // Expired password-reset tokens and batch records.
 Schedule::command('auth:clear-resets')->daily()->onOneServer();
 Schedule::command('queue:prune-batches')->daily()->onOneServer();

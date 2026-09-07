@@ -6,6 +6,7 @@ namespace App\Services\AI\CodeGeneration;
 
 use App\Models\AiRun;
 use App\Models\Ticket;
+use App\Services\AI\Exceptions\AiProviderException;
 use App\Services\AI\Exceptions\CodeGenerationException;
 use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Symfony\Component\Process\ExecutableFinder;
@@ -88,10 +89,20 @@ class ClaudeCodeGenerator implements CodeChangeGeneratorInterface
         }
 
         if (! $process->isSuccessful()) {
-            throw CodeGenerationException::failed(
-                'The Claude Code runtime',
-                $this->redact($process->getErrorOutput().$process->getOutput())
-            );
+            $output = $this->redact($process->getErrorOutput().$process->getOutput());
+
+            // A dropped connection is not a broken deployment, and the two are
+            // handled very differently upstream: ExecuteAiRunJob retries an
+            // AiProviderException and marks a CodeGenerationException failed on
+            // the first attempt. Raising the wrong one turns a blip into a dead
+            // run that somebody has to notice and restart by hand.
+            if ($this->isTransport($output)) {
+                throw AiProviderException::transport(
+                    'the Claude Code runtime lost its connection to the API mid-run.'
+                );
+            }
+
+            throw CodeGenerationException::failed('The Claude Code runtime', $output);
         }
 
         return new CodeChangeResult(
@@ -201,6 +212,41 @@ class ClaudeCodeGenerator implements CodeChangeGeneratorInterface
         return (new ExecutableFinder)->find($binary);
     }
 
+    /**
+     * Does this failure look like the network rather than the runtime?
+     *
+     * Deliberately narrow. Anything not matched here is treated as a real,
+     * deterministic failure and stops the run on the first attempt — which is
+     * the safer way round: retrying a genuine misconfiguration three times
+     * produces three identical notes twenty minutes apart and fixes nothing.
+     *
+     * Matched against output that has already been through redact().
+     */
+    private function isTransport(string $output): bool
+    {
+        $haystack = mb_strtolower($output);
+
+        foreach ([
+            'connection lost',
+            'connection error',
+            'connection reset',
+            'econnreset',
+            'etimedout',
+            'socket hang up',
+            'fetch failed',
+            'network error',
+            'service unavailable',
+            'internal server error',
+            'overloaded',
+            'rate limit',
+        ] as $needle) {
+            if (str_contains($haystack, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
     /**
      * Strip anything that looks like a credential out of runtime output.
      *

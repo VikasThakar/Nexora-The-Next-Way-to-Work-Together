@@ -37,5 +37,9 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- Pinned so the suite tests the DEFAULT driver rather than whatever a
+             developer has in .env. Without this, AI_CODE_DRIVER=claude_code
+             locally makes ApplyModeTest fail against a correct application. -->
+        <env name="AI_CODE_DRIVER" value="unavailable"/>
     </php>
 </phpunit>
