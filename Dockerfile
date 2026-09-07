@@ -86,6 +86,13 @@ RUN set -eux; \
 # Alpine is musl, so Claude Code needs libgcc, libstdc++ and a real ripgrep
 # rather than its bundled glibc-linked copy. USE_BUILTIN_RIPGREP=0 is passed to
 # the CLI by App\Services\AI\CodeGeneration\ClaudeCodeGenerator.
+#
+# node and npm are here for AI_VALIDATION_COMMANDS, which runs the target
+# repository's own build inside the checkout before apply mode pushes anything.
+# The assets stage above cannot supply them: only public/build is copied out of
+# it, so nothing from that stage exists at runtime. Without them a validation
+# command fails with `sh: npm: not found` AFTER the model has already done its
+# work — the run is refused at the last step, having spent the tokens.
 # ---------------------------------------------------------------------------
 RUN set -eux; \
     grep -q '/community' /etc/apk/repositories || \
@@ -94,9 +101,11 @@ RUN set -eux; \
     wget -qO /etc/apk/keys/claude-code.rsa.pub \
         https://downloads.claude.ai/keys/claude-code.rsa.pub; \
     echo "https://downloads.claude.ai/claude-code/apk/stable" >> /etc/apk/repositories; \
-    apk add --no-cache git bash libgcc libstdc++ ripgrep claude-code; \
+    apk add --no-cache git bash libgcc libstdc++ ripgrep claude-code nodejs npm; \
     rm -rf /var/cache/apk/*; \
     git --version; \
+    node --version; \
+    npm --version; \
     claude --version
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
