@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\AttachmentController;
 use App\Http\Controllers\Auth\LogoutController;
+use App\Http\Controllers\CustomerStatisticsExportController;
 use App\Http\Controllers\GitHubWebhookController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\StatisticsExportController;
@@ -140,6 +141,19 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/stats/export', StatisticsExportController::class)
         ->middleware('role:admin,team')
         ->name('stats.export');
+
+    /*
+     * The numbers behind the customer summary's charts, as a CSV.
+     *
+     * Open to everyone the customer screen is open to — which is everyone,
+     * staff included — and mirroring that screen's structure rather than its
+     * permissions: the controller reaches CustomerStatisticsExport, that class
+     * reaches CustomerStatistics, and neither can see a team figure to put in a
+     * file. The separation is what makes an ungated download route safe, so it
+     * is a second route rather than a `dataset` the other one would accept.
+     */
+    Route::get('/stats/customer/export', CustomerStatisticsExportController::class)
+        ->name('stats.customer.export');
 
     /*
      * Activity.

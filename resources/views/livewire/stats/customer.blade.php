@@ -56,17 +56,53 @@
         </div>
 
         <div class="mb-6 grid gap-4 lg:grid-cols-2">
+            {{--
+                Each chart carries its own PNG, SVG and CSV, and every one of
+                them goes to stats.customer.export — never stats.export. That
+                route is a different registry behind a different gate; naming
+                it here is what would let a customer's page ask for a team
+                figure, and the `route` prop exists so the choice is visible on
+                the element rather than decided somewhere further in.
+            --}}
             <x-ui.card title="Status" description="How your tickets are split between open and finished.">
-                <x-charts.donut :series="$statusSplit" empty="No tickets yet." />
+                <x-charts.exportable
+                    dataset="status-split"
+                    route="stats.customer.export"
+                    :filters="$exportFilters"
+                    filename="tickets-by-status"
+                >
+                    <x-charts.donut :series="$statusSplit" empty="No tickets yet." />
+                </x-charts.exportable>
             </x-ui.card>
 
             <x-ui.card title="Priority" description="Open tickets, by how urgent they are.">
-                <x-charts.bar :series="$byPriority" empty="Nothing is open." />
+                <x-charts.exportable
+                    dataset="by-priority"
+                    route="stats.customer.export"
+                    :filters="$exportFilters"
+                    filename="open-by-priority"
+                >
+                    <x-charts.bar :series="$byPriority" empty="Nothing is open." />
+                </x-charts.exportable>
             </x-ui.card>
         </div>
 
         <x-ui.card class="mb-6" title="Tickets raised" description="New tickets, by week.">
-            <x-charts.columns :series="$createdByWeek" unit="tickets" empty="No tickets were raised in this period." />
+            <x-charts.exportable
+                dataset="created-by-week"
+                route="stats.customer.export"
+                :filters="$exportFilters"
+                filename="tickets-raised"
+            >
+                {{-- Wider than the default: this card spans the page, and the
+                     nominal width is also the cap the chart renders at. --}}
+                <x-charts.columns
+                    :series="$createdByWeek"
+                    :width="900"
+                    unit="tickets"
+                    empty="No tickets were raised in this period."
+                />
+            </x-charts.exportable>
         </x-ui.card>
 
         <div class="grid gap-4 lg:grid-cols-2">

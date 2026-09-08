@@ -40,6 +40,10 @@ const PAINTED = [
     'font-size',
     'font-weight',
     'text-anchor',
+    // Set as an attribute by every chart that needs it, so cloneNode already
+    // carries it — copied anyway, because a class-based baseline would not
+    // survive the removeAttribute below.
+    'dominant-baseline',
 ]
 
 /** Rasterise at twice the rendered size, so a PNG is not soft on a good screen. */

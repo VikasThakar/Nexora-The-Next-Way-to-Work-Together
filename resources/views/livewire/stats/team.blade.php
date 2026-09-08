@@ -81,39 +81,37 @@
         </div>
 
         {{--
-            The headline chart: what came in against what went out.
+            What came in, against what went out.
 
-            One chart rather than the two column charts that used to sit here,
-            because the question people actually ask of these two series is
-            whether they are keeping up — and that is a comparison, which two
-            separate charts side by side make the reader do by eye.
+            Two charts side by side rather than one with both series on it: a
+            single week's number is easier to read off an axis than off a
+            crossing pair of lines, and the two are close enough together to
+            compare by eye.
 
-            Both column charts are still below, unchanged, for reading a single
-            week's number off the axis.
+            The `created-vs-completed` dataset still pairs them for a
+            spreadsheet, and either chart's CSV button is one of the two halves
+            on its own — see App\Services\Statistics\StatisticsExport.
         --}}
-        <x-ui.card
-            class="mb-6"
-            title="Created against completed"
-            description="New tickets and tickets reaching a done column, by week. Lines crossing means the backlog turned."
-        >
-            <x-charts.exportable dataset="created-vs-completed" :filters="$exportFilters" filename="created-vs-completed">
-                <x-charts.timeseries
-                    :series="[
-                        ['key' => 'created', 'label' => 'Created', 'tone' => 'brand', 'points' => $createdByWeek],
-                        ['key' => 'completed', 'label' => 'Completed', 'tone' => 'emerald', 'points' => $throughputByWeek],
-                    ]"
-                    empty="No tickets were created or closed in this period."
-                />
-            </x-charts.exportable>
-        </x-ui.card>
 
         <div class="mb-6 grid gap-4 lg:grid-cols-2">
             <x-ui.card title="Weekly throughput" description="Tickets that reached a done column, by week.">
-                <x-charts.columns :series="$throughputByWeek" unit="tickets" empty="Nothing was closed in this period." />
+                <x-charts.exportable
+                    dataset="throughput-by-week"
+                    :filters="$exportFilters"
+                    filename="weekly-throughput"
+                >
+                    <x-charts.columns :series="$throughputByWeek" unit="tickets" empty="Nothing was closed in this period." />
+                </x-charts.exportable>
             </x-ui.card>
 
             <x-ui.card title="Tickets created" description="New tickets raised, by week.">
-                <x-charts.columns :series="$createdByWeek" unit="tickets" empty="No tickets were created in this period." />
+                <x-charts.exportable
+                    dataset="created-by-week"
+                    :filters="$exportFilters"
+                    filename="tickets-created"
+                >
+                    <x-charts.columns :series="$createdByWeek" unit="tickets" empty="No tickets were created in this period." />
+                </x-charts.exportable>
             </x-ui.card>
         </div>
 
@@ -122,7 +120,6 @@
                 <x-charts.exportable
                     dataset="cycle-time-trend"
                     :filters="$exportFilters"
-                    :image="false"
                     filename="cycle-time-trend"
                 >
                     <x-charts.line
@@ -189,25 +186,25 @@
         --}}
         <div class="mb-6 grid gap-4 lg:grid-cols-2">
             <x-ui.card title="By column" description="Where every ticket sits right now.">
-                <x-charts.exportable dataset="by-column" :filters="$exportFilters" :image="false">
+                <x-charts.exportable dataset="by-column" :filters="$exportFilters" filename="tickets-by-column">
                     <x-charts.bar :series="$byColumn" empty="This board has no tickets yet." />
                 </x-charts.exportable>
             </x-ui.card>
 
             <x-ui.card title="By priority">
-                <x-charts.exportable dataset="by-priority" :filters="$exportFilters" :image="false">
+                <x-charts.exportable dataset="by-priority" :filters="$exportFilters" filename="tickets-by-priority">
                     <x-charts.bar :series="$byPriority" />
                 </x-charts.exportable>
             </x-ui.card>
 
             <x-ui.card title="Open work by assignee" description="Tickets not yet in a done column.">
-                <x-charts.exportable dataset="by-assignee" :filters="$exportFilters" :image="false">
+                <x-charts.exportable dataset="by-assignee" :filters="$exportFilters" filename="open-by-assignee">
                     <x-charts.bar :series="$byAssignee" empty="Nothing is open." />
                 </x-charts.exportable>
             </x-ui.card>
 
             <x-ui.card title="By label" description="Labels with the same name are merged across boards.">
-                <x-charts.exportable dataset="by-label" :filters="$exportFilters" :image="false">
+                <x-charts.exportable dataset="by-label" :filters="$exportFilters" filename="tickets-by-label">
                     <x-charts.bar :series="$byLabel" empty="No labels have been applied yet." />
                 </x-charts.exportable>
             </x-ui.card>
@@ -218,13 +215,19 @@
             title="Customer visibility"
             description="How much of this work the customer can see. Internal tickets never appear on their statistics page."
         >
-            <x-charts.donut
-                :series="[
-                    ['label' => 'Shared with customer', 'value' => $visibilitySplit['customer_visible'], 'variant' => 'emerald'],
-                    ['label' => 'Internal', 'value' => $visibilitySplit['internal'], 'variant' => 'slate'],
-                ]"
-                empty="No tickets yet."
-            />
+            <x-charts.exportable
+                dataset="visibility-split"
+                :filters="$exportFilters"
+                filename="customer-visibility"
+            >
+                <x-charts.donut
+                    :series="[
+                        ['label' => 'Shared with customer', 'value' => $visibilitySplit['customer_visible'], 'variant' => 'emerald'],
+                        ['label' => 'Internal', 'value' => $visibilitySplit['internal'], 'variant' => 'slate'],
+                    ]"
+                    empty="No tickets yet."
+                />
+            </x-charts.exportable>
         </x-ui.card>
 
         {{-- AI --}}
@@ -263,6 +266,18 @@
 
             <div class="mb-6 grid gap-4 lg:grid-cols-2">
                 <x-ui.card title="Tokens and cost">
+                    {{--
+                        A list of figures rather than a chart, so there is no
+                        picture to take — but these are the numbers somebody
+                        actually wants in a spreadsheet at the end of a month,
+                        and the CSV carries the unpriced-run count alongside
+                        them so the total cannot be read as complete.
+                    --}}
+                    <x-charts.exportable
+                        dataset="ai-summary"
+                        :filters="$exportFilters"
+                        :image="false"
+                    >
                     <dl class="space-y-2.5 text-sm">
                         <div class="flex items-center justify-between">
                             <dt class="text-slate-600">Input tokens</dt>
@@ -289,15 +304,27 @@
                             rather than counted as zero. The real cost is higher than the figure shown.
                         </p>
                     @endif
+                    </x-charts.exportable>
                 </x-ui.card>
 
                 <x-ui.card title="Runs per week" description="Completed in blue, failed in red.">
-                    <x-charts.columns :series="$aiByWeek" :stacked="true" empty="No AI runs in this period." />
+                    <x-charts.exportable
+                        dataset="ai-runs-by-week"
+                        :filters="$exportFilters"
+                        filename="ai-runs-per-week"
+                    >
+                        <x-charts.columns :series="$aiByWeek" :stacked="true" empty="No AI runs in this period." />
+                    </x-charts.exportable>
                 </x-ui.card>
             </div>
 
             @if (count($aiByBoard) > 1)
                 <x-ui.card class="mb-6" title="AI activity per board">
+                    <x-charts.exportable
+                        dataset="ai-by-board"
+                        :filters="$exportFilters"
+                        :image="false"
+                    >
                     <div class="-mx-5 overflow-x-auto">
                         <table class="w-full min-w-lg text-sm">
                             <thead>
@@ -331,6 +358,7 @@
                             </tbody>
                         </table>
                     </div>
+                    </x-charts.exportable>
                 </x-ui.card>
             @endif
         @endif

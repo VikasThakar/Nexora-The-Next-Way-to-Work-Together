@@ -1,18 +1,32 @@
 @props([
-    /** Dataset name from App\Services\Statistics\StatisticsExport::KEYS. */
+    /**
+     * Dataset name from the registry behind $route — App\Services\Statistics\
+     * StatisticsExport::KEYS for the team report, CustomerStatisticsExport::KEYS
+     * for the customer one.
+     */
     'dataset',
+
+    /**
+     * The route that serves the CSV.
+     *
+     * Two routes rather than one with a role branch inside it, because the two
+     * reports are two different registries behind two different gates — see
+     * App\Http\Controllers\CustomerStatisticsExportController for why the
+     * customer's download cannot reach the team's figures even by name.
+     */
+    'route' => 'stats.export',
 
     /** The current filters, so the download describes the same period. */
     'filters' => [],
 
     /**
-     * Whether the wrapped chart is an SVG, and so whether a picture of it can
-     * be downloaded.
+     * Whether the wrapped content can be serialised as a picture.
      *
-     * False for the bar, column and donut charts, which are divs with heights —
-     * a deliberate choice made before this wrapper existed, and not one worth
-     * undoing to add an image button. Those still offer their numbers as CSV,
-     * which is the part somebody actually re-uses.
+     * True for everything that renders as an SVG, which is now every chart in
+     * resources/views/components/charts/. It stays a prop because three of the
+     * things worth exporting on the statistics screens are not charts at all —
+     * the time-in-column table, the AI-per-board table and the AI tokens-and-
+     * cost list. Each has numbers worth downloading and no picture to take.
      */
     'image' => true,
 
@@ -29,16 +43,22 @@
                  already on the page. There is nothing for the server to do,
                  and nothing extra to authorize — the picture can only contain
                  what was drawn.
-      CSV        a request to App\Http\Controllers\StatisticsExportController,
-                 which re-derives the figures under the viewer's own scope. It
-                 does not receive numbers from the page, so a tampered payload
-                 cannot put figures into a file that were not in the report.
+      CSV        a request to one of the two export controllers, which
+                 re-derives the figures under the viewer's own scope. Neither
+                 receives numbers from the page, so a tampered payload cannot
+                 put figures into a file that were not in the report.
 
     The buttons appear on hover and on keyboard focus. They are controls for a
     thing somebody has decided to keep, not part of reading the chart.
+
+    `bottom-full` rather than a negative top offset: it puts the row entirely
+    above the chart, inside the padding x-ui.card already has, so revealing the
+    toolbar never covers the thing it belongs to. A chart's first row and a
+    table's first column heading both sit at the very top of that box, and an
+    earlier `-top-1` hid them for as long as the pointer was over the card.
 --}}
 <div x-data="chartExport" class="group/export relative">
-    <div class="absolute -top-1 right-0 z-10 flex items-center gap-1 opacity-0 transition group-hover/export:opacity-100 focus-within:opacity-100">
+    <div class="absolute right-0 bottom-full z-10 flex items-center gap-1 opacity-0 transition group-hover/export:opacity-100 focus-within:opacity-100">
         @if ($image)
             <button
                 type="button"
@@ -60,7 +80,7 @@
             the request it already knows how to make.
         --}}
         <a
-            href="{{ route('stats.export', array_merge(['dataset' => $dataset], $filters)) }}"
+            href="{{ route($route, array_merge(['dataset' => $dataset], $filters)) }}"
             class="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-500 shadow-xs transition hover:bg-slate-50 hover:text-slate-700"
         >CSV</a>
     </div>

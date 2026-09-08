@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Services\Statistics\StatisticsExport;
 use App\Services\Statistics\StatisticsScopeResolver;
+use App\Support\CsvDownload;
 use App\Support\StatsPeriod;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -67,35 +68,9 @@ class StatisticsExportController extends Controller
             (string) $request->query('to', ''),
         );
 
-        $table = $export->rows($dataset, $scope);
-        $filename = $export->filename($dataset, $scope);
-
-        return response()->streamDownload(function () use ($table): void {
-            $handle = fopen('php://output', 'wb');
-
-            /*
-             * A BOM, reluctantly.
-             *
-             * Excel on Windows reads a CSV as the system codepage unless the
-             * file starts with one, so a board named "Kärnkraft" opens as
-             * "KÃ¤rnkraft". Every other tool tolerates the three bytes; Excel
-             * is the one that does not tolerate their absence, and Excel is
-             * what these files get opened in.
-             */
-            fwrite($handle, "\xEF\xBB\xBF");
-
-            fputcsv($handle, $table['headers']);
-
-            foreach ($table['rows'] as $row) {
-                fputcsv($handle, $row);
-            }
-
-            fclose($handle);
-        }, $filename, [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-            // Nothing about a report should be cached by a proxy: it is
-            // per-viewer by construction.
-            'Cache-Control' => 'no-store, private',
-        ]);
+        return CsvDownload::stream(
+            $export->rows($dataset, $scope),
+            $export->filename($dataset, $scope),
+        );
     }
 }

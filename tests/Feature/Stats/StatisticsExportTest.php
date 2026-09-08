@@ -169,7 +169,7 @@ class StatisticsExportTest extends TestCase
     // The page's own wiring
     // -----------------------------------------------------------------
 
-    public function test_the_page_offers_all_three_formats_for_the_headline_chart(): void
+    public function test_the_page_offers_all_three_formats_for_a_chart(): void
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
@@ -184,7 +184,7 @@ class StatisticsExportTest extends TestCase
 
         // And the numbers, from the server.
         $this->assertStringContainsString(
-            route('stats.export', ['dataset' => 'created-vs-completed']),
+            route('stats.export', ['dataset' => 'created-by-week']),
             $html
         );
 
@@ -192,6 +192,46 @@ class StatisticsExportTest extends TestCase
         // an exported file is not a picture of an unlabelled line.
         $this->assertStringContainsString('data-chart', $html);
         $this->assertStringContainsString('<text', $html);
+    }
+
+    /**
+     * Every chart on the page has all three buttons, not just the one above.
+     *
+     * Asserted against the registry rather than a hand-written list, so a
+     * dataset added to StatisticsExport::KEYS without a chart to hang it on —
+     * or a chart added without its export — fails here rather than shipping a
+     * report with a gap in it.
+     */
+    public function test_every_dataset_is_reachable_from_the_page(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $ticket = $this->ticketOn($board, $team, ['title' => 'Something']);
+        $this->moveTo($ticket, 'Done');
+
+        $html = Livewire::actingAs($team)->test(TeamStats::class)->html();
+
+        foreach (array_keys(StatisticsExport::KEYS) as $dataset) {
+            // The one pairing has no chart of its own: the two column charts
+            // each export their own half, and this dataset is the join of them
+            // for a spreadsheet. See the comment on the charts in
+            // resources/views/livewire/stats/team.blade.php.
+            if ($dataset === 'created-vs-completed') {
+                continue;
+            }
+
+            // ai-by-board renders only when there is more than one board with
+            // AI activity, which a single-board fixture cannot produce.
+            if ($dataset === 'ai-by-board') {
+                continue;
+            }
+
+            $this->assertStringContainsString(
+                e(route('stats.export', ['dataset' => $dataset])),
+                $html,
+                $dataset.' has no CSV button anywhere on the page.'
+            );
+        }
     }
 
     public function test_the_download_links_carry_the_filters_on_screen(): void
@@ -209,7 +249,7 @@ class StatisticsExportTest extends TestCase
         // e() because the URL is in an href and Blade escapes the ampersands.
         $this->assertStringContainsString(
             e(route('stats.export', [
-                'dataset' => 'created-vs-completed',
+                'dataset' => 'created-by-week',
                 'board' => $board->slug,
                 'range' => StatsPeriod::LAST_7_DAYS,
             ])),

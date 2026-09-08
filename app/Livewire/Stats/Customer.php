@@ -40,6 +40,12 @@ class Customer extends Component
             'period' => $scope->period,
             'boardOptions' => $this->boardOptions(),
 
+            // The filters as the CSV route expects them, so a download link and
+            // the summary above it cannot describe different periods. The route
+            // they are handed to is stats.customer.export, which reaches
+            // CustomerStatisticsExport and nothing else.
+            'exportFilters' => $this->exportQuery(),
+
             'counts' => $statistics->counts($scope),
             'byPriority' => $statistics->byPriority($scope),
             'statusSplit' => $statistics->statusSplit($scope),
