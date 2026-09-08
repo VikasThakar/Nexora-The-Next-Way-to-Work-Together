@@ -29,7 +29,7 @@
     @pointermove="if (Math.abs($event.clientX - startX) > 5 || Math.abs($event.clientY - startY) > 5) dragged = true"
     @click="if (dragged) { $event.preventDefault(); dragged = false }"
     {{ $attributes->class([
-        'group block rounded-lg border border-slate-200 bg-white p-3 shadow-xs transition',
+        'group block rounded-lg border border-slate-200 bg-surface p-3 shadow-xs transition',
         'hover:border-brand-300 hover:shadow-md',
         'cursor-grab active:cursor-grabbing' => $draggable,
     ]) }}

@@ -64,7 +64,7 @@
             x-show="treeOpen"
             x-cloak
             x-on:click="treeOpen = false"
-            class="fixed inset-0 z-30 bg-slate-900/40 lg:hidden"
+            class="fixed inset-0 z-30 bg-scrim/40 lg:hidden"
             aria-hidden="true"
         ></div>
 
@@ -85,7 +85,7 @@
             id="doc-tree"
             x-init="$store.docTree.use(@js($board->id), @js($openIds))"
             x-bind:class="treeOpen ? 'translate-x-0' : '-translate-x-full'"
-            class="fixed top-0 bottom-0 left-0 z-40 flex w-80 max-w-[85vw] flex-col overflow-y-auto border-r border-slate-200 bg-white p-4 shadow-xl transition-transform duration-200 lg:sticky lg:top-8 lg:bottom-auto lg:left-auto lg:z-auto lg:max-h-[calc(100dvh-6rem)] lg:w-64 lg:max-w-none lg:shrink-0 lg:translate-x-0 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none"
+            class="fixed top-0 bottom-0 left-0 z-40 flex w-80 max-w-[85vw] flex-col overflow-y-auto border-r border-slate-200 bg-surface-raised p-4 shadow-xl transition-transform duration-200 lg:sticky lg:top-8 lg:bottom-auto lg:left-auto lg:z-auto lg:max-h-[calc(100dvh-6rem)] lg:w-64 lg:max-w-none lg:shrink-0 lg:translate-x-0 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none"
             aria-label="Documentation pages"
         >
             <div class="mb-3 flex items-center justify-between gap-2">
@@ -208,7 +208,7 @@
                     </div>
                 @endif
 
-                <article class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
+                <article class="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
                     @if ($editing)
                         <form wire:submit="save">
                             <header class="border-b border-slate-100 px-5 py-4 sm:px-8">

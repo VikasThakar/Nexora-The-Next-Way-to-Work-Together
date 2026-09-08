@@ -64,13 +64,13 @@
                 type="button"
                 x-on:click="downloadPng(@js($filename))"
                 x-bind:disabled="exporting"
-                class="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-500 shadow-xs transition hover:bg-slate-50 hover:text-slate-700 disabled:opacity-50"
+                class="rounded border border-slate-200 bg-surface px-1.5 py-0.5 text-[10px] font-medium text-slate-500 shadow-xs transition hover:bg-slate-50 hover:text-slate-700 disabled:opacity-50"
             >PNG</button>
 
             <button
                 type="button"
                 x-on:click="downloadSvg(@js($filename))"
-                class="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-500 shadow-xs transition hover:bg-slate-50 hover:text-slate-700"
+                class="rounded border border-slate-200 bg-surface px-1.5 py-0.5 text-[10px] font-medium text-slate-500 shadow-xs transition hover:bg-slate-50 hover:text-slate-700"
             >SVG</button>
         @endif
 
@@ -81,7 +81,7 @@
         --}}
         <a
             href="{{ route($route, array_merge(['dataset' => $dataset], $filters)) }}"
-            class="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-500 shadow-xs transition hover:bg-slate-50 hover:text-slate-700"
+            class="rounded border border-slate-200 bg-surface px-1.5 py-0.5 text-[10px] font-medium text-slate-500 shadow-xs transition hover:bg-slate-50 hover:text-slate-700"
         >CSV</a>
     </div>
 

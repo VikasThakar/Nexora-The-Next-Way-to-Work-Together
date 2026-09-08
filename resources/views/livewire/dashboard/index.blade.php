@@ -64,7 +64,7 @@
                     href="{{ route('boards.show', $board) }}"
                     wire:navigate
                     wire:key="board-{{ $board->id }}"
-                    class="group flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-xs transition hover:border-brand-300 hover:shadow-md"
+                    class="group flex flex-col rounded-xl border border-slate-200 bg-surface p-5 shadow-xs transition hover:border-brand-300 hover:shadow-md"
                 >
                     <div class="flex items-start justify-between gap-3">
                         <h3 class="min-w-0 truncate text-sm font-semibold text-slate-900 group-hover:text-brand-700">

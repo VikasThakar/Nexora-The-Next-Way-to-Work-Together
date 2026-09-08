@@ -8,6 +8,7 @@ use App\Http\Controllers\CustomerStatisticsExportController;
 use App\Http\Controllers\GitHubWebhookController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\StatisticsExportController;
+use App\Http\Controllers\ThemePreferenceController;
 use App\Livewire\Activity\Index as ActivityIndex;
 use App\Livewire\Ai\Chat as AiChat;
 use App\Livewire\Auth\ConfirmPassword;
@@ -108,6 +109,20 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/settings', SettingsIndex::class)->name('settings');
 
     Route::get('/settings/profile', UpdateProfile::class)->name('profile.edit');
+
+    /*
+     * The appearance preference.
+     *
+     * Not a screen — the control lives at the foot of the sidebar, and this is
+     * only where its choice is written down. PUT rather than POST because it
+     * replaces a single value on the signed-in person's own row; there is no
+     * user id in the payload and no way to name somebody else's.
+     *
+     * Called by resources/js/theme.js *after* the appearance has already
+     * changed in the browser, so its latency is invisible and its failure
+     * costs only the cross-device part of the preference.
+     */
+    Route::put('/settings/theme', ThemePreferenceController::class)->name('settings.theme');
 
     /*
      * Statistics.

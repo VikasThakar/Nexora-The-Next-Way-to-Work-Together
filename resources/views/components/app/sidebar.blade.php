@@ -32,12 +32,12 @@
     $docsBoard ??= $boards->first();
 @endphp
 
-<aside class="flex h-full w-full flex-col border-r border-slate-800 bg-slate-900">
-    <div class="flex h-16 shrink-0 items-center gap-3 border-b border-slate-800 px-5">
+<aside class="flex h-full w-full flex-col border-r border-sidebar-border bg-sidebar">
+    <div class="flex h-16 shrink-0 items-center gap-3 border-b border-sidebar-border px-5">
         <x-app.logo class="size-8" />
         <div class="min-w-0">
-            <p class="truncate text-sm font-semibold text-white">{{ config('workspace.short_name') }}</p>
-            <p class="truncate text-xs text-slate-400">Workspace</p>
+            <p class="truncate text-sm font-semibold text-sidebar-ink">{{ config('workspace.short_name') }}</p>
+            <p class="truncate text-xs text-sidebar-ink-dim">Workspace</p>
         </div>
     </div>
 
@@ -118,7 +118,7 @@
 
         @if ($boards->isNotEmpty())
             <div>
-                <p class="px-3 pb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase">Your boards</p>
+                <p class="px-3 pb-2 text-xs font-semibold tracking-wide text-sidebar-ink-faint uppercase">Your boards</p>
                 <div class="space-y-1">
                     @foreach ($boards as $board)
                         <x-app.nav-link
@@ -130,7 +130,7 @@
                             </x-slot:icon>
                             <span class="truncate">{{ $board->name }}</span>
                             <x-slot:trailing>
-                                <span class="font-mono text-[10px] text-slate-500">{{ $board->ticket_prefix }}</span>
+                                <span class="font-mono text-[10px] text-sidebar-ink-faint">{{ $board->ticket_prefix }}</span>
                             </x-slot:trailing>
                         </x-app.nav-link>
                     @endforeach
@@ -140,7 +140,7 @@
 
         @if ($canAdminister)
             <div>
-                <p class="px-3 pb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase">Administration</p>
+                <p class="px-3 pb-2 text-xs font-semibold tracking-wide text-sidebar-ink-faint uppercase">Administration</p>
                 <div class="space-y-1">
                     <x-app.nav-link :href="route('users.index')" :active="request()->routeIs('users.*')">
                         <x-slot:icon>
@@ -160,16 +160,25 @@
         @endif
     </nav>
 
-    <div class="border-t border-slate-800 p-3">
+    {{--
+        Appearance, in the gap between the navigation and the user card.
+
+        Below the <nav> rather than inside it, so it does not scroll away with
+        a long board list, and above the user card because it belongs with the
+        other things that are about the person rather than about the workspace.
+    --}}
+    <x-app.theme-switcher />
+
+    <div class="border-t border-sidebar-border p-3">
         <a
             href="{{ route('profile.edit') }}"
             wire:navigate
-            class="flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-slate-800"
+            class="flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-sidebar-hover"
         >
             <x-ui.avatar :name="$user?->name ?? '?'" />
             <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-medium text-white">{{ $user?->name }}</p>
-                <p class="truncate text-xs text-slate-400">{{ $user?->role->label() }}</p>
+                <p class="truncate text-sm font-medium text-sidebar-ink">{{ $user?->name }}</p>
+                <p class="truncate text-xs text-sidebar-ink-dim">{{ $user?->role->label() }}</p>
             </div>
         </a>
     </div>

@@ -24,7 +24,7 @@
         </svg>
 
         @if ($unread > 0)
-            <span class="absolute -top-0.5 -right-0.5 inline-flex min-w-4 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">
+            <span class="absolute -top-0.5 -right-0.5 inline-flex min-w-4 items-center justify-center rounded-full bg-danger-solid px-1 text-[10px] font-semibold text-white">
                 {{ $unread >= \App\Services\NotificationReader::WINDOW ? \App\Services\NotificationReader::WINDOW.'+' : $unread }}
             </span>
         @endif
@@ -35,7 +35,7 @@
         x-cloak
         x-transition.origin.top.right
         @click.outside="open = false"
-        class="absolute right-0 z-40 mt-2 w-96 max-w-[calc(100vw-2rem)] origin-top-right rounded-xl border border-slate-200 bg-white shadow-lg"
+        class="absolute right-0 z-40 mt-2 w-96 max-w-[calc(100vw-2rem)] origin-top-right rounded-xl border border-slate-200 bg-surface-raised shadow-lg"
     >
         <div class="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
             <p class="text-sm font-semibold text-slate-900">Notifications</p>

@@ -18,7 +18,7 @@
 <section @class([
     'overflow-hidden rounded-xl border shadow-xs',
     'border-slate-300 bg-slate-50' => $internal,
-    'border-slate-200 bg-white' => ! $internal,
+    'border-slate-200 bg-surface' => ! $internal,
 ])>
     <header @class([
         'flex flex-wrap items-center gap-1 border-b px-3 pt-3',
@@ -31,7 +31,7 @@
                 wire:click="switchStream('{{ CommentStream::Customer->value }}')"
                 @class([
                     '-mb-px flex items-center gap-2 rounded-t-lg border border-b-0 px-3 py-2 text-sm font-medium transition',
-                    'border-slate-200 bg-white text-slate-900' => ! $internal,
+                    'border-slate-200 bg-surface text-slate-900' => ! $internal,
                     'border-transparent text-slate-500 hover:text-slate-800' => $internal,
                 ])
             >
@@ -90,7 +90,7 @@
                             // Inverted against the panel behind it: the internal
                             // panel is slate, so its notes are white to lift off
                             // it. A slate card on a slate panel would vanish.
-                            'border-slate-200 bg-white' => $comment->isInternal(),
+                            'border-slate-200 bg-surface' => $comment->isInternal(),
                             'border-slate-200 bg-slate-50' => ! $comment->isInternal(),
                         ])>
                             <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -149,7 +149,7 @@
                                             <li wire:key="comment-file-{{ $attachment->id }}">
                                                 {{-- Authorized download, never a direct storage URL. --}}
                                                 <a href="{{ route('attachments.show', $attachment) }}"
-                                                   class="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:border-brand-300 hover:text-brand-700">
+                                                   class="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-surface px-2 py-1 text-xs text-slate-700 hover:border-brand-300 hover:text-brand-700">
                                                     <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor">
                                                         <path stroke-linecap="round" stroke-linejoin="round" d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" />
                                                     </svg>
@@ -192,8 +192,8 @@
         @if (($internal && $canPostToInternal) || (! $internal && $canPostToCustomer))
             <form wire:submit="post" @class([
                 'mt-5 rounded-lg border p-3',
-                'border-slate-300 bg-white' => $internal,
-                'border-slate-200 bg-white' => ! $internal,
+                'border-slate-300 bg-surface' => $internal,
+                'border-slate-200 bg-surface' => ! $internal,
             ])>
                 <div class="mb-2 flex items-center justify-between gap-2">
                     <p @class([
@@ -212,7 +212,7 @@
                 </div>
 
                 @if ($previewing)
-                    <div class="markdown min-h-24 rounded-lg border border-slate-200 bg-white p-3">
+                    <div class="markdown min-h-24 rounded-lg border border-slate-200 bg-surface p-3">
                         {!! $previewHtml ?: '<p class="text-slate-400">Nothing to preview.</p>' !!}
                     </div>
                 @else

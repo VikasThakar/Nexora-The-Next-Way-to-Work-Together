@@ -26,7 +26,7 @@
                     <div
                         wire:key="settings-column-{{ $column->id }}"
                         wire:sort:item="{{ $column->id }}"
-                        class="rounded-lg border border-slate-200 bg-white p-3"
+                        class="rounded-lg border border-slate-200 bg-surface p-3"
                     >
                         @if ($editingColumnId === $column->id)
                             <form wire:submit="saveColumn" class="flex items-start gap-2">
@@ -151,7 +151,7 @@
                 <div class="space-y-2">
                     @foreach ($labels as $label)
                         <div wire:key="settings-label-{{ $label->id }}"
-                             class="rounded-lg border border-slate-200 bg-white p-3">
+                             class="rounded-lg border border-slate-200 bg-surface p-3">
                             @if ($editingLabelId === $label->id)
                                 <form wire:submit="saveLabel" class="space-y-3">
                                     <div>

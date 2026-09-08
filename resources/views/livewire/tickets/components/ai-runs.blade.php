@@ -137,7 +137,7 @@
             @else
                 <ul class="space-y-3">
                     @foreach ($runs as $run)
-                        <li wire:key="ai-run-{{ $run->id }}" class="rounded-lg border border-slate-200 bg-white p-3">
+                        <li wire:key="ai-run-{{ $run->id }}" class="rounded-lg border border-slate-200 bg-surface p-3">
                             <div class="flex flex-wrap items-center gap-2">
                                 <x-ui.badge :variant="$run->status->badge()">{{ $run->status->label() }}</x-ui.badge>
                                 <span class="text-xs font-medium text-slate-700">{{ $run->mode->label() }}</span>

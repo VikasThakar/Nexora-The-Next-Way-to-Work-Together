@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\ThemePreference;
 use App\Enums\UserRole;
 use App\Notifications\ResetPassword;
 use Database\Factories\UserFactory;
@@ -41,6 +42,26 @@ class User extends Authenticatable
         'remember_token',
     ];
 
+    /**
+     * Defaults for a model that has not been read back from the database.
+     *
+     * The column has the same default, but a column default only applies to
+     * the row — the in-memory model returned by a create() does not carry the
+     * value until something refreshes it. Without this, a freshly registered
+     * user has `theme_preference === null` for the rest of the request, and
+     * the layout renders no preference at all on the one page where somebody
+     * is most likely to be seeing Nexora for the first time.
+     *
+     * The literal has to be a literal: a property initialiser cannot call
+     * App\Enums\ThemePreference::default(). Tests\Feature\Theme\
+     * ThemePreferenceTest asserts the two agree.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'theme_preference' => 'light',
+    ];
+
     /** @return array<string, string> */
     protected function casts(): array
     {
@@ -49,6 +70,15 @@ class User extends Authenticatable
             'deactivated_at' => 'datetime',
             'password' => 'hashed',
             'role' => UserRole::class,
+            /*
+             * Cast but deliberately not in $fillable, for the same reason
+             * `role` is not: nothing in this application should be able to
+             * write a column through an array that arrived from a request.
+             * The one screen that changes it goes through
+             * App\Http\Controllers\ThemePreferenceController, which validates
+             * against the enum and assigns the property by name.
+             */
+            'theme_preference' => ThemePreference::class,
         ];
     }
 

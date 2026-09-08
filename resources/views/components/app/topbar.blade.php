@@ -4,7 +4,7 @@
     $user = auth()->user();
 @endphp
 
-<header class="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-slate-200 bg-white/90 px-4 backdrop-blur sm:px-6 lg:px-8">
+<header class="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-slate-200 bg-surface/90 px-4 backdrop-blur sm:px-6 lg:px-8">
     <button
         type="button"
         class="-ml-1 rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 lg:hidden"
@@ -94,7 +94,7 @@
                 x-cloak
                 x-transition.origin.top.right
                 @click.outside="open = false"
-                class="absolute right-0 z-40 mt-2 w-60 origin-top-right rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+                class="absolute right-0 z-40 mt-2 w-60 origin-top-right rounded-xl border border-slate-200 bg-surface-raised py-1 shadow-lg"
             >
                 <div class="border-b border-slate-100 px-4 py-3">
                     <p class="truncate text-sm font-medium text-slate-900">{{ $user?->name }}</p>

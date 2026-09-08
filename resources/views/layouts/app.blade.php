@@ -8,6 +8,12 @@
 
     <title>{{ isset($title) ? $title.' · '.config('workspace.short_name') : config('workspace.name') }}</title>
 
+    {{--
+        The appearance, before anything paints. First in <head> on purpose:
+        everything below it arrives over the network.
+    --}}
+    <x-app.theme-boot :preference="auth()->user()?->theme_preference" />
+
     <x-app.favicons />
 
     <link rel="preconnect" href="https://fonts.bunny.net">
@@ -25,7 +31,7 @@
             @keydown.escape.window="mobileNav = false"
             class="fixed inset-0 z-40 lg:hidden"
         >
-            <div class="absolute inset-0 bg-slate-900/50" @click="mobileNav = false"></div>
+            <div class="absolute inset-0 bg-scrim/50" @click="mobileNav = false"></div>
             <div class="relative flex h-full w-72 flex-col">
                 <x-app.sidebar />
             </div>
@@ -62,7 +68,7 @@
                 </div>
             </main>
 
-            <footer class="border-t border-slate-200 bg-white px-6 py-4 text-xs text-slate-500">
+            <footer class="border-t border-slate-200 bg-surface px-6 py-4 text-xs text-slate-500">
                 {{ config('workspace.name') }} &middot; Signed in as {{ auth()->user()?->email }}
             </footer>
         </div>

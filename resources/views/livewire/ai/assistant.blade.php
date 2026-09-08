@@ -21,7 +21,7 @@
     <div
         x-show="$store.aiPanel.open"
         x-transition.opacity
-        class="fixed inset-0 z-40 bg-slate-900/50 lg:hidden"
+        class="fixed inset-0 z-40 bg-scrim/50 lg:hidden"
         @click="$store.aiPanel.close()"
         aria-hidden="true"
     ></div>
@@ -36,7 +36,7 @@
         x-transition:leave-end="translate-x-full"
         role="complementary"
         aria-label="Workspace AI"
-        class="fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-slate-200 bg-white shadow-xl sm:max-w-md lg:max-w-[28rem]"
+        class="fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-slate-200 bg-surface-raised shadow-xl sm:max-w-md lg:max-w-[28rem]"
     >
         {{-- Header ------------------------------------------------------ --}}
         <header class="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
@@ -152,7 +152,7 @@
                     @foreach ($messages as $message)
                         <div wire:key="panel-{{ $message->id }}" @class([
                             'rounded-xl border p-3',
-                            'border-slate-200 bg-white' => ! $message->role->isAssistant(),
+                            'border-slate-200 bg-surface' => ! $message->role->isAssistant(),
                             'border-brand-200 bg-brand-50/40' => $message->role->isAssistant(),
                         ])>
                             <div class="mb-1.5 flex items-center gap-2 text-xs">
@@ -184,7 +184,7 @@
             </div>
 
             {{-- Composer ------------------------------------------------- --}}
-            <div class="shrink-0 border-t border-slate-200 bg-white px-4 py-3">
+            <div class="shrink-0 border-t border-slate-200 bg-surface px-4 py-3">
                 @if (! $providerConfigured)
                     <p class="text-xs text-slate-500">
                         No AI provider is configured for this deployment, so the assistant cannot answer.

@@ -6,6 +6,18 @@
 @source '../**/*.js';
 
 /*
+ * Dark mode is a class on <html>, not a media query.
+ *
+ * A media query would answer "what does this device prefer", and that is only
+ * one of the three answers somebody can give (App\Enums\ThemePreference). The
+ * class is written by resources/js/theme.js, which is the one place that knows
+ * how to turn a preference into an appearance — and it is on <html> because
+ * that element is outside every Livewire morph region, so navigating with
+ * wire:navigate cannot drop it.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
  * Design tokens.
  *
  * Kept as Tailwind theme extensions rather than as ad-hoc classes so that
@@ -26,6 +38,257 @@
     --color-brand-700: oklch(0.49 0.198 264);
     --color-brand-800: oklch(0.42 0.166 264);
     --color-brand-900: oklch(0.38 0.13 265);
+
+    /* ------------------------------------------------------------------ */
+    /* Semantic surfaces                                                   */
+    /* ------------------------------------------------------------------ */
+
+    /*
+     * Four tokens for the four things a surface can be, rather than a
+     * `dark:` variant on every card in the product.
+     *
+     * The rest of the palette does not need tokens like these, because the
+     * dark block further down remaps the neutral scale itself — `border-
+     * slate-200` and `text-slate-500` come out right in both appearances
+     * without being touched. These exist for the cases that remapping cannot
+     * reach:
+     *
+     *   `surface` is what `bg-white` used to be. It could not simply be
+     *   remapped, because `--color-white` is also what `text-white` resolves
+     *   to, and a white label on a blue button must stay white.
+     *
+     *   `surface-raised` is a surface that sits *above* another one — a
+     *   dropdown over a card, the command palette over the page. In light
+     *   mode a shadow is enough to say so; on a dark ground a shadow is
+     *   nearly invisible, so the panel has to be a shade lighter instead.
+     *
+     *   `sidebar` and `scrim` are dark in *both* appearances, so remapping
+     *   the neutral scale would have inverted them into a white sidebar and a
+     *   white overlay.
+     */
+    --color-surface: #ffffff;
+    --color-surface-raised: #ffffff;
+    /*
+     * Below the card surface: the tray a Kanban column is, and anything else
+     * that should read as recessed rather than raised. In light mode that is
+     * a grey a shade darker than the page; in dark it is darker than the
+     * cards, which is the part a mirrored `slate-200` got backwards.
+     */
+    --color-surface-sunken: oklch(0.929 0.013 255.508);
+
+    --color-sidebar: oklch(0.208 0.042 265.755);
+    --color-sidebar-border: oklch(0.279 0.041 260.031);
+    --color-sidebar-hover: oklch(0.279 0.041 260.031);
+    /*
+     * Four levels of ink, because the sidebar already used four greys: the
+     * workspace name, a resting navigation link, the subtitle under a name,
+     * and a section heading. Naming them is what lets the dark appearance
+     * shift all four together without guessing which slate was which.
+     */
+    --color-sidebar-ink: #ffffff;
+    --color-sidebar-ink-muted: oklch(0.869 0.022 252.894);
+    --color-sidebar-ink-dim: oklch(0.704 0.04 256.788);
+    --color-sidebar-ink-faint: oklch(0.554 0.046 257.417);
+
+    --color-scrim: oklch(0.208 0.042 265.755);
+
+    /*
+     * A code block is dark in both appearances — a light one would be the
+     * only pale rectangle on a dark page, and the syntax colours below are
+     * built for a dark ground.
+     */
+    --color-code: oklch(0.208 0.042 265.755);
+    --color-code-ink: oklch(0.968 0.007 247.896);
+
+    /*
+     * A saturated accent with white text on it: primary buttons, the active
+     * navigation item, count badges, avatars.
+     *
+     * Separate from `brand-600` because that shade is remapped for dark mode
+     * — it is what `text-brand-600` resolves to in twenty-five places, and
+     * link text has to lift off a dark ground while a button behind white
+     * text must not.
+     */
+    --color-brand-solid: oklch(0.55 0.208 263);
+    --color-brand-solid-hover: oklch(0.49 0.198 264);
+    --color-danger-solid: oklch(0.586 0.222 17.585);
+    --color-danger-solid-hover: oklch(0.514 0.222 16.935);
+
+    /*
+     * The avatar palette, and the reason it is tokens rather than classes.
+     *
+     * A disc carries white initials, so it has to stay dark enough to sit
+     * behind them — the opposite of what the accent 600 shades do in dark
+     * mode, where they are lifted to make link text readable. Pinning the
+     * six values here means the discs are identical in both appearances,
+     * which is also the only way the dark contrast cannot be worse than the
+     * light contrast it inherits.
+     *
+     * These are Tailwind's own 600 shades, copied deliberately: they are
+     * what the palette used before it needed a name.
+     */
+    --color-avatar-brand: oklch(0.55 0.208 263);
+    --color-avatar-emerald: oklch(59.6% 0.145 163.225);
+    --color-avatar-violet: oklch(54.1% 0.281 293.009);
+    --color-avatar-amber: oklch(66.6% 0.179 58.318);
+    --color-avatar-rose: oklch(58.6% 0.253 17.585);
+    --color-avatar-cyan: oklch(60.9% 0.126 221.723);
+}
+
+/*
+ * ======================================================================
+ * Dark appearance
+ * ======================================================================
+ *
+ * One block, and no `dark:` variant anywhere in the application's markup.
+ *
+ * Tailwind 4 compiles `bg-slate-100` to `background-color:
+ * var(--color-slate-100)` rather than to a literal colour. So redefining the
+ * neutral scale here re-themes every one of the four-hundred-odd places the
+ * product already uses it — no component is duplicated, no template gains a
+ * second set of classes, and a card added next week is themed before anybody
+ * thinks about it.
+ *
+ * The mapping is a mirror, and it works because this codebase happens to use
+ * the scale consistently. Measured across resources/views:
+ *
+ *   white … slate-300   surfaces and borders  (0 text uses below slate-300)
+ *   slate-400 … 900     text                  (0 background uses above 300)
+ *
+ * That clean split at 300/400 is what makes a single mapping possible: the
+ * light half becomes dark and the dark half becomes light, and almost nothing
+ * has to be reasoned about individually.
+ *
+ * Where a shade is used for both — `text-slate-300` as a separator dot,
+ * `bg-slate-800` in the sidebar — the minority use is handled by the semantic
+ * tokens above rather than by compromising the shade.
+ *
+ * The exceptions to the mirror are deliberate:
+ *
+ *   slate-500 is not moved much. It is the workhorse secondary text (156
+ *   uses) and #94A3B8 is already the right secondary on a dark ground.
+ *
+ *   Accent shades 300–500 are left alone. They are focus rings, chart marks
+ *   and status dots, where a vivid colour is correct on either ground.
+ *
+ *   Accent shades 50–200 (chip backgrounds and their borders) become dark
+ *   tints of the same hue, so a rose alert stays recognisably a rose alert
+ *   instead of becoming a white rectangle.
+ */
+html.dark {
+    /*
+     * Tells the browser to render what CSS cannot reach: scrollbars, the
+     * caret, spinner buttons, and — the one that matters most — the operating
+     * system's own <select> popup, which no stylesheet can colour.
+     */
+    color-scheme: dark;
+
+    /* Surfaces and borders: the light half of the scale, inverted. */
+    --color-surface: #1e293b;
+    --color-surface-raised: #243350;
+    --color-surface-sunken: #16202f;
+
+    --color-slate-50: #223046;
+    --color-slate-100: #0f172a;
+    --color-slate-200: #30415a;
+    --color-slate-300: #415571;
+
+    /* Text: the dark half of the scale, inverted. */
+    --color-slate-400: #8d9cb0;
+    --color-slate-500: #94a3b8;
+    --color-slate-600: #b8c4d4;
+    --color-slate-700: #d2dbe6;
+    --color-slate-800: #e5ebf2;
+    --color-slate-900: #f8fafc;
+    --color-slate-950: #ffffff;
+
+    /* Chrome that is dark in both appearances, only more so here. */
+    --color-sidebar: #0b1120;
+    --color-sidebar-border: #1b2438;
+    --color-sidebar-hover: #1b2438;
+    --color-sidebar-ink: #f8fafc;
+    --color-sidebar-ink-muted: #cbd5e1;
+    --color-sidebar-ink-dim: #94a3b8;
+    /*
+     * Lifted off the light value, not mirrored from it. #64748b is the
+     * secondary grey the spec suggests, and measured against the darker
+     * dark-mode sidebar it comes out at 3.96:1 — under AA for the 12px
+     * semibold section headings that use it. This clears 4.5.
+     */
+    --color-sidebar-ink-faint: #7c8aa3;
+
+    --color-scrim: #020617;
+
+    --color-code: #0b1120;
+    --color-code-ink: #e5ebf2;
+
+    /* Brand. 300–500 untouched: rings, chart fills and solid backgrounds. */
+    --color-brand-50: oklch(0.26 0.055 262);
+    --color-brand-100: oklch(0.31 0.07 262);
+    --color-brand-200: oklch(0.38 0.09 262);
+    --color-brand-600: oklch(0.74 0.135 258);
+    --color-brand-700: oklch(0.8 0.115 256);
+    --color-brand-800: oklch(0.86 0.085 255);
+    --color-brand-900: oklch(0.91 0.055 254);
+
+    /*
+     * The solid accents are deliberately absent here — they inherit the light
+     * values above and are the same colour in both appearances.
+     *
+     * The first attempt lifted them, on the theory that an accent should be
+     * brighter on a dark ground. Measured, that made white-on-brand worse:
+     * 5.09 in light against 4.46 lifted. A button is a shape with white text
+     * on it whatever the page behind it is doing, so it does not want a
+     * dark-mode value at all.
+     */
+
+    --color-emerald-50: oklch(0.26 0.048 163);
+    --color-emerald-100: oklch(0.31 0.062 163);
+    --color-emerald-200: oklch(0.38 0.08 163);
+    --color-emerald-600: oklch(0.76 0.135 163);
+    --color-emerald-700: oklch(0.82 0.11 163);
+    --color-emerald-800: oklch(0.87 0.085 164);
+
+    --color-rose-50: oklch(0.27 0.055 17);
+    --color-rose-100: oklch(0.32 0.072 17);
+    --color-rose-200: oklch(0.39 0.095 17);
+    --color-rose-600: oklch(0.75 0.145 17);
+    --color-rose-700: oklch(0.81 0.115 17);
+    --color-rose-800: oklch(0.87 0.085 17);
+    --color-rose-900: oklch(0.91 0.055 17);
+
+    --color-amber-50: oklch(0.27 0.048 75);
+    --color-amber-100: oklch(0.32 0.065 75);
+    --color-amber-200: oklch(0.39 0.085 75);
+    --color-amber-600: oklch(0.81 0.135 78);
+    --color-amber-700: oklch(0.86 0.11 80);
+    --color-amber-800: oklch(0.9 0.085 82);
+    --color-amber-900: oklch(0.93 0.06 85);
+
+    /*
+     * Violet and cyan are here for one reason: App\Enums\LabelColor offers
+     * them as board label colours, so a chip in either can appear anywhere a
+     * ticket does. Same treatment as the families above — 50/200 become dark
+     * tints, 600/700 lift for text — because a label chip is exactly the
+     * `bg-50 text-700 ring-200` pattern that would otherwise stay a pale
+     * rectangle on a dark card.
+     */
+    --color-violet-50: oklch(0.27 0.058 300);
+    --color-violet-200: oklch(0.39 0.095 300);
+    --color-violet-600: oklch(0.76 0.145 300);
+    --color-violet-700: oklch(0.82 0.115 300);
+
+    --color-cyan-50: oklch(0.26 0.045 220);
+    --color-cyan-200: oklch(0.38 0.075 220);
+    --color-cyan-600: oklch(0.78 0.115 215);
+    --color-cyan-700: oklch(0.84 0.095 215);
+
+    /*
+     * `sky` appears only in the syntax highlighting inside a code block, which
+     * is dark in both appearances — so 300 is left exactly as it is, and there
+     * is nothing to remap here. Noted rather than omitted silently, because
+     * the absence looks like an oversight next to the families above.
+     */
 }
 
 @layer base {
@@ -40,6 +303,44 @@
     [x-cloak] {
         display: none !important;
     }
+
+    /*
+     * The appearance change itself.
+     *
+     * Only the three properties that actually differ between the two
+     * appearances, and only on the elements that paint — a blanket
+     * `transition: all` on `*` would animate every layout property in the
+     * product and make each Livewire re-render visibly sludgy.
+     *
+     * 180ms is long enough to read as a deliberate change rather than a
+     * flicker, and short enough that a click still feels like a click.
+     *
+     * Scoped to `html.theme-switching`, a class resources/js/theme.js adds for
+     * the length of the transition. That is what keeps it to the one moment it
+     * is wanted: without it, every hover on every button in the product would
+     * inherit a 180ms colour fade, and the first paint of every page load
+     * would animate from the wrong colours to the right ones.
+     */
+    html.theme-switching,
+    html.theme-switching *,
+    html.theme-switching *::before,
+    html.theme-switching *::after {
+        transition:
+            background-color 180ms ease,
+            border-color 180ms ease,
+            color 180ms ease,
+            fill 180ms ease,
+            stroke 180ms ease !important;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        html.theme-switching,
+        html.theme-switching *,
+        html.theme-switching *::before,
+        html.theme-switching *::after {
+            transition: none !important;
+        }
+    }
 }
 
 @layer components {
@@ -48,7 +349,7 @@
      * components so every form control in the product focuses identically.
      */
     .field-control {
-        @apply block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900
+        @apply block w-full rounded-lg border border-slate-300 bg-surface px-3 py-2 text-sm text-slate-900
             shadow-xs transition placeholder:text-slate-400
             focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 focus:outline-none
             disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500;
@@ -162,11 +463,11 @@
     }
 
     .markdown pre {
-        @apply overflow-x-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100;
+        @apply overflow-x-auto rounded-lg bg-code p-3 text-xs text-code-ink;
     }
 
     .markdown pre code {
-        @apply bg-transparent p-0 text-slate-100;
+        @apply bg-transparent p-0 text-code-ink;
     }
 
     /*
@@ -214,7 +515,7 @@
     .markdown .hljs-attribute,
     .markdown .hljs-variable,
     .markdown .hljs-template-variable {
-        @apply text-cyan-200;
+        @apply text-cyan-300;
     }
 
     .markdown .hljs-type,

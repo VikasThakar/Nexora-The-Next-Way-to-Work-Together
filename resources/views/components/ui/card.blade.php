@@ -5,7 +5,7 @@
     'padded' => true,
 ])
 
-<section {{ $attributes->class('overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs') }}>
+<section {{ $attributes->class('overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs') }}>
     @if ($title || $description || $actions)
         <header class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
             <div class="min-w-0">

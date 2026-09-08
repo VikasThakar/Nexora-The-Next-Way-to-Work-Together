@@ -16,7 +16,7 @@
     ];
 @endphp
 
-<div {{ $attributes->class('rounded-xl border border-slate-200 bg-white px-4 py-3.5 shadow-xs') }}>
+<div {{ $attributes->class('rounded-xl border border-slate-200 bg-surface px-4 py-3.5 shadow-xs') }}>
     <p class="text-xs font-medium tracking-wide text-slate-500 uppercase">{{ $label }}</p>
     <p class="mt-1 text-2xl font-semibold tabular-nums {{ $tones[$tone] ?? $tones['default'] }}">{{ $value }}</p>
     @if ($hint)

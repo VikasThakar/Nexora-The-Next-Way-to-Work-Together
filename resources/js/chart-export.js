@@ -108,6 +108,33 @@ function serialise(svg) {
 }
 
 /**
+ * The colour of the nearest ancestor that actually paints something.
+ *
+ * Walks up rather than reading <body>, because a chart sits on a card and a
+ * card is not the same colour as the page behind it. Stops at the first
+ * non-transparent background and falls back to white, which is what an
+ * unstyled page is.
+ *
+ * @param {Element} node
+ * @returns {string}
+ */
+function surfaceBehind(node) {
+    let element = node.parentElement
+
+    while (element) {
+        const background = window.getComputedStyle(element).backgroundColor
+
+        if (background && background !== 'transparent' && !background.startsWith('rgba(0, 0, 0, 0')) {
+            return background
+        }
+
+        element = element.parentElement
+    }
+
+    return '#ffffff'
+}
+
+/**
  * Hand a blob to the browser as a download.
  *
  * The object URL is revoked on the next turn rather than immediately: Safari
@@ -193,10 +220,20 @@ function component() {
 
                 const context = canvas.getContext('2d')
 
-                // Charts are drawn for a white page; without this the PNG has
-                // a transparent background and every line vanishes in a dark
-                // image viewer.
-                context.fillStyle = '#ffffff'
+                /*
+                 * A PNG has to carry its own background: without one it is
+                 * transparent, and every line in it vanishes against whatever
+                 * the image viewer happens to use.
+                 *
+                 * Which colour is not a constant, because the chart is not.
+                 * Its labels are `fill: var(--color-slate-500)`, resolved
+                 * above from the live page — so in the dark appearance they
+                 * are pale, and painting them onto white would export a
+                 * chart nobody can read. Asking the card behind the chart
+                 * what colour it is keeps the two in step, whatever the
+                 * appearance and whatever a future palette does to it.
+                 */
+                context.fillStyle = surfaceBehind(svg)
                 context.fillRect(0, 0, canvas.width, canvas.height)
                 context.drawImage(image, 0, 0, canvas.width, canvas.height)
 

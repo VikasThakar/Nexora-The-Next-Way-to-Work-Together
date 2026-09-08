@@ -166,7 +166,7 @@
                     @endphp
 
                     <li wire:key="event-{{ $event->id }}" class="relative">
-                        <span class="absolute -left-[26px] top-1 flex size-3 items-center justify-center rounded-full bg-white ring-2 ring-slate-300"></span>
+                        <span class="absolute -left-[26px] top-1 flex size-3 items-center justify-center rounded-full bg-surface ring-2 ring-slate-300"></span>
 
                         <div class="flex flex-wrap items-baseline gap-x-1.5 text-sm">
                             <span class="font-medium text-slate-900">{{ $actorFor($event) }}</span>

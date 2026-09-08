@@ -75,7 +75,7 @@
     })"
     wire:ignore
     @class([
-        'overflow-hidden rounded-lg border bg-white shadow-xs transition',
+        'overflow-hidden rounded-lg border bg-surface shadow-xs transition',
         'border-slate-300 focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-500/20' => ! $invalid,
         'border-rose-400 focus-within:ring-2 focus-within:ring-rose-500/20' => $invalid,
     ])

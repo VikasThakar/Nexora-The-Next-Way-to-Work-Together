@@ -8,6 +8,9 @@
 
     <title>{{ isset($title) ? $title.' · '.config('workspace.short_name') : config('workspace.name') }}</title>
 
+    {{-- The appearance, before anything paints — see the app layout. --}}
+    <x-app.theme-boot :preference="auth()->user()?->theme_preference" />
+
     <x-app.favicons />
 
     <link rel="preconnect" href="https://fonts.bunny.net">
@@ -15,7 +18,7 @@
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="h-full bg-slate-950">
+<body class="h-full bg-scrim">
     <div class="flex min-h-full flex-col justify-center px-4 py-12 sm:px-6">
         <div class="mx-auto w-full max-w-md">
             <div class="mb-8 flex items-center justify-center gap-3">
@@ -23,7 +26,7 @@
                 <span class="text-lg font-semibold text-white">{{ config('workspace.name') }}</span>
             </div>
 
-            <div class="rounded-2xl border border-slate-800 bg-white p-8 shadow-2xl">
+            <div class="rounded-2xl border border-sidebar-border bg-surface p-8 shadow-2xl">
                 <x-ui.flash />
 
                 {{ $slot }}

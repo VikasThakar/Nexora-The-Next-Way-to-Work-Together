@@ -69,7 +69,7 @@
         @foreach ($messages as $message)
             <div wire:key="chat-{{ $message->id }}" @class([
                 'rounded-xl border p-4',
-                'border-slate-200 bg-white' => ! $message->role->isAssistant(),
+                'border-slate-200 bg-surface' => ! $message->role->isAssistant(),
                 'border-brand-200 bg-brand-50/40' => $message->role->isAssistant(),
             ])>
                 <div class="mb-2 flex items-center gap-2 text-xs">

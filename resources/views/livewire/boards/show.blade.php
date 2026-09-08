@@ -55,7 +55,7 @@
     </x-ui.page-header>
 
     {{-- Filter bar --}}
-    <div class="mb-5 rounded-xl border border-slate-200 bg-white p-3">
+    <div class="mb-5 rounded-xl border border-slate-200 bg-surface p-3">
         <div class="flex flex-wrap items-center gap-3">
             <div class="min-w-56 flex-1">
                 <x-ui.input
@@ -77,7 +77,7 @@
             <x-ui.button type="button" variant="secondary" size="md" wire:click="toggleFilters">
                 More filters
                 @if ($filters->activeCount() > 0)
-                    <span class="ml-1 rounded-full bg-brand-600 px-1.5 text-[10px] text-white">
+                    <span class="ml-1 rounded-full bg-brand-solid px-1.5 text-[10px] text-white">
                         {{ $filters->activeCount() }}
                     </span>
                 @endif
@@ -170,11 +170,11 @@
 
                 <section
                     wire:key="column-{{ $column->id }}"
-                    class="flex w-80 shrink-0 flex-col rounded-xl bg-slate-200/70"
+                    class="flex w-80 shrink-0 flex-col rounded-xl bg-surface-sunken"
                 >
                     <header class="flex items-center gap-2 px-3 py-2.5">
                         <h2 class="text-sm font-semibold text-slate-700">{{ $column->name }}</h2>
-                        <span class="rounded-full bg-white/80 px-2 py-px text-xs font-medium text-slate-500">
+                        <span class="rounded-full bg-surface/80 px-2 py-px text-xs font-medium text-slate-500">
                             {{ $columnTickets->count() }}
                         </span>
 
@@ -189,7 +189,7 @@
                         @if ($canCreateTickets)
                             <button type="button"
                                     wire:click="startQuickAdd({{ $column->id }})"
-                                    class="ml-auto rounded p-1 text-slate-500 transition hover:bg-white/70 hover:text-slate-900"
+                                    class="ml-auto rounded p-1 text-slate-500 transition hover:bg-surface/70 hover:text-slate-900"
                                     aria-label="Add a ticket to {{ $column->name }}">
                                 <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -241,7 +241,7 @@
                     @if ($canCreateTickets)
                         <div class="px-2 pb-2">
                             @if ($quickAddColumnId === $column->id)
-                                <form wire:submit="quickAdd" class="rounded-lg border border-brand-300 bg-white p-2 shadow-sm">
+                                <form wire:submit="quickAdd" class="rounded-lg border border-brand-300 bg-surface p-2 shadow-sm">
                                     {{--
                                         Enter creates the ticket; Shift-Enter is
                                         left alone so a title can wrap. This is
@@ -348,7 +348,7 @@
                             @else
                                 <button type="button"
                                         wire:click="startQuickAdd({{ $column->id }})"
-                                        class="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-500 transition hover:bg-white/70 hover:text-slate-800">
+                                        class="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-500 transition hover:bg-surface/70 hover:text-slate-800">
                                     + Add a ticket
                                 </button>
                             @endif

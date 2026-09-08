@@ -9,7 +9,7 @@
      * can trigger it.
      *
      * The styling is not new. It reuses the existing card shell
-     * (rounded-xl / border-slate-200 / bg-white), the existing icon treatment
+     * (rounded-xl / border-slate-200 / bg-surface), the existing icon treatment
      * from x-ui.empty-state (a size-12 tinted circle holding a 1.5-stroke
      * heroicon), the existing badge colour families, and x-ui.button itself for
      * the actions — so the button in a dialog is literally the same component
@@ -79,7 +79,7 @@
         x-transition:leave="ease-in duration-150"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
-        class="fixed inset-0 bg-slate-900/50"
+        class="fixed inset-0 bg-scrim/50"
         aria-hidden="true"
     ></div>
 
@@ -108,7 +108,7 @@
             aria-modal="true"
             :aria-labelledby="$store.dialog.config.title ? 'dialog-title' : null"
             :aria-describedby="$store.dialog.config.body ? 'dialog-body' : null"
-            class="relative w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+            class="relative w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-surface-raised shadow-xl"
         >
             <div class="px-5 pt-5 pb-4 sm:flex sm:items-start sm:gap-4">
                 {{-- Icon. One circle, swapped by type; same shape as x-ui.empty-state. --}}

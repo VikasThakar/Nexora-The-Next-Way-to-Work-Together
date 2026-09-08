@@ -50,6 +50,15 @@ import './doc-tree'
 import './palette'
 
 /*
+ * Which appearance the application is wearing — light, dark, or whatever the
+ * device says. A store, because the control is at the foot of the sidebar and
+ * the element it changes is <html>, with every page in between replaced by
+ * wire:navigate. The appearance itself is applied before this bundle loads, by
+ * the inline script in the layout head; see ./theme.
+ */
+import './theme'
+
+/*
  * Chart export. Turns an inline SVG chart into a downloadable SVG or PNG in
  * the browser; the CSV behind a chart comes from the server instead, so it is
  * re-derived under the viewer's own scope — see ./chart-export.

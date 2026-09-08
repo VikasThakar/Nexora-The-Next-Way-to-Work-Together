@@ -16,8 +16,23 @@
         'lg' => 'size-12 text-sm',
     ];
 
-    // Deterministic hue per name so the same person keeps the same colour.
-    $palette = ['bg-brand-600', 'bg-emerald-600', 'bg-violet-600', 'bg-amber-600', 'bg-rose-600', 'bg-cyan-600'];
+    /*
+     * Deterministic hue per name so the same person keeps the same colour.
+     *
+     * Tokens rather than palette classes, and that is the one exception to the
+     * remap in resources/css/app.css: the accent 600 shades are lifted for
+     * dark mode, because that is what `text-brand-600` resolves to in link
+     * text. A disc carrying white initials needs the opposite of a lift, so
+     * these six are pinned and identical in both appearances.
+     */
+    $palette = [
+        'bg-avatar-brand',
+        'bg-avatar-emerald',
+        'bg-avatar-violet',
+        'bg-avatar-amber',
+        'bg-avatar-rose',
+        'bg-avatar-cyan',
+    ];
     $colour = $palette[crc32($name) % count($palette)];
 @endphp
 

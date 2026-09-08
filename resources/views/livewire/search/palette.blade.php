@@ -25,13 +25,13 @@
 >
     <div
         x-on:click="$store.palette.hide()"
-        class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+        class="absolute inset-0 bg-scrim/40 backdrop-blur-sm"
         aria-hidden="true"
     ></div>
 
     <div
         x-transition.origin.top
-        class="relative flex max-h-[min(32rem,calc(100dvh-8rem))] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+        class="relative flex max-h-[min(32rem,calc(100dvh-8rem))] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-surface-raised shadow-2xl"
     >
         {{-- ------------------------------------------------------------- --}}
         {{-- The box                                                        --}}
@@ -175,16 +175,16 @@
         {{-- ------------------------------------------------------------- --}}
         <div class="hidden shrink-0 items-center gap-3 border-t border-slate-100 bg-slate-50 px-3 py-2 text-[11px] text-slate-500 sm:flex">
             <span class="flex items-center gap-1">
-                <kbd class="rounded border border-slate-300 bg-white px-1 font-sans">&uarr;</kbd>
-                <kbd class="rounded border border-slate-300 bg-white px-1 font-sans">&darr;</kbd>
+                <kbd class="rounded border border-slate-300 bg-surface px-1 font-sans">&uarr;</kbd>
+                <kbd class="rounded border border-slate-300 bg-surface px-1 font-sans">&darr;</kbd>
                 to move
             </span>
             <span class="flex items-center gap-1">
-                <kbd class="rounded border border-slate-300 bg-white px-1 font-sans">Enter</kbd>
+                <kbd class="rounded border border-slate-300 bg-surface px-1 font-sans">Enter</kbd>
                 to open
             </span>
             <span class="flex items-center gap-1">
-                <kbd class="rounded border border-slate-300 bg-white px-1 font-sans">Esc</kbd>
+                <kbd class="rounded border border-slate-300 bg-surface px-1 font-sans">Esc</kbd>
                 to close
             </span>
         </div>
