@@ -4,16 +4,17 @@
         :description="$isStaff
             ? 'Tickets are internal unless you mark them customer-visible.'
             : 'Your request goes straight to the delivery team and stays visible to you.'"
-    >
-        <x-slot:breadcrumb>
-            <a href="{{ route('boards.show', $board) }}" wire:navigate class="hover:text-slate-700">{{ $board->name }}</a>
-        </x-slot:breadcrumb>
-    </x-ui.page-header>
+        :trail="\App\Support\Breadcrumbs::newTicket($board)"
+    />
 
     <form wire:submit="save" class="grid max-w-5xl gap-6 lg:grid-cols-3">
         <div class="space-y-6 lg:col-span-2">
             <x-ui.card title="What needs doing?">
                 <x-slot:actions>
+                    <x-ui.button type="button" variant="ghost" size="sm" wire:click="toggleMarkdownMode">
+                        {{ $markdownMode ? 'Rich text' : 'Markdown' }}
+                    </x-ui.button>
+
                     <x-ui.button type="button" variant="ghost" size="sm" wire:click="togglePreview">
                         {{ $previewing ? 'Write' : 'Preview' }}
                     </x-ui.button>
@@ -24,11 +25,15 @@
                         <x-ui.input id="new-title" wire:model="title" autofocus :invalid="$errors->has('title')" />
                     </x-ui.field>
 
+                    {{-- `for` only in Markdown mode; see the ticket screen for
+                         why pointing a label at the rich surface is wrong. --}}
                     <x-ui.field
                         label="Description"
-                        for="new-description"
+                        :for="$markdownMode ? 'new-description' : null"
                         :error="$errors->first('descriptionMd')"
-                        hint="Markdown is supported. Raw HTML is stripped."
+                        :hint="$markdownMode
+                            ? 'Markdown source. Raw HTML is stripped.'
+                            : 'Files can be attached once the ticket exists — save first, then drop them into the description.'"
                     >
                         @if ($previewing)
                             <div class="markdown min-h-40 rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -36,10 +41,29 @@
                                      and unsafe link schemes. --}}
                                 {!! $previewHtml ?: '<p class="text-slate-400">Nothing to preview.</p>' !!}
                             </div>
-                        @else
+                        @elseif ($markdownMode)
                             <x-ui.textarea id="new-description" rows="12" class="font-mono text-xs"
                                            wire:model="descriptionMd"
                                            :invalid="$errors->has('descriptionMd')">{{ $descriptionMd }}</x-ui.textarea>
+                        @else
+                            {{--
+                                No uploader here, and that is a constraint
+                                rather than an omission: an attachment row needs
+                                an attachable_id, and there is no ticket to
+                                point one at until this form is saved.
+                                AttachmentPolicy resolves owners from an
+                                explicit allow-list, so there is no board-level
+                                or draft owner to borrow — inventing one would
+                                mean a new database concept for files in limbo.
+                                The editor on the saved ticket does support it.
+                            --}}
+                            <div wire:key="rich-new-ticket">
+                                <x-ui.rich-editor
+                                    property="descriptionHtml"
+                                    :html="$editorHtml"
+                                    :invalid="$errors->has('descriptionMd')"
+                                />
+                            </div>
                         @endif
                     </x-ui.field>
                 </div>
@@ -49,6 +73,14 @@
         <div class="space-y-6">
             <x-ui.card title="Details">
                 <div class="space-y-4">
+                    <x-ui.field label="Type" for="new-type" :error="$errors->first('type')" required>
+                        <x-ui.select id="new-type" wire:model="type">
+                            @foreach ($typeOptions as $option)
+                                <option value="{{ $option->value }}">{{ $option->label() }}</option>
+                            @endforeach
+                        </x-ui.select>
+                    </x-ui.field>
+
                     <x-ui.field label="Priority" for="new-priority" :error="$errors->first('priority')" required>
                         <x-ui.select id="new-priority" wire:model="priority">
                             @foreach ($priorityOptions as $option)

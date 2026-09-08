@@ -2,13 +2,8 @@
     <x-ui.page-header
         title="Board configuration"
         description="Columns and labels for this board. Changes apply to everyone who works on it."
+        :trail="\App\Support\Breadcrumbs::boardChild($board, 'Board configuration')"
     >
-        <x-slot:breadcrumb>
-            <a href="{{ route('boards.index') }}" wire:navigate class="hover:text-slate-700">Boards</a>
-            <span class="mx-1">/</span>
-            <a href="{{ route('boards.show', $board) }}" wire:navigate class="hover:text-slate-700">{{ $board->name }}</a>
-        </x-slot:breadcrumb>
-
         <x-slot:actions>
             <x-ui.button :href="route('boards.show', $board)" variant="secondary">Back to board</x-ui.button>
 

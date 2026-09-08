@@ -31,6 +31,27 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 class DocPageFinder
 {
     /**
+     * The columns the sidebar tree actually renders.
+     *
+     * `doc_pages.body_md` is a LONGTEXT holding a whole document, and the tree
+     * shows none of it — so selecting it would drag every page's full text
+     * into memory on every render of the documentation screen, for a list of
+     * titles. Search still filters on the column in the WHERE clause, which
+     * reads it in the database and returns none of it.
+     *
+     * @var list<string>
+     */
+    private const TREE_COLUMNS = [
+        'doc_pages.id',
+        'doc_pages.board_id',
+        'doc_pages.parent_id',
+        'doc_pages.title',
+        'doc_pages.slug',
+        'doc_pages.customer_visible',
+        'doc_pages.position',
+    ];
+
+    /**
      * Base query: pages on this board that this viewer may read.
      *
      * Ancestry is NOT applied here — it cannot be expressed as a single scope
@@ -61,6 +82,7 @@ class DocPageFinder
 
         $pages = $this->query($board, $viewer)
             ->when($searching, fn (Builder $query) => $query->search($search))
+            ->select(self::TREE_COLUMNS)
             ->ordered()
             ->get();
 
@@ -71,9 +93,14 @@ class DocPageFinder
         // When searching, the matches may not form a connected tree, so they
         // are listed flat rather than silently hidden under a parent that did
         // not match. Ancestry still decided which pages could be fetched.
+        //
+        // Only the ancestor walk is repeated here, not isVisible(): every page
+        // in $pages came back through the visibility scope already, so asking
+        // the database again whether it is reachable would be one wasted query
+        // per search result.
         if ($searching) {
             return $pages
-                ->filter(fn (DocPage $page): bool => $this->isVisible($page, $viewer))
+                ->filter(fn (DocPage $page): bool => $this->ancestorsAreVisible($page, $viewer))
                 ->map(fn (DocPage $page): object => (object) [
                     'page' => $page,
                     'children' => collect(),
@@ -86,6 +113,41 @@ class DocPageFinder
         $byParent = $pages->groupBy(fn (DocPage $page): string => (string) ($page->parent_id ?? ''));
 
         return $this->build($byParent, null, $visibleIds, 0);
+    }
+
+    /**
+     * Pages matching a term across every board this viewer can reach.
+     *
+     * For the command palette, and routed through here rather than through a
+     * scope of its own for the reason this whole class exists: a page is
+     * readable only when every one of its ancestors is, and a search that
+     * queried `DocPage::visibleTo()` directly would happily return the title of
+     * a page published beneath an internal parent.
+     *
+     * Over-fetched before the ancestor filter, so a customer whose first
+     * matches happen to sit under internal parents still gets a full list
+     * rather than a short one. The walk itself is free for staff, who
+     * short-circuit.
+     *
+     * @return Collection<int, DocPage>
+     */
+    public function searchAcrossBoards(?Authenticatable $viewer, string $term, int $limit = 5): Collection
+    {
+        if (trim($term) === '' || $limit < 1) {
+            return collect();
+        }
+
+        return DocPage::query()
+            ->visibleTo($viewer)
+            ->search($term)
+            ->select(self::TREE_COLUMNS)
+            ->with('board:id,name,slug')
+            ->orderBy('doc_pages.title')
+            ->limit($limit * 4)
+            ->get()
+            ->filter(fn (DocPage $page): bool => $this->ancestorsAreVisible($page, $viewer))
+            ->take($limit)
+            ->values();
     }
 
     /**

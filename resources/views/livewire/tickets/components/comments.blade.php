@@ -7,19 +7,22 @@
 {{--
     The two conversations.
 
-    The internal panel is deliberately unlike the customer one: amber frame,
-    amber body, a lock on the tab and a banner above the composer. The visual
-    difference is the reminder; the guarantee is on the server, and in the fact
-    that each tab writes to its own draft property.
+    The internal panel is deliberately unlike the customer one: a slate body
+    rather than white, a lock on the tab, and a notice above the composer. It
+    used to be amber throughout, which read as a permanent warning and took over
+    the page; the lock and the wording now carry the meaning, so the panel can be
+    quiet without being ambiguous. The visual difference is only the reminder —
+    the guarantee is on the server, and in the fact that each tab writes to its
+    own draft property.
 --}}
 <section @class([
     'overflow-hidden rounded-xl border shadow-xs',
-    'border-amber-300 bg-amber-50/40' => $internal,
+    'border-slate-300 bg-slate-50' => $internal,
     'border-slate-200 bg-white' => ! $internal,
 ])>
     <header @class([
         'flex flex-wrap items-center gap-1 border-b px-3 pt-3',
-        'border-amber-200' => $internal,
+        'border-slate-300' => $internal,
         'border-slate-200' => ! $internal,
     ])>
         @if ($canPostToCustomer || ! $internal)
@@ -46,7 +49,7 @@
                 wire:click="switchStream('{{ CommentStream::Internal->value }}')"
                 @class([
                     '-mb-px flex items-center gap-2 rounded-t-lg border border-b-0 px-3 py-2 text-sm font-medium transition',
-                    'border-amber-300 bg-amber-50 text-amber-900' => $internal,
+                    'border-slate-300 bg-slate-50 text-slate-900' => $internal,
                     'border-transparent text-slate-500 hover:text-slate-800' => ! $internal,
                 ])
             >
@@ -54,23 +57,17 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
                 </svg>
                 {{ CommentStream::Internal->label() }}
-                <span class="rounded-full bg-amber-200/70 px-1.5 text-[10px] text-amber-900">{{ $internalCount }}</span>
+                <span class="rounded-full bg-slate-200 px-1.5 text-[10px] text-slate-700">{{ $internalCount }}</span>
             </button>
         @endif
     </header>
 
     <div class="px-5 py-5">
         @if ($internal)
-            <p class="mb-4 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-100/60 px-3 py-2 text-xs text-amber-900">
-                <svg class="mt-px size-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-                </svg>
-                <span>
-                    <strong>Internal only.</strong>
-                    Customers on this board never receive these notes &mdash; not in the ticket, not in
-                    search, not in notifications, not in a link.
-                </span>
-            </p>
+            <x-ui.internal-notice class="mb-4">
+                Customers on this board never receive these notes &mdash; not in the ticket, not in
+                search, not in notifications, not in a link.
+            </x-ui.internal-notice>
         @endif
 
         {{-- ------------------------------------------------------------- --}}
@@ -90,7 +87,10 @@
 
                         <div @class([
                             'min-w-0 flex-1 rounded-lg border px-3 py-2.5',
-                            'border-amber-200 bg-amber-50' => $comment->isInternal(),
+                            // Inverted against the panel behind it: the internal
+                            // panel is slate, so its notes are white to lift off
+                            // it. A slate card on a slate panel would vanish.
+                            'border-slate-200 bg-white' => $comment->isInternal(),
                             'border-slate-200 bg-slate-50' => ! $comment->isInternal(),
                         ])>
                             <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -117,7 +117,7 @@
                                 @endif
 
                                 @if ($comment->isInternal())
-                                    <x-ui.badge variant="amber" class="ml-auto">Internal</x-ui.badge>
+                                    <x-ui.internal-badge class="ml-auto" />
                                 @endif
                             </div>
 
@@ -192,13 +192,13 @@
         @if (($internal && $canPostToInternal) || (! $internal && $canPostToCustomer))
             <form wire:submit="post" @class([
                 'mt-5 rounded-lg border p-3',
-                'border-amber-300 bg-amber-50' => $internal,
+                'border-slate-300 bg-white' => $internal,
                 'border-slate-200 bg-white' => ! $internal,
             ])>
                 <div class="mb-2 flex items-center justify-between gap-2">
                     <p @class([
                         'text-xs font-medium',
-                        'text-amber-900' => $internal,
+                        'text-slate-700' => $internal,
                         'text-slate-600' => ! $internal,
                     ])>
                         {{ $internal
@@ -237,8 +237,7 @@
                 @enderror
 
                 <div class="mt-2 flex flex-wrap items-center gap-3">
-                    <x-ui.button type="submit" :variant="$internal ? 'secondary' : 'primary'" size="sm"
-                                 @class(['border-amber-400 text-amber-900' => $internal])>
+                    <x-ui.button type="submit" :variant="$internal ? 'secondary' : 'primary'" size="sm">
                         {{ $internal ? 'Post internal note' : 'Send to customer' }}
                     </x-ui.button>
 

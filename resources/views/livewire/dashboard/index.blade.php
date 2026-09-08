@@ -10,6 +10,7 @@
             $user->isTeam() => 'These are the boards you have been added to.',
             default => 'These are the boards your team has shared with you.',
         }"
+        :trail="\App\Support\Breadcrumbs::root()"
     >
         @if ($canCreateBoards)
             <x-slot:actions>

@@ -18,16 +18,26 @@ use App\Services\ActivityLogger;
  *
  * A rename therefore never changes the URL. Somebody who pasted a link to a
  * page in a ticket last month still lands on it.
+ *
+ * Called by a person through App\Livewire\Docs\Show — including from its
+ * autosave, which is why the dirty check below is load-bearing rather than
+ * merely tidy: it is what keeps an editor left open on screen from writing a
+ * row and a feed entry every few seconds.
  */
 class UpdatePage
 {
-    public function __construct(private readonly ActivityLogger $activity) {}
+    public function __construct(
+        private readonly ActivityLogger $activity,
+        private readonly SaveDraft $drafts,
+    ) {}
 
     /**
      * @param  array{title?: string, body_md?: ?string}  $attributes
      */
     public function handle(DocPage $page, array $attributes, User $actor): DocPage
     {
+        $previousTitle = (string) $page->title;
+
         if (array_key_exists('title', $attributes)) {
             $title = trim((string) $attributes['title']);
 
@@ -42,12 +52,44 @@ class UpdatePage
             $page->body_md = trim($body) === '' ? null : $body;
         }
 
-        // Inside the existing dirty check, so opening a page and saving it
-        // unchanged does not put an edit in the feed.
-        if ($page->isDirty()) {
-            $page->updated_by_id = $actor->getKey();
-            $page->save();
+        // Opening a page and saving it unchanged writes nothing and puts no
+        // edit in the feed. The autosave relies on this: it fires on a timer,
+        // so most of the calls that reach here have nothing to do.
+        if (! $page->isDirty()) {
+            return $page;
+        }
 
+        $renamed = $page->isDirty('title');
+        $rewritten = $page->isDirty('body_md');
+
+        $page->updated_by_id = $actor->getKey();
+        $page->save();
+
+        /*
+         * A committed change supersedes whatever the editor's autosave was
+         * holding. Done here rather than at the Save button so it is also true
+         * of the workspace AI's page edits (App\Actions\AI\ExecuteChatAction):
+         * once the document has moved on, a draft written against the old text
+         * is not recovery material, it is a way to undo somebody else's work
+         * by accident.
+         */
+        $this->drafts->discard($page);
+
+        /*
+         * A rename and a rewrite are two facts, and one save can carry both.
+         * They are recorded as two entries rather than one, because "when did
+         * this stop being called X" and "when was this rewritten" are
+         * different questions asked of the same feed, and a single line can
+         * only answer one of them.
+         *
+         * Both are coalesced per person per page inside ActivityLogger, so a
+         * long autosaved editing session is one entry of each and not fifty.
+         */
+        if ($renamed) {
+            $this->activity->pageRenamed($page, $previousTitle, $actor);
+        }
+
+        if ($rewritten) {
             $this->activity->pageUpdated($page, $actor);
         }
 

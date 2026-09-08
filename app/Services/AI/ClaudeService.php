@@ -8,8 +8,14 @@ use Anthropic\Client;
 use Anthropic\Core\Exceptions\APIConnectionException;
 use Anthropic\Core\Exceptions\APIStatusException;
 use Anthropic\Core\Exceptions\APITimeoutException;
+use Anthropic\Messages\InputJSONDelta;
 use Anthropic\Messages\Message;
+use Anthropic\Messages\RawContentBlockDeltaEvent;
+use Anthropic\Messages\RawContentBlockStartEvent;
+use Anthropic\Messages\RawMessageDeltaEvent;
+use Anthropic\Messages\RawMessageStartEvent;
 use Anthropic\Messages\TextBlock;
+use Anthropic\Messages\TextDelta;
 use Anthropic\Messages\Tool;
 use Anthropic\Messages\ToolUseBlock;
 use App\Services\AI\Data\AiCompletion;
@@ -97,6 +103,167 @@ class ClaudeService implements AiProviderInterface
         }
 
         return $this->toCompletion($message);
+    }
+
+    /**
+     * The same request, read as it arrives.
+     *
+     * The SDK returns a plain iterator of server-sent events with no
+     * accumulator of its own, so the message is reassembled here from the
+     * events and handed to the same toCompletion()-shaped interpretation as a
+     * blocking call. That keeps one definition of "what a completion is": tool
+     * calls, usage, refusals and empty answers all behave identically whether
+     * the caller streamed or not.
+     *
+     * `$onText` is called with every prose fragment, and with an empty string on
+     * every other event. The empty calls are what keep the connection warm: the
+     * event union this SDK exposes has no `ping` variant, so during a long
+     * thinking phase the only traffic available is the events we do get, and a
+     * caller that is writing to an HTTP response needs to flush *something*
+     * before nginx's read timeout. See the note in AiProviderInterface.
+     */
+    public function completeStreamed(AiPrompt $prompt, callable $onText): AiCompletion
+    {
+        if (! $this->isConfigured()) {
+            throw AiProviderException::notConfigured();
+        }
+
+        $text = '';
+        $toolCalls = [];
+        $partialToolJson = [];
+        $toolNames = [];
+        $toolIds = [];
+
+        $model = $prompt->model;
+        $responseId = null;
+        $inputTokens = null;
+        $outputTokens = null;
+        $stopReason = null;
+        $refusalCategory = null;
+
+        $stream = null;
+
+        try {
+            $stream = $this->client()->messages->createStream(
+                maxTokens: $prompt->maxOutputTokens,
+                messages: $this->messages($prompt),
+                model: $prompt->model,
+                outputConfig: $this->outputConfig($prompt),
+                system: $prompt->system,
+                thinking: ['type' => 'adaptive'],
+                tools: $this->tools($prompt),
+            );
+
+            foreach ($stream as $event) {
+                if ($event instanceof RawMessageStartEvent) {
+                    $model = $event->message->model;
+                    $responseId = $event->message->id;
+                    $inputTokens = $event->message->usage->inputTokens;
+
+                    $onText('');
+
+                    continue;
+                }
+
+                if ($event instanceof RawContentBlockStartEvent) {
+                    // A tool block announces its name and id up front; its
+                    // arguments arrive afterwards as JSON fragments.
+                    if ($event->contentBlock instanceof ToolUseBlock) {
+                        $toolNames[$event->index] = $event->contentBlock->name;
+                        $toolIds[$event->index] = $event->contentBlock->id;
+                        $partialToolJson[$event->index] = '';
+                    }
+
+                    $onText('');
+
+                    continue;
+                }
+
+                if ($event instanceof RawContentBlockDeltaEvent) {
+                    if ($event->delta instanceof TextDelta) {
+                        $text .= $event->delta->text;
+
+                        $onText($event->delta->text);
+
+                        continue;
+                    }
+
+                    if ($event->delta instanceof InputJSONDelta) {
+                        $partialToolJson[$event->index] =
+                            ($partialToolJson[$event->index] ?? '').$event->delta->partialJSON;
+                    }
+
+                    // Thinking and signature deltas reach here too. They are
+                    // not shown — the product stores conclusions, not reasoning
+                    // traces — but they still count as a sign of life.
+                    $onText('');
+
+                    continue;
+                }
+
+                if ($event instanceof RawMessageDeltaEvent) {
+                    $stopReason = $event->delta->stopReason;
+                    $refusalCategory = $event->delta->stopDetails?->category;
+                    $outputTokens = $event->usage->outputTokens;
+
+                    $onText('');
+
+                    continue;
+                }
+
+                $onText('');
+            }
+        } catch (APITimeoutException) {
+            throw AiProviderException::timedOut();
+        } catch (APIConnectionException $exception) {
+            throw AiProviderException::transport($exception->getMessage());
+        } catch (APIStatusException $exception) {
+            throw $this->translate($exception);
+        } catch (AiProviderException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            throw AiProviderException::transport($exception->getMessage());
+        } finally {
+            // A caller that aborts mid-iteration must not leave the socket open
+            // for the rest of the request.
+            $stream?->close();
+        }
+
+        foreach ($partialToolJson as $index => $json) {
+            $input = json_decode($json === '' ? '{}' : $json, true);
+
+            $toolCalls[] = new AiToolCall(
+                name: $toolNames[$index] ?? '',
+                input: is_array($input) ? $input : [],
+                id: $toolIds[$index] ?? '',
+            );
+        }
+
+        $completion = new AiCompletion(
+            text: trim($text),
+            inputTokens: $inputTokens,
+            outputTokens: $outputTokens,
+            model: $model,
+            stopReason: $stopReason,
+            toolCalls: $toolCalls,
+            metadata: [
+                'provider' => $this->name(),
+                'response_id' => $responseId,
+                'streamed' => true,
+            ],
+        );
+
+        // Identical handling to the blocking path, deliberately: a refusal is
+        // an answer but not a result, and an empty answer is a fault.
+        if ($completion->wasRefused()) {
+            throw AiProviderException::refused($refusalCategory);
+        }
+
+        if (! $completion->hasText() && $completion->toolCalls === []) {
+            throw AiProviderException::emptyResponse();
+        }
+
+        return $completion;
     }
 
     // -----------------------------------------------------------------

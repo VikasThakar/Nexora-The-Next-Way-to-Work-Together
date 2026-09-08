@@ -2,6 +2,7 @@
     <x-ui.page-header
         title="Activity"
         description="Important changes and actions across every board you can see. Ticket movement, assignments, documentation and board settings, newest first."
+        :trail="\App\Support\Breadcrumbs::underDashboard('Activity')"
     >
         <x-slot:actions>
             <x-ui.button :href="route('stats')" variant="secondary">Statistics</x-ui.button>

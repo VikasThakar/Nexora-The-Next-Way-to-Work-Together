@@ -55,7 +55,7 @@ class AttachmentStorage
             'disk' => $disk,
             'path' => $path,
             'filename' => $this->safeFilename($file->getClientOriginalName()),
-            'mime_type' => $file->getClientMimeType(),
+            'mime_type' => $this->mimeType($file),
             'size' => $file->getSize() ?: 0,
             'uploaded_by_id' => $uploader?->getKey(),
         ]);
@@ -99,6 +99,37 @@ class AttachmentStorage
             $attachment->path,
             now()->addMinutes((int) config('attachments.url_ttl_minutes', 5))
         );
+    }
+
+    /**
+     * The type of an uploaded file, detected rather than declared.
+     *
+     * `getClientMimeType()` returns whatever the *browser* said, and for a
+     * Livewire upload it says `application/octet-stream` — the file has already
+     * been written to the temporary disk by the time this code sees it, so the
+     * original request header is long gone. Every attachment stored through the
+     * interface therefore had a useless type, which is why an uploaded PNG got
+     * the generic document icon in the attachments panel.
+     *
+     * `getMimeType()` reads the file instead. That is both more accurate and
+     * safer: a declared type is an assertion by whoever uploaded the file,
+     * where a detected one is a fact about its bytes. It is also consistent
+     * with the `mimes:` validation rule, which already guesses from content.
+     *
+     * Falls back to the declared type only if detection fails, and to the
+     * generic type if that is empty too, so a row always has something.
+     */
+    private function mimeType(UploadedFile $file): string
+    {
+        try {
+            $detected = $file->getMimeType();
+        } catch (\Throwable) {
+            // A disk that cannot be read back must not fail the upload here —
+            // the write above already succeeded.
+            $detected = null;
+        }
+
+        return $detected ?: ($file->getClientMimeType() ?: 'application/octet-stream');
     }
 
     /**

@@ -17,6 +17,7 @@
         :description="$scope->board
             ? 'A summary of the work on '.$scope->board->name.'.'
             : 'A summary of the work shared with you.'"
+        :trail="\App\Support\Breadcrumbs::underDashboard('Your tickets')"
     >
         @if ($isStaff)
             <x-slot:actions>

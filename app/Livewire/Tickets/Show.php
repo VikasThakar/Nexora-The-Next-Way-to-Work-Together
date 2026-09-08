@@ -8,14 +8,21 @@ use App\Actions\Tickets\DeleteTicket;
 use App\Actions\Tickets\MoveTicket;
 use App\Actions\Tickets\SyncTicketLabels;
 use App\Actions\Tickets\UpdateTicket;
+use App\Enums\TicketEventType;
 use App\Enums\TicketPriority;
+use App\Enums\TicketType;
+use App\Livewire\Concerns\EditsRichText;
 use App\Livewire\Concerns\ListensForBoardUpdates;
+use App\Models\Attachment;
 use App\Models\Board;
 use App\Models\BoardColumn;
 use App\Models\Ticket;
 use App\Services\BoardAccess;
 use App\Services\ContentRenderer;
+use App\Services\TicketActivity;
 use App\Services\TicketFinder;
+use App\Support\RichText\RichText;
+use App\Support\TaskList;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
@@ -38,6 +45,7 @@ use Livewire\Component;
 #[Layout('layouts.app')]
 class Show extends Component
 {
+    use EditsRichText;
     use ListensForBoardUpdates;
 
     public Board $board;
@@ -54,6 +62,8 @@ class Show extends Component
     public string $descriptionMd = '';
 
     // Sidebar fields, saved as they change
+    public string $type = '';
+
     public string $priority = '';
 
     public string $assigneeId = '';
@@ -86,13 +96,24 @@ class Show extends Component
      */
     protected function getListeners(): array
     {
-        return $this->boardUpdateListeners(isset($this->board) ? (int) $this->board->getKey() : null);
+        return $this->boardUpdateListeners(isset($this->board) ? (int) $this->board->getKey() : null) + [
+            /*
+             * The checklist panel moved its items into the description.
+             *
+             * A plain $refresh, like every other listener on this page: the
+             * description is re-read from the ticket rather than passed in the
+             * event, so nothing can be shown that a fresh render would not
+             * have produced.
+             */
+            'checklist-converted' => '$refresh',
+        ];
     }
 
     private function syncFromTicket(): void
     {
         $this->title = $this->ticket->title;
         $this->descriptionMd = (string) $this->ticket->description_md;
+        $this->type = $this->ticket->type->value;
         $this->priority = $this->ticket->priority->value;
         $this->assigneeId = (string) ($this->ticket->assignee_id ?? '');
         $this->estimate = $this->ticket->estimate === null ? '' : (string) $this->ticket->estimate;
@@ -111,6 +132,10 @@ class Show extends Component
 
         $this->editing = true;
         $this->previewing = false;
+
+        // A fresh editing session starts from the stored document, on the rich
+        // surface, with no leftover HTML from a previous one.
+        $this->descriptionHtml = '';
         $this->syncFromTicket();
     }
 
@@ -118,6 +143,7 @@ class Show extends Component
     {
         $this->editing = false;
         $this->previewing = false;
+        $this->descriptionHtml = '';
         $this->resetValidation();
         $this->syncFromTicket();
     }
@@ -127,9 +153,19 @@ class Show extends Component
         $this->previewing = ! $this->previewing;
     }
 
-    public function save(UpdateTicket $updateTicket): void
+    public function save(UpdateTicket $updateTicket, RichText $rich): void
     {
         $this->authorize('update', $this->ticket);
+
+        /*
+         * Converted before validation, not after.
+         *
+         * The length limit has to apply to what will actually be stored. The
+         * editor's HTML is several times longer than the Markdown it becomes,
+         * so validating the HTML would reject documents that fit comfortably,
+         * and validating nothing would let one past the column's limit.
+         */
+        $this->descriptionMd = $this->markdownFromEditor($rich, $this->ticket->description_md);
 
         $validated = $this->validate([
             'title' => ['required', 'string', 'max:200'],
@@ -144,13 +180,55 @@ class Show extends Component
         $this->ticket->refresh();
         $this->editing = false;
         $this->previewing = false;
+        $this->descriptionHtml = '';
 
         session()->flash('status', 'Ticket updated.');
+    }
+
+    /**
+     * Tick or untick a checklist item in the description.
+     *
+     * The client's request was checklists inside the description. CommonMark
+     * renders `- [ ]` as a *disabled* checkbox, so without this the boxes would
+     * be a picture of a checklist — you would have to open the editor and
+     * retype an x to complete a step.
+     *
+     * Authorized with manageSubtasks rather than update, so it follows exactly
+     * the rule the standalone checklist has always followed: a customer may
+     * tick items on a request they raised. The index is resolved against the
+     * stored text server-side by App\Support\TaskList, so a tampered one ticks
+     * a different box on a ticket this person can already edit, or nothing.
+     */
+    public function toggleDescriptionTask(int $index, UpdateTicket $updateTicket, TaskList $tasks): void
+    {
+        $this->authorize('manageSubtasks', $this->ticket);
+
+        $updated = $tasks->toggle($this->ticket->description_md, $index);
+
+        if ($updated === (string) $this->ticket->description_md) {
+            return;
+        }
+
+        $updateTicket->handle($this->ticket, ['description_md' => $updated], auth()->user());
+
+        $this->ticket->refresh();
+        $this->descriptionMd = (string) $this->ticket->description_md;
     }
 
     // -----------------------------------------------------------------
     // Sidebar
     // -----------------------------------------------------------------
+
+    public function updatedType(UpdateTicket $updateTicket): void
+    {
+        $this->authorize('update', $this->ticket);
+
+        $this->validateOnly('type', ['type' => ['required', Rule::enum(TicketType::class)]]);
+
+        $updateTicket->handle($this->ticket, ['type' => $this->type], auth()->user());
+
+        $this->ticket->refresh();
+    }
 
     public function updatedPriority(UpdateTicket $updateTicket): void
     {
@@ -276,8 +354,37 @@ class Show extends Component
     }
 
     // -----------------------------------------------------------------
+    // Attachments dropped into the editor
+    // -----------------------------------------------------------------
 
-    public function render(ContentRenderer $renderer, BoardAccess $access)
+    protected function uploadOwner(): Ticket
+    {
+        return $this->ticket;
+    }
+
+    protected function uploadBoard(): Board
+    {
+        $this->ticket->loadMissing('board');
+
+        return $this->ticket->board;
+    }
+
+    /**
+     * A file added from inside the editor is history, exactly like one added
+     * through the attachments panel — same event type, same payload shape, so
+     * the timeline does not care which route it came in by.
+     */
+    protected function recordUpload(Attachment $attachment): void
+    {
+        app(TicketActivity::class)->record($this->ticket, TicketEventType::AttachmentChanged, [
+            'action' => 'added',
+            'filename' => $attachment->filename,
+        ], auth()->user());
+    }
+
+    // -----------------------------------------------------------------
+
+    public function render(ContentRenderer $renderer, BoardAccess $access, RichText $rich, TaskList $tasks)
     {
         // Defence in depth: Livewire rehydrates $ticket by primary key, which
         // does not re-apply the visibility scope, so the policy is consulted
@@ -292,15 +399,35 @@ class Show extends Component
             // Rendered per viewer, not per string: a ticket reference such as
             // AQD-9 in this description becomes a link only for somebody who
             // may open AQD-9, and stays plain text for everybody else.
-            'descriptionHtml' => $renderer->render(
+            'renderedDescription' => $renderer->render(
                 $this->editing ? $this->descriptionMd : $this->ticket->description_md,
                 $user,
                 $this->ticket->board,
             ),
+
+            /*
+             * The document the editor opens with.
+             *
+             * Rendered by RichText, NOT by ContentRenderer above: that one adds
+             * mention highlighting and ticket-reference links per viewer, and
+             * feeding a viewer's decorations into an editor would serialize
+             * them into the stored source on the next save.
+             *
+             * Only built while editing, so a page view does not pay for a
+             * conversion nobody asked for.
+             */
+            'editorHtml' => $this->editing ? $this->editorHtml($rich) : '',
+
+            // Checklist items in the description, for the interactive boxes.
+            'descriptionTasks' => $tasks->items($this->ticket->description_md),
+            'canTickTasks' => $user->can('manageSubtasks', $this->ticket),
+            'canAttachInEditor' => $this->canAttachInEditor(),
+
             'columns' => $this->board->columns()->ordered()->get(),
             'boardLabels' => $this->board->labels()->ordered()->get(),
             'assignableMembers' => $this->board->assignableMembers()->orderBy('name')->get(),
             'priorityOptions' => TicketPriority::ordered(),
+            'typeOptions' => TicketType::ordered(),
             'canEdit' => $user->can('update', $this->ticket),
             'canMove' => $user->can('move', $this->ticket),
             'canAssign' => $user->can('assign', $this->ticket),

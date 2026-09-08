@@ -4,6 +4,7 @@
         :description="$scope->board
             ? 'Delivery metrics for '.$scope->board->name.'.'
             : 'Delivery metrics across every board you can see.'"
+        :trail="\App\Support\Breadcrumbs::underDashboard('Statistics')"
     >
         <x-slot:actions>
             <x-ui.button :href="route('stats.customer')" variant="secondary" size="md">
@@ -79,6 +80,33 @@
             />
         </div>
 
+        {{--
+            The headline chart: what came in against what went out.
+
+            One chart rather than the two column charts that used to sit here,
+            because the question people actually ask of these two series is
+            whether they are keeping up — and that is a comparison, which two
+            separate charts side by side make the reader do by eye.
+
+            Both column charts are still below, unchanged, for reading a single
+            week's number off the axis.
+        --}}
+        <x-ui.card
+            class="mb-6"
+            title="Created against completed"
+            description="New tickets and tickets reaching a done column, by week. Lines crossing means the backlog turned."
+        >
+            <x-charts.exportable dataset="created-vs-completed" :filters="$exportFilters" filename="created-vs-completed">
+                <x-charts.timeseries
+                    :series="[
+                        ['key' => 'created', 'label' => 'Created', 'tone' => 'brand', 'points' => $createdByWeek],
+                        ['key' => 'completed', 'label' => 'Completed', 'tone' => 'emerald', 'points' => $throughputByWeek],
+                    ]"
+                    empty="No tickets were created or closed in this period."
+                />
+            </x-charts.exportable>
+        </x-ui.card>
+
         <div class="mb-6 grid gap-4 lg:grid-cols-2">
             <x-ui.card title="Weekly throughput" description="Tickets that reached a done column, by week.">
                 <x-charts.columns :series="$throughputByWeek" unit="tickets" empty="Nothing was closed in this period." />
@@ -91,13 +119,26 @@
 
         <div class="mb-6 grid gap-4 lg:grid-cols-2">
             <x-ui.card title="Cycle time trend" description="Median time from creation to done, by the week it closed.">
-                <x-charts.line
-                    :series="$cycleTimeTrend"
-                    :formatter="fn ($hours) => \App\Services\Statistics\DurationSummary::humanise((float) $hours)"
-                />
+                <x-charts.exportable
+                    dataset="cycle-time-trend"
+                    :filters="$exportFilters"
+                    :image="false"
+                    filename="cycle-time-trend"
+                >
+                    <x-charts.line
+                        :series="$cycleTimeTrend"
+                        :formatter="fn ($hours) => \App\Services\Statistics\DurationSummary::humanise((float) $hours)"
+                    />
+                </x-charts.exportable>
             </x-ui.card>
 
             <x-ui.card title="Average time in column" description="Completed stays only, slowest first.">
+                <x-charts.exportable
+                    dataset="time-in-column"
+                    :filters="$exportFilters"
+                    :image="false"
+                    filename="time-in-column"
+                >
                 @if ($timeInColumn === [])
                     <p class="py-8 text-center text-sm text-slate-500">
                         No tickets moved between columns in this period.
@@ -132,27 +173,43 @@
                         </table>
                     </div>
                 @endif
+                </x-charts.exportable>
             </x-ui.card>
         </div>
 
         {{-- Distribution --}}
         <h2 class="mb-3 text-sm font-semibold text-slate-900">Distribution</h2>
 
+        {{--
+            No PNG or SVG on these four. They are div-and-height bars rather
+            than SVG — a deliberate choice made when they were written, so that
+            no dataset reaches the browser at all — and rewriting four working
+            charts to add an image button would be the wrong trade. Their
+            numbers are still downloadable, which is the part somebody re-uses.
+        --}}
         <div class="mb-6 grid gap-4 lg:grid-cols-2">
             <x-ui.card title="By column" description="Where every ticket sits right now.">
-                <x-charts.bar :series="$byColumn" empty="This board has no tickets yet." />
+                <x-charts.exportable dataset="by-column" :filters="$exportFilters" :image="false">
+                    <x-charts.bar :series="$byColumn" empty="This board has no tickets yet." />
+                </x-charts.exportable>
             </x-ui.card>
 
             <x-ui.card title="By priority">
-                <x-charts.bar :series="$byPriority" />
+                <x-charts.exportable dataset="by-priority" :filters="$exportFilters" :image="false">
+                    <x-charts.bar :series="$byPriority" />
+                </x-charts.exportable>
             </x-ui.card>
 
             <x-ui.card title="Open work by assignee" description="Tickets not yet in a done column.">
-                <x-charts.bar :series="$byAssignee" empty="Nothing is open." />
+                <x-charts.exportable dataset="by-assignee" :filters="$exportFilters" :image="false">
+                    <x-charts.bar :series="$byAssignee" empty="Nothing is open." />
+                </x-charts.exportable>
             </x-ui.card>
 
             <x-ui.card title="By label" description="Labels with the same name are merged across boards.">
-                <x-charts.bar :series="$byLabel" empty="No labels have been applied yet." />
+                <x-charts.exportable dataset="by-label" :filters="$exportFilters" :image="false">
+                    <x-charts.bar :series="$byLabel" empty="No labels have been applied yet." />
+                </x-charts.exportable>
             </x-ui.card>
         </div>
 

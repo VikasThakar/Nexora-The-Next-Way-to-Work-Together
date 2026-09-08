@@ -123,6 +123,51 @@ class AttachmentDurabilityTest extends TestCase
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Livewire's temporary uploads
+    // ---------------------------------------------------------------------
+
+    /**
+     * A Livewire upload spans two requests, so where the bytes wait matters.
+     *
+     * Livewire defaults its temporary disk to `filesystems.default`, not to
+     * `attachments.disk`. A deployment that sets ATTACHMENT_DISK=s3 and leaves
+     * FILESYSTEM_DISK alone would park every in-flight upload on the container
+     * filesystem, which works with one replica and fails about half the time
+     * with two.
+     */
+    public function test_temporary_uploads_default_to_the_attachment_disk(): void
+    {
+        config([
+            'attachments.disk' => 's3',
+            'livewire.temporary_file_upload.disk' => null,
+        ]);
+
+        $this->configureTemporaryUploads();
+
+        $this->assertSame('s3', config('livewire.temporary_file_upload.disk'));
+    }
+
+    public function test_an_explicit_temporary_upload_disk_is_left_alone(): void
+    {
+        config([
+            'attachments.disk' => 's3',
+            'livewire.temporary_file_upload.disk' => 'volume',
+        ]);
+
+        $this->configureTemporaryUploads();
+
+        // Somebody who has deliberately separated the two keeps their choice.
+        $this->assertSame('volume', config('livewire.temporary_file_upload.disk'));
+    }
+
+    private function configureTemporaryUploads(): void
+    {
+        $method = new ReflectionMethod(AppServiceProvider::class, 'configureTemporaryUploads');
+        $method->setAccessible(true);
+        $method->invoke(new AppServiceProvider($this->app));
+    }
+
     /**
      * Run the guard in the given environment, returning its message rather
      * than letting it escape.

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Livewire\Tickets\Components;
 
+use App\Actions\Tickets\ConvertSubtasksToChecklist;
 use App\Actions\Tickets\ManageSubtasks;
 use App\Models\Ticket;
 use App\Models\TicketSubtask;
@@ -114,6 +115,36 @@ class Subtasks extends Component
         $subtasks->reorder($this->ticket, $ordered);
     }
 
+    /**
+     * Move this checklist into the ticket description.
+     *
+     * The transition path for the client's "checklists inside the editor"
+     * request. Authorized with manageSubtasks *and* update, because it does two
+     * things: it removes the checklist rows and it rewrites the description.
+     * Somebody allowed to tick items is not automatically allowed to edit the
+     * description, and this must not be a way around that.
+     *
+     * The parent page owns the description, so it is asked to re-render rather
+     * than this component guessing at what changed.
+     */
+    public function convertToChecklist(ConvertSubtasksToChecklist $convert): void
+    {
+        $this->authorize('manageSubtasks', $this->ticket);
+        $this->authorize('update', $this->ticket);
+
+        if ($this->ticket->subtasks()->doesntExist()) {
+            return;
+        }
+
+        $convert->handle($this->ticket, auth()->user());
+
+        $this->ticket->refresh();
+
+        session()->flash('status', 'The checklist is now part of the description.');
+
+        $this->dispatch('checklist-converted');
+    }
+
     private function subtask(int $subtaskId): TicketSubtask
     {
         $subtask = $this->ticket->subtasks()->whereKey($subtaskId)->first();
@@ -127,10 +158,16 @@ class Subtasks extends Component
     {
         $subtasks = $this->ticket->subtasks()->get();
 
+        $user = auth()->user();
+
         return view('livewire.tickets.components.subtasks', [
             'subtasks' => $subtasks,
             'completedCount' => $subtasks->where('completed', true)->count(),
-            'canManage' => auth()->user()->can('manageSubtasks', $this->ticket),
+            'canManage' => $user->can('manageSubtasks', $this->ticket),
+            // Both abilities, matching convertToChecklist().
+            'canConvert' => $subtasks->isNotEmpty()
+                && $user->can('manageSubtasks', $this->ticket)
+                && $user->can('update', $this->ticket),
         ]);
     }
 }

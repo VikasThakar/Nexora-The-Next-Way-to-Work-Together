@@ -59,6 +59,39 @@
     }
 
     /*
+     * The AI panel's desktop gutter.
+     *
+     * The panel is fixed, so it cannot push the page. Insetting the content
+     * column gives the docked feel of an editor sidebar while leaving the panel
+     * out of the layout's flex tree — where a persisted subtree would sit
+     * inside a re-initialising x-data root. Below lg the panel is a full-width
+     * sheet, so there is nothing to inset.
+     *
+     * The class is toggled on <body> by resources/js/ai-panel.js.
+     */
+    @media (min-width: 64rem) {
+        body.ai-panel-open .app-content {
+            padding-right: 28rem;
+        }
+    }
+
+    /*
+     * A scroll container with no visible scrollbar.
+     *
+     * Used by the breadcrumb trail, which scrolls sideways rather than hiding
+     * its middle levels on a narrow screen. The bar itself would be a second
+     * horizontal line under a single line of text.
+     */
+    .scrollbar-none {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .scrollbar-none::-webkit-scrollbar {
+        display: none;
+    }
+
+    /*
      * Drag-and-drop states.
      *
      * These class names come from SortableJS, which Livewire bundles behind
@@ -239,5 +272,136 @@
 
     .markdown .ticket-ref {
         @apply font-mono text-[0.9em] font-medium text-brand-600 no-underline hover:underline;
+    }
+}
+
+/*
+ * Checklists and the rich text editor.
+ *
+ * Split out of the .markdown block above because these rules serve two
+ * surfaces at once: the read view, where a GFM task list is rendered by
+ * CommonMark, and the writing surface, where TipTap renders its own. The two
+ * produce different markup for the same thing, which is why several selectors
+ * below come in pairs.
+ */
+@layer components {
+    /*
+     * A checklist item, in prose.
+     *
+     * CommonMark emits `<li><input disabled type="checkbox"> text</li>` inside
+     * an ordinary <ul>, which inherits the disc bullet from .markdown ul — so
+     * a checklist would render as a bullet AND a box. :has() removes the
+     * bullet only for the items that actually carry a checkbox, leaving mixed
+     * lists correct.
+     */
+    .markdown li:has(> input[type='checkbox']),
+    .markdown li[data-checked] {
+        @apply -ml-5 flex list-none items-baseline gap-2;
+    }
+
+    .markdown li > input[type='checkbox'] {
+        @apply mt-0.5 size-3.5 shrink-0 rounded border-slate-300 text-emerald-600;
+    }
+
+    /*
+     * A ticked item is dimmed and struck through — the same treatment the
+     * standalone checklist panel gives a completed subtask, so the two features
+     * read as one idea while both exist.
+     */
+    .markdown li:has(> input[type='checkbox']:checked),
+    .markdown li[data-checked='true'] {
+        @apply text-slate-400;
+    }
+
+    /*
+     * Interactive checkboxes in the read view.
+     *
+     * The disabled attribute comes from CommonMark and is deliberately left
+     * in place: it is what a checkbox looks like when the reader has no right
+     * to change it. App\Livewire\Tickets\Show re-enables them by rendering its
+     * own control on top, only for somebody who passes manageSubtasks.
+     */
+    .markdown-interactive li > input[type='checkbox'] {
+        @apply cursor-pointer;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Writing surface                                                     */
+    /* ------------------------------------------------------------------ */
+
+    .editor-surface {
+        @apply min-h-44 outline-none;
+    }
+
+    /*
+     * The placeholder.
+     *
+     * ProseMirror always keeps one empty paragraph in an empty document, so
+     * there is a node to hang this off. :first-child only, or every blank line
+     * in the middle of a document would show the hint.
+     */
+    .editor-surface p.is-editor-empty:first-child::before {
+        content: attr(data-placeholder);
+        @apply pointer-events-none float-left h-0 text-slate-400;
+    }
+
+    /* TipTap's task list markup: ul[data-type] > li > label + div. */
+    .editor-surface ul[data-type='taskList'] {
+        @apply list-none pl-0;
+    }
+
+    .editor-surface ul[data-type='taskList'] li {
+        @apply flex items-start gap-2;
+    }
+
+    .editor-surface ul[data-type='taskList'] li > label {
+        @apply mt-1 flex shrink-0 cursor-pointer items-center;
+    }
+
+    .editor-surface ul[data-type='taskList'] li > div {
+        @apply min-w-0 flex-1;
+    }
+
+    .editor-surface ul[data-type='taskList'] li > div > p {
+        @apply my-0;
+    }
+
+    .editor-surface ul[data-type='taskList'] input[type='checkbox'] {
+        @apply size-3.5 cursor-pointer rounded border-slate-300 text-emerald-600 focus:ring-emerald-500;
+    }
+
+    /*
+     * Tables are editable here, so they need visible cell edges — a borderless
+     * table is impossible to click into accurately.
+     */
+    .editor-surface table {
+        @apply my-3 w-full table-fixed border-collapse text-xs;
+    }
+
+    .editor-surface th,
+    .editor-surface td {
+        @apply relative min-w-16 border border-slate-300 px-2 py-1 align-top;
+    }
+
+    .editor-surface th {
+        @apply bg-slate-50 text-left font-semibold;
+    }
+
+    .editor-surface .selectedCell::after {
+        content: '';
+        @apply pointer-events-none absolute inset-0 bg-brand-500/10;
+    }
+
+    /*
+     * The gap cursor, from the Gapcursor extension bundled in StarterKit. It
+     * is what lets somebody put the caret before a table or after a code block
+     * that would otherwise be the last node with nowhere to type.
+     */
+    .editor-surface .ProseMirror-gapcursor::after {
+        @apply border-t border-slate-500;
+    }
+
+    .editor-surface img.ProseMirror-selectednode {
+        @apply ring-2 ring-brand-500;
     }
 }

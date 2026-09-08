@@ -128,7 +128,14 @@ class SlackNotificationTest extends TestCase
 
         app(MoveTicket::class)->handle($ticket, $this->columnNamed($board, 'In Progress'), 0, $team);
 
-        Notification::assertNothingSent();
+        /*
+         * Nothing reaches Slack. Asserted against the Slack notifiable rather
+         * than with assertNothingSent(), because a move now also writes an
+         * in-app TicketStatusChanged for the people waiting on the ticket —
+         * which is the point of that notification and not a leak into this
+         * one. Slack is announced for done columns only.
+         */
+        Notification::assertNotSentTo(new AnonymousNotifiable, TicketMovedToDone::class);
     }
 
     public function test_a_board_whose_final_column_was_renamed_still_announces(): void

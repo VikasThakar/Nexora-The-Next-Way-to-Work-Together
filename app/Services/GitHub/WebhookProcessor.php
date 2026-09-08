@@ -6,9 +6,11 @@ namespace App\Services\GitHub;
 
 use App\Enums\GithubLinkState;
 use App\Enums\GithubLinkType;
+use App\Enums\TicketEventType;
 use App\Models\BoardRepository;
 use App\Models\GithubLink;
 use App\Models\Ticket;
+use App\Services\TicketActivity;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -35,10 +37,36 @@ use Illuminate\Support\Str;
  * Unrecognised events are not an error. New event types appear in GitHub, and a
  * webhook configured with "send me everything" is common; those deliveries are
  * acknowledged and recorded as ignored rather than retried forever.
+ *
+ *
+ * The timeline
+ * ------------
+ * Links are the state — what objects exist, what a pull request's state is,
+ * whether CI is green. The timeline is the history, and it is written through
+ * App\Services\TicketActivity, which is the same single funnel every human
+ * action goes through and which mirrors each event into the workspace feed. So
+ * "branch created" sits between "Vikas created NL-3" and "Alex changed
+ * priority" in one list, and there is no second activity system to keep in
+ * step.
+ *
+ * Only *changes* are recorded. GitHub redelivers on timeout, replays on demand,
+ * and sends a `check_suite` for every push; an event per delivery would bury
+ * the ticket's own history within a day. The signal is Eloquent's own: a row
+ * that was just created, or whose state or CI conclusion actually moved.
  */
 class WebhookProcessor
 {
-    public function __construct(private readonly TicketReferenceResolver $resolver) {}
+    /**
+     * CI states that are not a result yet, and so are not an event.
+     *
+     * @var list<string>
+     */
+    private const UNFINISHED_CI = ['queued', 'pending', 'in_progress', 'requested', 'waiting'];
+
+    public function __construct(
+        private readonly TicketReferenceResolver $resolver,
+        private readonly TicketActivity $activity,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $payload
@@ -356,13 +384,100 @@ class WebhookProcessor
             static fn ($value): bool => $value !== null,
         );
 
+        // Read before the save, because saving clears the dirty state that
+        // decides whether this delivery is news.
+        $isNew = ! $link->exists;
+        $stateMoved = $link->isDirty('state');
+
         $link->save();
+
+        $this->recordLink($ticket, $link, $isNew, $stateMoved);
 
         return 1;
     }
 
     /**
+     * Put a new or changed link on the ticket's timeline.
+     *
+     * Nothing is recorded for a delivery that told us something we already
+     * knew. GitHub redelivers on timeout and replays on demand, and a pull
+     * request's life is several deliveries about one object — so a branch
+     * pushed to twice is one branch event, and an edited pull request title is
+     * no event at all.
+     */
+    private function recordLink(Ticket $ticket, GithubLink $link, bool $isNew, bool $stateMoved): void
+    {
+        $type = match (true) {
+            $link->type === GithubLinkType::Branch => $isNew ? TicketEventType::GithubBranchCreated : null,
+            $link->type === GithubLinkType::Commit => $isNew ? TicketEventType::GithubCommitPushed : null,
+
+            $link->type === GithubLinkType::PullRequest => match (true) {
+                ! $isNew && ! $stateMoved => null,
+                $link->state === GithubLinkState::Merged => TicketEventType::GithubPullRequestMerged,
+                $link->state === GithubLinkState::Closed => TicketEventType::GithubPullRequestClosed,
+
+                // Opened, reopened, or a draft marked ready. One case for the
+                // three, with the payload's `action` naming which.
+                default => TicketEventType::GithubPullRequestOpened,
+            },
+
+            default => null,
+        };
+
+        if ($type === null) {
+            return;
+        }
+
+        $this->activity->recordWithoutActor($ticket, $type, $this->eventPayload($link));
+    }
+
+    /**
+     * A CI conclusion worth putting on the timeline.
+     */
+    private function recordCheck(Ticket $ticket, GithubLink $link, string $status): void
+    {
+        $this->activity->recordWithoutActor(
+            $ticket,
+            TicketEventType::GithubCheckCompleted,
+            $this->eventPayload($link) + ['conclusion' => $status],
+        );
+    }
+
+    /**
+     * What a GitHub event keeps.
+     *
+     * Enough to render a line and a link, and no more. The full commit message,
+     * the diff and the delivery payload stay where they came from — see
+     * App\Services\ActivityLogger::githubProperties() for why a webhook body is
+     * not something to mirror into a table every staff member reads.
+     *
+     * @return array<string, mixed>
+     */
+    private function eventPayload(GithubLink $link): array
+    {
+        return [
+            'reference' => $link->reference,
+            'short_reference' => $link->shortReference(),
+            'title' => $link->title,
+            'url' => $link->url,
+            'repository' => $link->repository,
+            'author' => $link->author_login,
+            'state' => $link->state?->value,
+            'link_type' => $link->type->value,
+        ];
+    }
+
+    /**
      * Set the CI status on links already pointing at these objects.
+     *
+     * Selected and saved row by row rather than in one bulk UPDATE, because the
+     * rows are needed anyway to answer the question that decides whether this
+     * is news: did the conclusion actually move? A check suite fires on every
+     * push, and re-recording "CI passed" each time somebody pushes to a green
+     * branch would bury the ticket's own history inside a day.
+     *
+     * The query is on the (repository, type, external_id) index and returns a
+     * handful of rows.
      *
      * @param  array<int, string>  $externalIds
      */
@@ -374,11 +489,32 @@ class WebhookProcessor
             return 0;
         }
 
-        return GithubLink::query()
+        $links = GithubLink::query()
             ->where('repository', $repository)
             ->where('type', $type->value)
             ->whereIn('external_id', $externalIds)
-            ->update(['ci_status' => $status, 'updated_at' => now()]);
+            ->with('ticket')
+            ->get();
+
+        $updated = 0;
+
+        foreach ($links as $link) {
+            if ((string) $link->ci_status === $status) {
+                continue;
+            }
+
+            $link->ci_status = $status;
+            $link->save();
+            $updated++;
+
+            // Only a finished run. "queued" and "in_progress" are the states a
+            // build passes through on its way to saying something.
+            if ($link->ticket instanceof Ticket && ! in_array($status, self::UNFINISHED_CI, true)) {
+                $this->recordCheck($link->ticket, $link, $status);
+            }
+        }
+
+        return $updated;
     }
 
     // -----------------------------------------------------------------

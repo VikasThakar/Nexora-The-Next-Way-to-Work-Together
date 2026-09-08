@@ -40,9 +40,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class AiChatMessage extends Model
 {
-    use BelongsToBoard {
-        scopeVisibleTo as private scopeVisibleByBoard;
-    }
+    /*
+     * The trait supplies board(), scopeForBoard() and boardForeignKey(). Its
+     * scopeVisibleTo() is not aliased in: the class defines its own, which
+     * takes precedence, because a conversation can also be scoped to the whole
+     * workspace and the trait's board rule cannot express that.
+     */
+    use BelongsToBoard;
 
     public const ACTION_PROPOSED = 'proposed';
 
@@ -134,19 +138,83 @@ class AiChatMessage extends Model
     // ---------------------------------------------------------------------
 
     /**
-     * Board membership, and staff only. See the class comment.
+     * Staff only, then board membership — or ownership, for a workspace turn.
+     *
+     * A null `board_id` means the turn was asked in the assistant's "All
+     * workspace" context and belongs to no single board. Such a row cannot be
+     * protected by board membership, so it is protected by ownership instead
+     * and is readable only by the person who asked it.
+     *
+     * The explicit null branch is the load-bearing part. BoardAccess::constrain
+     * expresses membership as `EXISTS (board_members WHERE board_id = ...)`,
+     * which never matches a null and would therefore hide these rows from the
+     * person who owns them — but it also returns the query *untouched* for an
+     * administrator, which would expose every other administrator's private
+     * conversation. Neither outcome is acceptable, so null is handled here
+     * rather than left to the board rule.
      *
      * @param  Builder<AiChatMessage>  $query
      */
     public function scopeVisibleTo(Builder $query, ?Authenticatable $user): void
     {
-        if (! app(BoardAccess::class)->canSeeInternalContent($user)) {
+        $access = app(BoardAccess::class);
+
+        if (! $access->canSeeInternalContent($user)) {
             $query->whereRaw('1 = 0');
 
             return;
         }
 
-        $this->scopeVisibleByBoard($query, $user);
+        $userId = $user?->getAuthIdentifier();
+
+        $query->where(function (Builder $outer) use ($access, $user, $userId): void {
+            $outer->where(function (Builder $scoped) use ($access, $user): void {
+                $scoped->whereNotNull('ai_chat_messages.board_id');
+
+                $access->constrain($scoped, $user, 'ai_chat_messages.board_id');
+            });
+
+            $outer->orWhere(function (Builder $own) use ($userId): void {
+                $own->whereNull('ai_chat_messages.board_id')
+                    ->where('ai_chat_messages.user_id', $userId);
+            });
+        });
+    }
+
+    /**
+     * Narrow a transcript to one person's own turns.
+     *
+     * Composed on top of visibleTo() rather than replacing it: this decides
+     * whose conversation is being read, not whether the reader is allowed to
+     * read conversations at all.
+     *
+     * A null `user_id` is a turn whose author has since been deleted. It
+     * matches nobody here, which is right — an orphaned turn belongs to no
+     * living conversation.
+     *
+     * @param  Builder<AiChatMessage>  $query
+     */
+    public function scopeOwnedBy(Builder $query, ?Authenticatable $user): void
+    {
+        $id = $user?->getAuthIdentifier();
+
+        if ($id === null) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $query->where('ai_chat_messages.user_id', $id);
+    }
+
+    /**
+     * The turns asked with no single board in context.
+     *
+     * @param  Builder<AiChatMessage>  $query
+     */
+    public function scopeWorkspaceScoped(Builder $query): void
+    {
+        $query->whereNull('ai_chat_messages.board_id');
     }
 
     /** @param  Builder<AiChatMessage>  $query */

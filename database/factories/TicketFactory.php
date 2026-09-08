@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Database\Factories;
 
 use App\Enums\TicketPriority;
+use App\Enums\TicketType;
 use App\Models\Board;
 use App\Models\BoardColumn;
 use App\Models\Ticket;
@@ -30,6 +31,11 @@ class TicketFactory extends Factory
             'number' => fn (array $attributes): int => $this->nextNumber((int) $attributes['board_id']),
 
             'title' => rtrim(fake()->sentence(5), '.'),
+
+            // Fixed rather than random, unlike priority: a test that asserts on
+            // what a card or a badge says must not depend on the roll of a die.
+            'type' => TicketType::default(),
+
             'description_md' => fake()->paragraph(),
             'priority' => fake()->randomElement(TicketPriority::cases()),
             'assignee_id' => null,
@@ -88,6 +94,11 @@ class TicketFactory extends Factory
     public function priority(TicketPriority $priority): static
     {
         return $this->state(fn (array $attributes): array => ['priority' => $priority]);
+    }
+
+    public function type(TicketType $type): static
+    {
+        return $this->state(fn (array $attributes): array => ['type' => $type]);
     }
 
     public function assignedTo(User $user): static

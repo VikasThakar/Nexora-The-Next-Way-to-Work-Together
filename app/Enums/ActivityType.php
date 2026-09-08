@@ -84,10 +84,29 @@ enum ActivityType: string
 
     case PageCreated = 'page_created';
     case PageUpdated = 'page_updated';
+    case PageRenamed = 'page_renamed';
     case PageDeleted = 'page_deleted';
     case PageMoved = 'page_moved';
     case PagePublished = 'page_published';
     case PageRetracted = 'page_retracted';
+
+    // -----------------------------------------------------------------
+    // Development
+    // -----------------------------------------------------------------
+
+    /*
+     * Mirrored one-for-one from the GitHub cases in
+     * App\Enums\TicketEventType, written at the single funnel in
+     * App\Services\TicketActivity. Same reasoning as the ticket cases: one
+     * webhook delivery produces one ticket event and one activity, and there
+     * is no observer left to write a second.
+     */
+    case GithubBranchCreated = 'github_branch_created';
+    case GithubCommitPushed = 'github_commit_pushed';
+    case GithubPullRequestOpened = 'github_pull_request_opened';
+    case GithubPullRequestMerged = 'github_pull_request_merged';
+    case GithubPullRequestClosed = 'github_pull_request_closed';
+    case GithubCheckCompleted = 'github_check_completed';
 
     // -----------------------------------------------------------------
     // Board configuration
@@ -139,10 +158,18 @@ enum ActivityType: string
 
             self::PageCreated,
             self::PageUpdated,
+            self::PageRenamed,
             self::PageDeleted,
             self::PageMoved,
             self::PagePublished,
             self::PageRetracted => ActivityCategory::Documentation,
+
+            self::GithubBranchCreated,
+            self::GithubCommitPushed,
+            self::GithubPullRequestOpened,
+            self::GithubPullRequestMerged,
+            self::GithubPullRequestClosed,
+            self::GithubCheckCompleted => ActivityCategory::Development,
 
             self::BoardSettingsChanged,
             self::ColumnCreated,
@@ -185,10 +212,17 @@ enum ActivityType: string
             self::CommentDeleted => 'Comment deleted',
             self::PageCreated => 'Page created',
             self::PageUpdated => 'Page updated',
+            self::PageRenamed => 'Page renamed',
             self::PageDeleted => 'Page deleted',
             self::PageMoved => 'Page moved',
             self::PagePublished => 'Page published',
             self::PageRetracted => 'Page retracted',
+            self::GithubBranchCreated => 'Branch created',
+            self::GithubCommitPushed => 'Commit pushed',
+            self::GithubPullRequestOpened => 'Pull request opened',
+            self::GithubPullRequestMerged => 'Pull request merged',
+            self::GithubPullRequestClosed => 'Pull request closed',
+            self::GithubCheckCompleted => 'CI result',
             self::BoardSettingsChanged => 'Board settings',
             self::ColumnCreated => 'Column added',
             self::ColumnUpdated => 'Column updated',
@@ -220,6 +254,14 @@ enum ActivityType: string
 
             self::TicketAiRunQueued, self::TicketAiRunCompleted,
             self::TicketAiRunFailed, self::TicketAiRunSkipped => 'sparkle',
+
+            self::GithubBranchCreated => 'branch',
+            self::GithubCommitPushed => 'commit',
+
+            self::GithubPullRequestOpened, self::GithubPullRequestMerged,
+            self::GithubPullRequestClosed => 'pull-request',
+
+            self::GithubCheckCompleted => 'check',
 
             self::CommentCreated, self::CommentEdited,
             self::CommentDeleted => 'chat',
@@ -253,6 +295,9 @@ enum ActivityType: string
             self::TicketPriorityChanged, self::TicketVisibilityChanged,
             self::BoardArchived => 'amber',
 
+            self::GithubPullRequestMerged => 'brand',
+            self::GithubPullRequestClosed => 'rose',
+
             default => 'slate',
         };
     }
@@ -275,7 +320,10 @@ enum ActivityType: string
      *   every AI event tells them their request was handed to a machine, and
      *   that it failed, or was skipped to stay under a cost cap;
      *   board management, membership and configuration are how the delivery
-     *   team runs itself, and none of it is the customer's business.
+     *   team runs itself, and none of it is the customer's business;
+     *   every GitHub event describes engineering work in the engineers' own
+     *   words — branch names, commit subjects, failing builds. See
+     *   App\Models\GithubLink for the longer argument.
      */
     public function isInternalOnly(): bool
     {
@@ -296,7 +344,13 @@ enum ActivityType: string
             self::ColumnCreated,
             self::ColumnUpdated,
             self::ColumnDeleted,
-            self::ColumnsReordered => true,
+            self::ColumnsReordered,
+            self::GithubBranchCreated,
+            self::GithubCommitPushed,
+            self::GithubPullRequestOpened,
+            self::GithubPullRequestMerged,
+            self::GithubPullRequestClosed,
+            self::GithubCheckCompleted => true,
 
             default => false,
         };

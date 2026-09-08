@@ -4,11 +4,8 @@
         :description="$user
             ? 'Change this account. Board access is granted from each board page.'
             : 'Create an account. It will have no board access until you add it to a board.'"
-    >
-        <x-slot:breadcrumb>
-            <a href="{{ route('users.index') }}" wire:navigate class="hover:text-slate-700">Users</a>
-        </x-slot:breadcrumb>
-    </x-ui.page-header>
+        :trail="\App\Support\Breadcrumbs::users($user ? 'Edit user' : 'New user')"
+    />
 
     <form wire:submit="save" class="grid max-w-4xl gap-6 lg:grid-cols-3">
         <div class="space-y-6 lg:col-span-2">

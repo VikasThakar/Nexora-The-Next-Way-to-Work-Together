@@ -76,6 +76,12 @@ class ActivityLogger
      */
     private const MAX_TITLE = 120;
 
+    /**
+     * How many minutes of one person's continuing work on one documentation
+     * page count as a single edit in the feed. See continuingEdit().
+     */
+    private const PAGE_EDIT_WINDOW = 15;
+
     // ---------------------------------------------------------------------
     // Tickets
     // ---------------------------------------------------------------------
@@ -136,6 +142,25 @@ class ActivityLogger
             TicketEventType::AiRunCompleted => ActivityType::TicketAiRunCompleted,
             TicketEventType::AiRunFailed => ActivityType::TicketAiRunFailed,
             TicketEventType::AiRunSkipped => ActivityType::TicketAiRunSkipped,
+            // Mirrored as a plain update: the workspace feed wants "somebody
+            // changed this ticket", and the detail that makes this event
+            // worth its own type belongs on the ticket's own timeline.
+            TicketEventType::ChecklistConverted => ActivityType::TicketUpdated,
+
+            /*
+             * GitHub, mirrored one-for-one. The webhook's work reaches this
+             * method the same way a person's does — through
+             * App\Services\TicketActivity — which is what makes the workspace
+             * feed a unified timeline rather than a second feed rendered
+             * alongside a GitHub one.
+             */
+            TicketEventType::GithubBranchCreated => ActivityType::GithubBranchCreated,
+            TicketEventType::GithubCommitPushed => ActivityType::GithubCommitPushed,
+            TicketEventType::GithubPullRequestOpened => ActivityType::GithubPullRequestOpened,
+            TicketEventType::GithubPullRequestMerged => ActivityType::GithubPullRequestMerged,
+            TicketEventType::GithubPullRequestClosed => ActivityType::GithubPullRequestClosed,
+            TicketEventType::GithubCheckCompleted => ActivityType::GithubCheckCompleted,
+
             TicketEventType::LinkChanged => null,
         };
     }
@@ -237,10 +262,118 @@ class ActivityLogger
                 $this->aiProperties($payload),
             ],
 
+            ActivityType::GithubBranchCreated => [
+                'created the branch '.$this->quoted($payload['reference'] ?? null).' for '.$key,
+                $this->githubProperties($payload),
+            ],
+
+            ActivityType::GithubCommitPushed => [
+                'pushed '.$this->githubShortReference($payload).' to '.$key
+                    .$this->githubSubject($payload),
+                $this->githubProperties($payload),
+            ],
+
+            ActivityType::GithubPullRequestOpened => [
+                'opened pull request '.$this->githubShortReference($payload).' for '.$key
+                    .$this->githubSubject($payload),
+                $this->githubProperties($payload),
+            ],
+
+            ActivityType::GithubPullRequestMerged => [
+                'merged pull request '.$this->githubShortReference($payload).' for '.$key
+                    .$this->githubSubject($payload),
+                $this->githubProperties($payload),
+            ],
+
+            ActivityType::GithubPullRequestClosed => [
+                'closed pull request '.$this->githubShortReference($payload).' for '.$key
+                    .' without merging',
+                $this->githubProperties($payload),
+            ],
+
+            ActivityType::GithubCheckCompleted => [
+                'CI reported '.($this->text($payload['conclusion'] ?? null) ?? 'a result')
+                    .' for '.$this->githubShortReference($payload).' on '.$key,
+                $this->githubProperties($payload),
+            ],
+
             // TicketUpdated, and anything a future event type maps to before
             // this method is taught about it.
             default => $this->describeUpdate($key, $payload),
         };
+    }
+
+    /**
+     * What a GitHub activity keeps beside its sentence.
+     *
+     * Three keys, and the omissions are the point. There is no full commit
+     * message, no diff, no branch list, no payload dump — the sentence already
+     * carries the subject line, trimmed, and anybody who needs the rest has the
+     * URL. Nothing that could hold a secret is copied: this table is read by
+     * every staff member on the board, and a webhook payload is not a thing to
+     * mirror wholesale into it.
+     *
+     * `author` is a GitHub login, not a Nexora user. The activity's causer is
+     * deliberately null for these rows — the actor is not somebody this
+     * application knows — and the templates render the login instead.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function githubProperties(array $payload): array
+    {
+        return [
+            'reference' => $this->text($payload['reference'] ?? null),
+            'author' => $this->text($payload['author'] ?? null),
+            'url' => $this->githubUrl($payload),
+        ];
+    }
+
+    /**
+     * The reference as a person would say it: "#128", "a1b2c3d", a branch name.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function githubShortReference(array $payload): string
+    {
+        $reference = $this->text($payload['short_reference'] ?? $payload['reference'] ?? null);
+
+        return $reference ?? 'an object';
+    }
+
+    /**
+     * The commit subject or pull request title, when there is one worth adding.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function githubSubject(array $payload): string
+    {
+        $title = $this->text($payload['title'] ?? null);
+
+        return $title === null ? '' : ' — '.$title;
+    }
+
+    /**
+     * The link, if it is one a browser should follow.
+     *
+     * Checked rather than trusted. The value originates in a GitHub webhook
+     * payload, and this string is rendered into an href on a page every staff
+     * member of the board can see; `javascript:` in an `html_url` would be
+     * stored XSS with a very short path to a session.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function githubUrl(array $payload): ?string
+    {
+        $url = trim((string) ($payload['url'] ?? ''));
+
+        if ($url === '' || mb_strlen($url) > 500) {
+            return null;
+        }
+
+        return str_starts_with($url, 'https://') || str_starts_with($url, 'http://')
+            ? $url
+            : null;
     }
 
     /**
@@ -685,9 +818,91 @@ class ActivityLogger
         return $this->page(ActivityType::PageCreated, $page, 'created the documentation page ', $actor);
     }
 
+    /**
+     * A page's content changed.
+     *
+     * Coalesced by continuingEdit(). The documentation editor autosaves, so
+     * one afternoon's work on one page arrives here as many writes; an entry
+     * per write would fill the feed with identical lines and bury everything
+     * else on the screen.
+     */
     public function pageUpdated(DocPage $page, ?User $actor = null): ?Activity
     {
+        if ($this->continuingEdit(ActivityType::PageUpdated, $page, $actor)) {
+            return null;
+        }
+
         return $this->page(ActivityType::PageUpdated, $page, 'updated the documentation page ', $actor);
+    }
+
+    /**
+     * A page's title changed.
+     *
+     * Its own type rather than a plain update, because the value of the feed
+     * is being able to find a change again later — and "updated the
+     * documentation page 'Runbook'" is unfindable by somebody who remembers
+     * the page as "Deployment steps". Both titles are in the sentence for
+     * exactly that reason.
+     *
+     * The URL is not part of the change: App\Actions\Docs\UpdatePage leaves
+     * the slug alone, so every link written to this page before the rename
+     * still resolves.
+     */
+    public function pageRenamed(DocPage $page, string $from, ?User $actor = null): ?Activity
+    {
+        if ($this->continuingEdit(ActivityType::PageRenamed, $page, $actor)) {
+            return null;
+        }
+
+        return $this->write(
+            ActivityType::PageRenamed,
+            'renamed the documentation page '.$this->quoted($from).' to '.$this->quoted($page->title),
+            $page,
+            (int) $page->board_id,
+            [
+                'title' => $this->trim($page->title),
+                'slug' => $page->slug,
+                'from' => $this->trim($from),
+                'to' => $this->trim($page->title),
+            ],
+            $actor,
+        );
+    }
+
+    /**
+     * Is this write a continuation of an edit the feed already reports?
+     *
+     * Documentation autosaves, so the same person saves the same page many
+     * times while writing one thing. Without this the brief's rule — record
+     * meaningful events, not keystrokes — would be broken by construction.
+     *
+     * The earlier row is deliberately left as it was rather than touched
+     * forward. `activity_log` is an audit trail, and an entry whose timestamp
+     * moves stops being evidence of when anything happened; so the feed
+     * reports when the edit *began*, and `doc_pages.updated_at` stays the
+     * record of when the page last changed. The two answer different
+     * questions and the page screen shows the second one.
+     *
+     * Scoped to one causer on purpose: two people editing the same page
+     * within the window is a fact somebody needs to see, and collapsing that
+     * would hide one of them.
+     */
+    private function continuingEdit(ActivityType $type, DocPage $page, ?User $actor): bool
+    {
+        $causer = $actor ?? auth()->user();
+
+        if (! $causer instanceof User) {
+            return false;
+        }
+
+        return Activity::query()
+            ->where('event', $type->value)
+            ->where('subject_type', $page->getMorphClass())
+            ->where('subject_id', $page->getKey())
+            ->where('causer_type', $causer->getMorphClass())
+            ->where('causer_id', $causer->getKey())
+            ->where('created_at', '>=', now()->subMinutes(self::PAGE_EDIT_WINDOW))
+            ->exists();
     }
 
     public function pageMoved(DocPage $page, ?User $actor = null): ?Activity

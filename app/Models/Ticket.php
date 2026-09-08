@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\TicketPriority;
+use App\Enums\TicketType;
 use App\Models\Concerns\BelongsToBoard;
 use Database\Factories\TicketFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -37,6 +38,27 @@ class Ticket extends Model
     use HasFactory;
 
     /**
+     * Suppresses the "moved to" notification for this instance only.
+     *
+     * A declared property, so it is never an attribute and never persisted —
+     * Eloquent's __get is not consulted for properties that exist on the class.
+     *
+     * It lives here rather than as a switch on App\Observers\TicketObserver or
+     * on the dispatcher because the thing being suppressed is a fact about
+     * *these tickets*, not about the request. Deleting a column moves every
+     * ticket out of it one model at a time
+     * (App\Actions\Columns\DeleteColumn::moveTickets), which the observer sees
+     * as a status change per ticket — so without this, tidying a board would
+     * notify everybody assigned a card on it. The alternative, a flag on a
+     * service, would need that service to be a singleton and would then be
+     * global state that a forgotten `finally` could leave switched on.
+     *
+     * The move is still recorded in the timeline and still broadcast; only the
+     * bell is quiet, and the timeline says the column was removed.
+     */
+    public bool $withoutStatusNotification = false;
+
+    /**
      * `board_id`, `number`, `customer_visible` and `created_by_id` are
      * deliberately absent: identity and visibility are assigned by actions,
      * never by whatever array a form happens to submit.
@@ -46,6 +68,7 @@ class Ticket extends Model
     protected $fillable = [
         'board_column_id',
         'title',
+        'type',
         'description_md',
         'priority',
         'assignee_id',
@@ -59,6 +82,7 @@ class Ticket extends Model
     {
         return [
             'priority' => TicketPriority::class,
+            'type' => TicketType::class,
             'due_date' => 'date',
             'customer_visible' => 'boolean',
             'estimate' => 'decimal:2',

@@ -70,10 +70,25 @@ class Bell extends Component
     public function render(NotificationReader $reader)
     {
         $user = auth()->user();
+        $items = $user === null ? collect() : $reader->items($user);
 
         return view('livewire.notifications.bell', [
-            'items' => $user === null ? collect() : $reader->items($user),
+            'items' => $items,
             'unread' => $user === null ? 0 : $reader->unreadCount($user),
+
+            /*
+             * How many more there are than the bell is showing.
+             *
+             * Worth the extra pass: the badge counts everything readable inside
+             * the reader's window while the list shows fifteen, so without this
+             * a badge of thirty above a list of fifteen reads as a bug rather
+             * than as a truncation. Only computed when the list is actually
+             * full.
+             */
+            'hidden' => $user === null || $items->count() < NotificationReader::PAGE
+                ? 0
+                : max(0, $reader->visibleCount($user) - $items->count()),
+
             // Polling is the fallback for deployments without a websocket
             // server; with Reverb running the bell is pushed instead.
             'polling' => ! Broadcasting::enabled(),

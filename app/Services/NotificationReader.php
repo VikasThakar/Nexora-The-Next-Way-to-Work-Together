@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enums\TicketPriority;
+use App\Models\BoardColumn;
 use App\Models\Comment;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Notifications\MentionedInComment;
 use App\Notifications\TicketAssigned;
+use App\Notifications\TicketPriorityChanged;
+use App\Notifications\TicketStatusChanged;
 use App\Support\NotificationItem;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Collection;
@@ -41,11 +45,19 @@ class NotificationReader
     public const WINDOW = 50;
 
     /**
+     * How many rows the bell shows at once.
+     *
+     * Fewer than WINDOW, so a busy week does not put fifty rows in a dropdown.
+     * The gap between the two is what visibleCount() exists to report.
+     */
+    public const PAGE = 15;
+
+    /**
      * The most recent notifications this user may still be shown.
      *
      * @return Collection<int, NotificationItem>
      */
-    public function items(User $user, int $limit = 15): Collection
+    public function items(User $user, int $limit = self::PAGE): Collection
     {
         $notifications = $user->notifications()
             ->latest()
@@ -53,6 +65,25 @@ class NotificationReader
             ->get();
 
         return $this->resolve($notifications, $user)->take($limit)->values();
+    }
+
+    /**
+     * How many readable notifications there are within the window.
+     *
+     * The bell shows PAGE of them, and until this existed there was no way to
+     * tell that the rest were there: a badge counting thirty above a list of
+     * fifteen looked like a miscount rather than a truncation. The count is of
+     * the resolved list, so it is a count of things this viewer may actually
+     * see — never a count of rows in the table.
+     */
+    public function visibleCount(User $user): int
+    {
+        $notifications = $user->notifications()
+            ->latest()
+            ->limit(self::WINDOW)
+            ->get();
+
+        return $this->resolve($notifications, $user)->count();
     }
 
     /**
@@ -112,6 +143,7 @@ class NotificationReader
         $ticketIds = $payloads->pluck('ticket_id')->filter()->unique()->all();
         $commentIds = $payloads->pluck('comment_id')->filter()->unique()->all();
         $actorIds = $payloads->pluck('actor_id')->filter()->unique()->all();
+        $columnIds = $payloads->pluck('column_id')->filter()->unique()->all();
 
         // The security step. Both scopes apply board membership and the
         // customer rule; anything not returned is simply not shown.
@@ -133,14 +165,38 @@ class NotificationReader
             ->get(['id', 'name'])
             ->keyBy('id');
 
+        /*
+         * Columns for the "moved to" notifications.
+         *
+         * Read live rather than stored as a name, so a column renamed next
+         * month reads correctly in a notification written today — while *which*
+         * column the ticket moved into stays frozen, which is what a reader of
+         * an old notification wants to know.
+         *
+         * Not scoped: a column carries nothing but a name and a board id, and
+         * the board id is checked against the ticket's below. A tampered
+         * payload therefore cannot name a column from a board the recipient
+         * cannot see.
+         */
+        $columns = $columnIds === [] ? collect() : BoardColumn::query()
+            ->whereIn('id', $columnIds)
+            ->get(['id', 'board_id', 'name'])
+            ->keyBy('id');
+
         return $notifications
-            ->map(function (DatabaseNotification $row) use ($tickets, $comments, $actors): ?NotificationItem {
+            ->map(function (DatabaseNotification $row) use ($tickets, $comments, $actors, $columns): ?NotificationItem {
                 $data = (array) $row->data;
 
                 $ticket = $tickets->get($data['ticket_id'] ?? null);
 
                 if (! $ticket instanceof Ticket) {
                     return null;
+                }
+
+                $column = $columns->get($data['column_id'] ?? null);
+
+                if ($column instanceof BoardColumn && (int) $column->board_id !== (int) $ticket->board_id) {
+                    $column = null;
                 }
 
                 $comment = null;
@@ -161,7 +217,7 @@ class NotificationReader
                 return new NotificationItem(
                     id: (string) $row->getKey(),
                     type: $type,
-                    message: $this->message($type, $ticket, $comment, $actorName),
+                    message: $this->message($type, $ticket, $comment, $actorName, $column, $data),
                     ticketKey: $ticket->key(),
                     url: route('tickets.show', ['board' => $ticket->board, 'number' => $ticket->number]),
                     actorName: $actorName,
@@ -176,14 +232,33 @@ class NotificationReader
 
     /**
      * The line shown in the bell, built from live records.
+     *
+     * @param  array<string, mixed>  $data  the stored payload, for the closed
+     *                                      enum values that are frozen in it
      */
-    private function message(string $type, Ticket $ticket, ?Comment $comment, ?string $actorName): string
-    {
+    private function message(
+        string $type,
+        Ticket $ticket,
+        ?Comment $comment,
+        ?string $actorName,
+        ?BoardColumn $column = null,
+        array $data = [],
+    ): string {
         $who = $actorName ?? 'Somebody';
 
         return match ($type) {
             TicketAssigned::TYPE => $who.' assigned '.$ticket->key().' to you',
             MentionedInComment::TYPE => $who.' mentioned you on '.$ticket->key(),
+
+            TicketStatusChanged::TYPE => $column instanceof BoardColumn
+                ? $who.' moved '.$ticket->key().' to '.$column->name
+                // The column was deleted after the notification was written.
+                // The move still happened, so it is still reported.
+                : $who.' moved '.$ticket->key(),
+
+            TicketPriorityChanged::TYPE => $who.' set '.$ticket->key().' to '
+                .(TicketPriority::tryFrom((string) ($data['priority'] ?? ''))?->label() ?? 'a new priority'),
+
             default => $comment !== null && $comment->isInternal()
                 ? $who.' added an internal note on '.$ticket->key()
                 : $who.' commented on '.$ticket->key(),

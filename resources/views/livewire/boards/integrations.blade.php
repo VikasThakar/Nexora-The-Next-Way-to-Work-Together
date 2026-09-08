@@ -2,7 +2,7 @@
     <x-ui.page-header
         title="Integrations"
         :description="'How '.$board->name.' talks to the outside world.'"
-        :breadcrumb="$board->name"
+        :trail="\App\Support\Breadcrumbs::boardChild($board, 'Integrations')"
     >
         <x-slot:actions>
             <x-ui.button :href="route('boards.ai-settings', $board)" variant="secondary" size="md">AI settings</x-ui.button>

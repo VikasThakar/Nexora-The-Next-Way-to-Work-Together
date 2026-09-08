@@ -57,6 +57,16 @@ class FakeAiProvider implements AiProviderInterface
         return $this->configured;
     }
 
+    /**
+     * Every fragment handed to a streaming caller, in order.
+     *
+     * Asserting on this is how a test checks that a caller streamed at all,
+     * rather than quietly falling back to one big write at the end.
+     *
+     * @var list<string>
+     */
+    public array $streamedChunks = [];
+
     public function complete(AiPrompt $prompt): AiCompletion
     {
         $this->calls++;
@@ -75,6 +85,60 @@ class FakeAiProvider implements AiProviderInterface
             toolCalls: $this->toolCalls,
             metadata: ['provider' => 'fake'],
         );
+    }
+
+    /**
+     * Stream the configured answer a word at a time.
+     *
+     * Chunked rather than emitted whole so a test can tell real progressive
+     * delivery from a single write, and so the accumulation the caller performs
+     * is actually exercised. The failure path throws *before* any chunk, which
+     * is the order the real provider fails in when the request is rejected.
+     */
+    public function completeStreamed(AiPrompt $prompt, callable $onText): AiCompletion
+    {
+        $this->calls++;
+        $this->prompts[] = $prompt;
+
+        if ($this->throws !== null) {
+            throw $this->throws;
+        }
+
+        // An empty leading call, as the real provider makes on message_start.
+        // Callers have to tolerate it, so the fake produces it.
+        $onText('');
+        $this->streamedChunks[] = '';
+
+        foreach ($this->chunks($this->text) as $chunk) {
+            $onText($chunk);
+            $this->streamedChunks[] = $chunk;
+        }
+
+        return new AiCompletion(
+            text: $this->text,
+            inputTokens: $this->inputTokens,
+            outputTokens: $this->outputTokens,
+            model: $this->model,
+            stopReason: $this->stopReason,
+            toolCalls: $this->toolCalls,
+            metadata: ['provider' => 'fake', 'streamed' => true],
+        );
+    }
+
+    /**
+     * Split text into fragments that reassemble to exactly the original.
+     *
+     * @return list<string>
+     */
+    private function chunks(string $text): array
+    {
+        if ($text === '') {
+            return [];
+        }
+
+        $pieces = preg_split('/(?<=\s)/', $text) ?: [$text];
+
+        return array_values(array_filter($pieces, static fn (string $piece): bool => $piece !== ''));
     }
 
     // -----------------------------------------------------------------

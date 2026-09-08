@@ -41,6 +41,13 @@
         'confirm-danger' => 'bg-rose-50 text-rose-600',
         'confirm-warning' => 'bg-amber-50 text-amber-600',
         'confirm-brand' => 'bg-brand-50 text-brand-600',
+
+        /*
+         * A prompt asks for a line of text — a link address, a name. It is not
+         * consequential, so it gets the neutral brand tint rather than a
+         * warning colour.
+         */
+        'prompt' => 'bg-brand-50 text-brand-600',
     ];
 @endphp
 
@@ -121,10 +128,12 @@
                         <path x-show="$store.dialog.config.type === 'info'" stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
                         {{-- question-mark-circle, for a confirmation carrying no particular weight --}}
                         <path x-show="$store.dialog.config.type === 'confirm' && !['danger', 'warning'].includes($store.dialog.config.tone)" stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+                        {{-- pencil-square, for a prompt --}}
+                        <path x-show="$store.dialog.isPrompt" stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
                     </svg>
                 </div>
 
-                <div class="mt-3 text-center sm:mt-0 sm:text-left">
+                <div class="mt-3 min-w-0 flex-1 text-center sm:mt-0 sm:text-left">
                     <h2 id="dialog-title" class="text-base font-semibold text-slate-900" x-text="$store.dialog.config.title"></h2>
 
                     <p
@@ -133,6 +142,35 @@
                         class="mt-1.5 text-sm text-slate-600"
                         x-text="$store.dialog.config.body"
                     ></p>
+
+                    {{--
+                        The prompt's text field.
+
+                        Rendered here rather than by whichever feature needs to
+                        ask a question, so there is still exactly one modal, one
+                        focus trap and one Escape handler in the document.
+
+                        Enter submits. `x-effect` focuses and selects the
+                        existing text when the dialog opens, which is what makes
+                        editing an existing value — a link address already on the
+                        selection — a matter of typing over it rather than
+                        clearing it first.
+                    --}}
+                    <div x-show="$store.dialog.isPrompt" class="mt-3 text-left">
+                        <label for="dialog-input" class="mb-1 block text-xs font-medium text-slate-600"
+                               x-text="$store.dialog.config.inputLabel"
+                               x-show="$store.dialog.config.inputLabel"></label>
+
+                        <x-ui.input
+                            id="dialog-input"
+                            x-model="$store.dialog.config.value"
+                            x-bind:placeholder="$store.dialog.config.placeholder"
+                            x-effect="if ($store.dialog.isPrompt && $store.dialog.open) { $nextTick(() => { $el.focus(); $el.select() }) }"
+                            x-on:keydown.enter.prevent="$store.dialog.confirmed()"
+                            autocomplete="off"
+                            spellcheck="false"
+                        />
+                    </div>
                 </div>
             </div>
 
@@ -155,10 +193,12 @@
                     variant styling stays entirely inside x-ui.button and is
                     never restated as a string here.
                 --}}
+                {{-- A prompt is never destructive, so it never gets the red
+                     button however the tone happens to be left over. --}}
                 <x-ui.button
                     type="button"
                     variant="danger"
-                    x-show="$store.dialog.isConfirmation && $store.dialog.config.tone === 'danger'"
+                    x-show="$store.dialog.isConfirmation && !$store.dialog.isPrompt && $store.dialog.config.tone === 'danger'"
                     x-on:click="$store.dialog.confirmed()"
                     x-text="$store.dialog.config.confirmText"
                 />
@@ -166,7 +206,7 @@
                 <x-ui.button
                     type="button"
                     variant="primary"
-                    x-show="!$store.dialog.isConfirmation || $store.dialog.config.tone !== 'danger'"
+                    x-show="$store.dialog.isPrompt || !$store.dialog.isConfirmation || $store.dialog.config.tone !== 'danger'"
                     x-on:click="$store.dialog.confirmed()"
                     x-text="$store.dialog.config.confirmText"
                 />

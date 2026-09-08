@@ -10,13 +10,8 @@
     <x-ui.page-header
         title="AI settings"
         description="What the model is allowed to do on this board, and what it costs."
+        :trail="\App\Support\Breadcrumbs::boardChild($board, 'AI settings')"
     >
-        <x-slot:breadcrumb>
-            <a href="{{ route('boards.index') }}" wire:navigate class="hover:text-slate-700">Boards</a>
-            <span class="mx-1">/</span>
-            <a href="{{ route('boards.show', $board) }}" wire:navigate class="hover:text-slate-700">{{ $board->name }}</a>
-        </x-slot:breadcrumb>
-
         <x-slot:actions>
             <x-ui.button :href="route('boards.ai-chat', $board)" variant="secondary">Workspace AI chat</x-ui.button>
             <x-ui.button :href="route('boards.integrations', $board)" variant="secondary">Integrations</x-ui.button>

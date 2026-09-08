@@ -36,6 +36,14 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
  *   3. On read of the tree — DocPageFinder drops any node whose parent is not
  *      in the visible set, so a broken invariant cannot surface as an orphan.
  *
+ * Drafts
+ * ------
+ * `draft_md` is the documentation editor's autosave buffer, not a second body.
+ * It exists because the editor saves on a timer and `body_md` must not: there
+ * is no revision history to recover a mistake from, and a published page would
+ * otherwise show customers half-written prose. Only an explicit save moves a
+ * draft into `body_md`. Nothing renders `draft_md` to a reader.
+ *
  * @property-read int $depth
  */
 class DocPage extends Model
@@ -58,6 +66,7 @@ class DocPage extends Model
     {
         return [
             'customer_visible' => 'boolean',
+            'draft_saved_at' => 'datetime',
             'position' => 'integer',
         ];
     }
@@ -111,6 +120,16 @@ class DocPage extends Model
         return $this->belongsTo(User::class, 'updated_by_id');
     }
 
+    /**
+     * Whose unsaved draft this is.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function draftBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'draft_by_id');
+    }
+
     /** @return MorphMany<Attachment, $this> */
     public function attachments(): MorphMany
     {
@@ -120,6 +139,29 @@ class DocPage extends Model
     // ---------------------------------------------------------------------
     // Presentation
     // ---------------------------------------------------------------------
+
+    /**
+     * Is there unsaved work on this page?
+     *
+     * `draft_saved_at` is the marker rather than `draft_md`, so a draft that
+     * deliberately empties a document still counts as one.
+     *
+     * A draft equal to what is saved is not unsaved work — it is what a save
+     * would leave behind if its discard ever failed — so it does not count,
+     * and no recovery banner appears over nothing.
+     *
+     * Reads columns the sidebar tree does not select, so this is a question
+     * for a fully loaded page only.
+     */
+    public function hasDraft(): bool
+    {
+        if ($this->draft_saved_at === null) {
+            return false;
+        }
+
+        return (string) $this->draft_title !== (string) $this->title
+            || (string) $this->draft_md !== (string) $this->body_md;
+    }
 
     public function isInternal(): bool
     {

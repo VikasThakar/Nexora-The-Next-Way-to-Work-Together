@@ -4,20 +4,24 @@ declare(strict_types=1);
 
 namespace App\Livewire\Ai;
 
-use App\Actions\AI\ExecuteChatAction;
-use App\Models\AiChatMessage;
+use App\Livewire\Ai\Concerns\TalksToWorkspaceAi;
 use App\Models\Board;
-use App\Services\AI\Exceptions\AiProviderException;
+use App\Services\AI\AiContextScope;
 use App\Services\AI\WorkspaceChatService;
 use App\Services\ContentRenderer;
 use App\Support\BoardAiSettings;
-use Illuminate\Auth\Access\AuthorizationException;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
-use RuntimeException;
 
 /**
- * The team-only workspace AI chat, for one board.
+ * The full-page workspace AI chat, for one board.
+ *
+ * Since the assistant moved into the top bar this is no longer the primary way
+ * in — App\Livewire\Ai\Assistant is. It is kept because it is still the right
+ * surface for a long session on one board: a whole-window transcript, a
+ * bookmarkable URL, and a link from the board's AI settings screen. The asking,
+ * streaming and confirming are shared with the panel through
+ * TalksToWorkspaceAi, so the two cannot drift apart.
  *
  * Customers are excluded twice over and neither check is the UI: the route group
  * carries `role:admin,team`, and BoardPolicy::useAiChat denies as 404 on mount
@@ -39,13 +43,9 @@ use RuntimeException;
 #[Layout('layouts.app')]
 class Chat extends Component
 {
+    use TalksToWorkspaceAi;
+
     public Board $board;
-
-    public string $draft = '';
-
-    public bool $sending = false;
-
-    public ?int $confirmingMessageId = null;
 
     public function mount(Board $board): void
     {
@@ -55,130 +55,33 @@ class Chat extends Component
         $this->board = $board;
     }
 
-    // -----------------------------------------------------------------
-    // Asking
-    // -----------------------------------------------------------------
-
-    public function send(WorkspaceChatService $chat): void
+    protected function contextScope(): AiContextScope
     {
-        $this->authorize('useAiChat', $this->board);
-
-        if (! BoardAiSettings::providerConfigured()) {
-            session()->flash('error', 'No AI provider is configured for this deployment.');
-
-            return;
-        }
-
-        $validated = $this->validate([
-            'draft' => ['required', 'string', 'max:8000'],
-        ], attributes: ['draft' => 'message']);
-
-        $question = $validated['draft'];
-
-        // Cleared before the call, so a slow answer cannot be resubmitted by a
-        // second click on a page that still shows the text.
-        $this->draft = '';
-
-        try {
-            $chat->ask($this->board, auth()->user(), $question);
-        } catch (AiProviderException $exception) {
-            // The user's own turn is already stored, so the transcript shows
-            // what was asked and that it did not get through.
-            session()->flash('error', $exception->getMessage());
-        }
-    }
-
-    // -----------------------------------------------------------------
-    // Proposed actions
-    // -----------------------------------------------------------------
-
-    public function startConfirming(int $messageId): void
-    {
-        $this->authorize('useAiChat', $this->board);
-
-        $this->confirmingMessageId = $this->message($messageId)->getKey();
-    }
-
-    public function cancelConfirming(): void
-    {
-        $this->confirmingMessageId = null;
+        return AiContextScope::board($this->board);
     }
 
     /**
-     * Carry out a proposed action.
+     * A page may abort, and should.
      *
-     * Authorization happens twice and they are different questions: `useAiChat`
-     * asks whether this person may be on this screen at all, and
-     * ExecuteChatAction then authorizes the actual write — `create` on a ticket,
-     * `update` on a page — against the same abilities the ordinary screens use.
-     * Being allowed to chat grants nothing.
+     * The panel cannot — it renders inside every layout — but this component
+     * *is* the page, so the historic 404 is both safe and correct here.
      */
-    public function confirm(ExecuteChatAction $execute): void
+    protected function requireAccess(): bool
     {
         $this->authorize('useAiChat', $this->board);
 
-        $message = $this->message((int) $this->confirmingMessageId);
-
-        try {
-            $result = $execute->handle($this->board, $message, auth()->user());
-        } catch (AuthorizationException) {
-            $this->confirmingMessageId = null;
-            session()->flash('error', 'You are not allowed to make that change.');
-
-            return;
-        } catch (RuntimeException $exception) {
-            $this->confirmingMessageId = null;
-            session()->flash('error', $exception->getMessage());
-
-            return;
-        }
-
-        $this->confirmingMessageId = null;
-
-        session()->flash('status', $result['label'].'.');
-    }
-
-    public function discard(int $messageId, ExecuteChatAction $execute): void
-    {
-        $this->authorize('useAiChat', $this->board);
-
-        $execute->discard($this->message($messageId), auth()->user());
-
-        $this->confirmingMessageId = null;
-    }
-
-    public function clearHistory(WorkspaceChatService $chat): void
-    {
-        // Clearing a shared transcript removes other people's questions, so it
-        // is held to the higher bar of the two: configuring the board's AI,
-        // rather than merely being allowed to chat.
-        $this->authorize('manageAiSettings', $this->board);
-
-        $chat->clear($this->board);
-
-        session()->flash('status', 'Conversation cleared.');
+        return true;
     }
 
     /**
-     * Resolve a message id from the browser within this board.
+     * The board being read is the page context, and it is not browser-supplied.
      *
-     * Read through the scoped query, so a swapped id cannot reach a transcript on
-     * another board: it 404s instead of resolving.
+     * @return array<string, mixed>
      */
-    private function message(int $messageId): AiChatMessage
+    protected function pageHint(): array
     {
-        $message = AiChatMessage::query()
-            ->visibleTo(auth()->user())
-            ->forBoard($this->board)
-            ->whereKey($messageId)
-            ->first();
-
-        abort_unless($message instanceof AiChatMessage, 404);
-
-        return $message;
+        return ['board' => $this->board->slug];
     }
-
-    // -----------------------------------------------------------------
 
     public function render(WorkspaceChatService $chat, ContentRenderer $renderer)
     {
@@ -186,7 +89,7 @@ class Chat extends Component
 
         $user = auth()->user();
 
-        $messages = $chat->transcript($this->board, $user, 100);
+        $messages = $chat->transcript($this->contextScope(), $user, 100);
 
         // Rendered per viewer, because ContentRenderer resolves ticket
         // references and mentions against what *this* reader may open. The same

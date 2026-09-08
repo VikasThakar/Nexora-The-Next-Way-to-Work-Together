@@ -128,9 +128,40 @@ class AppServiceProvider extends ServiceProvider
         $this->configureUrls();
         $this->configureRateLimiting();
         $this->configureNotificationChannels();
+        $this->configureTemporaryUploads();
         $this->assertAttachmentStorageIsDurable();
 
         Vite::prefetch(concurrency: 3);
+    }
+
+    /**
+     * Put Livewire's temporary uploads on the same disk as the finished files.
+     *
+     * A Livewire upload is two requests: the browser sends the file, and a
+     * later request turns it into an Attachment. Between them the bytes sit on
+     * `livewire.temporary_file_upload.disk`, which defaults to
+     * `filesystems.default` — NOT to `attachments.disk`.
+     *
+     * Those two can differ, and on Railway that is the normal case: a
+     * deployment may set ATTACHMENT_DISK=s3 while leaving FILESYSTEM_DISK
+     * alone. The upload then lands on the container filesystem and the second
+     * request has to find it there. With one replica it does, which is why this
+     * has never bitten; with two, roughly half of all uploads fail with "the
+     * file has expired" — and the rich text editor makes uploads routine rather
+     * than occasional, because pasting a screenshot is one.
+     *
+     * Set here rather than in a published config/livewire.php so the whole
+     * decision sits next to assertAttachmentStorageIsDurable(), which is the
+     * other half of the same subject. Only ever fills in a value nobody has
+     * set: an explicit livewire.temporary_file_upload.disk always wins.
+     */
+    private function configureTemporaryUploads(): void
+    {
+        if (config('livewire.temporary_file_upload.disk') !== null) {
+            return;
+        }
+
+        config(['livewire.temporary_file_upload.disk' => config('attachments.disk')]);
     }
 
     private function configureModels(): void

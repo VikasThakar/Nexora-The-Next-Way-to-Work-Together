@@ -2,6 +2,7 @@
     <x-ui.page-header
         title="Users"
         description="Accounts are created here. A new account sees nothing until it is added to a board."
+        :trail="\App\Support\Breadcrumbs::users()"
     >
         <x-slot:actions>
             <x-ui.button :href="route('users.create')">New user</x-ui.button>

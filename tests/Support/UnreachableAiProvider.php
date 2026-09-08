@@ -33,11 +33,19 @@ class UnreachableAiProvider implements AiProviderInterface
 {
     public function complete(AiPrompt $prompt): AiCompletion
     {
-        throw new RuntimeException(
-            'This test reached the AI provider without faking it, which would have made a real '
+        throw new RuntimeException($this->explanation());
+    }
+
+    public function completeStreamed(AiPrompt $prompt, callable $onText): AiCompletion
+    {
+        throw new RuntimeException($this->explanation());
+    }
+
+    private function explanation(): string
+    {
+        return 'This test reached the AI provider without faking it, which would have made a real '
             .'billed API call. Call $this->fakeAiProvider() in the test to bind Tests\Support\FakeAiProvider, '
-            .'or assert on the refusal instead if the test is about AI being unconfigured.'
-        );
+            .'or assert on the refusal instead if the test is about AI being unconfigured.';
     }
 
     /**

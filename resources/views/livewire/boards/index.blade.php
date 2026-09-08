@@ -2,6 +2,7 @@
     <x-ui.page-header
         title="Boards"
         description="Every board you have access to. Access is granted per board, never workspace-wide."
+        :trail="\App\Support\Breadcrumbs::boards()"
     >
         @if ($canCreateBoards)
             <x-slot:actions>

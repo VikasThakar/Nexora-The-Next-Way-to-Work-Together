@@ -6,6 +6,7 @@ namespace App\Actions\Tickets;
 
 use App\Enums\TicketEventType;
 use App\Enums\TicketPriority;
+use App\Enums\TicketType;
 use App\Models\Board;
 use App\Models\BoardColumn;
 use App\Models\Ticket;
@@ -37,6 +38,7 @@ class CreateTicket
     /**
      * @param  array{
      *     title: string,
+     *     type?: string|TicketType|null,
      *     description_md?: ?string,
      *     priority?: string|TicketPriority|null,
      *     board_column_id?: int|string|null,
@@ -59,6 +61,7 @@ class CreateTicket
             $ticket = new Ticket([
                 'board_column_id' => $column->getKey(),
                 'title' => trim($attributes['title']),
+                'type' => $this->resolveType($attributes['type'] ?? null),
                 'description_md' => $this->nullIfBlank($attributes['description_md'] ?? null),
                 'priority' => $this->resolvePriority($attributes['priority'] ?? null),
                 'assignee_id' => $isCustomer
@@ -90,6 +93,7 @@ class CreateTicket
                 // flow metrics measure, so creation is recorded as a transit
                 // into it and not merely as "a ticket appeared".
                 'to_column_id' => $column->getKey(),
+                'type' => $ticket->type->value,
                 'customer_visible' => $ticket->customer_visible,
                 'raised_by_customer' => $isCustomer,
             ], $author);
@@ -165,6 +169,24 @@ class CreateTicket
         return $board->assignableMembers()->whereKey((int) $assigneeId)->exists()
             ? (int) $assigneeId
             : null;
+    }
+
+    /**
+     * Offered to everyone, customers included.
+     *
+     * Unlike assignee or estimate this is not a delivery-team decision: whoever
+     * raises a ticket knows better than anybody whether they are reporting a
+     * defect or asking for something new, and the team can reclassify it during
+     * triage. An unrecognised value falls back to the default rather than
+     * failing, exactly as priority does.
+     */
+    private function resolveType(string|TicketType|null $type): TicketType
+    {
+        if ($type instanceof TicketType) {
+            return $type;
+        }
+
+        return TicketType::tryFrom((string) $type) ?? TicketType::default();
     }
 
     private function resolvePriority(string|TicketPriority|null $priority): TicketPriority

@@ -25,6 +25,14 @@ enum ActivityCategory: string
     case Tickets = 'tickets';
     case Comments = 'comments';
     case Documentation = 'documentation';
+
+    /*
+     * GitHub. Its own category rather than filed under Tickets, because "what
+     * shipped this week" and "what did the team change this week" are the two
+     * questions this feed gets asked and they want different filters.
+     */
+    case Development = 'development';
+
     case Members = 'members';
     case Settings = 'settings';
 
@@ -35,6 +43,7 @@ enum ActivityCategory: string
             self::Tickets => 'Tickets',
             self::Comments => 'Comments',
             self::Documentation => 'Documentation',
+            self::Development => 'Development',
             self::Members => 'Members',
             self::Settings => 'Settings',
         };

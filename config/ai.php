@@ -299,7 +299,37 @@ return [
             'tickets' => (int) env('AI_CHAT_CONTEXT_TICKETS', 60),
             'doc_pages' => (int) env('AI_CHAT_CONTEXT_PAGES', 40),
             'activity' => (int) env('AI_CHAT_CONTEXT_EVENTS', 40),
+
+            /*
+             * The "All workspace" context, which spans boards rather than
+             * detailing one.
+             *
+             * Much smaller per board than the figures above, on purpose:
+             * breadth multiplied by the depth of a single-board context would
+             * spend the whole window on material the question probably does not
+             * need. Titles only, no descriptions, no documentation, no history —
+             * see App\Services\AI\WorkspaceContextBuilder.
+             */
+            'workspace' => [
+                'boards' => (int) env('AI_CHAT_CONTEXT_BOARDS', 12),
+                'tickets_per_board' => (int) env('AI_CHAT_CONTEXT_BOARD_TICKETS', 6),
+            ],
         ],
+
+        /*
+         * How long a streaming answer may hold its HTTP request open, in
+         * seconds.
+         *
+         * Streaming keeps one request alive for the length of the answer, so
+         * the request needs a longer limit than php.ini's global
+         * max_execution_time — which stays low deliberately, because it is what
+         * bounds every *other* request. Applied with set_time_limit() only on
+         * the streaming path.
+         *
+         * Must not be lower than ai.anthropic.timeout, or the request is killed
+         * while the provider is still within its own allowance.
+         */
+        'stream_time_limit' => (int) env('AI_CHAT_STREAM_TIME_LIMIT', 360),
     ],
 
 ];

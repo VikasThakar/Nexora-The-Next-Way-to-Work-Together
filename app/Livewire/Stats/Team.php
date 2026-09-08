@@ -64,6 +64,10 @@ class Team extends Component
             'period' => $scope->period,
             'boardOptions' => $this->boardOptions(),
 
+            // The filters as the CSV route expects them, so a download link and
+            // the report above it cannot describe different periods.
+            'exportFilters' => $this->exportQuery(),
+
             'counts' => $counts,
             'byColumn' => $team->byColumn($scope),
             'byPriority' => $team->byPriority($scope),

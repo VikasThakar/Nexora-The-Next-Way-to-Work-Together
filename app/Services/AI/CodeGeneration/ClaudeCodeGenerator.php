@@ -247,6 +247,7 @@ class ClaudeCodeGenerator implements CodeChangeGeneratorInterface
 
         return false;
     }
+
     /**
      * Strip anything that looks like a credential out of runtime output.
      *

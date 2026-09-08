@@ -4,15 +4,10 @@
         :description="$board
             ? 'Change how this board is identified. Membership is managed on the board page.'
             : 'Create a board and choose who can see it. Nobody except administrators sees a board they are not a member of.'"
-    >
-        <x-slot:breadcrumb>
-            <a href="{{ route('boards.index') }}" wire:navigate class="hover:text-slate-700">Boards</a>
-            @if ($board)
-                <span class="mx-1">/</span>
-                <a href="{{ route('boards.show', $board) }}" wire:navigate class="hover:text-slate-700">{{ $board->name }}</a>
-            @endif
-        </x-slot:breadcrumb>
-    </x-ui.page-header>
+        :trail="$board
+            ? \App\Support\Breadcrumbs::boardChild($board, 'Board settings')
+            : \App\Support\Breadcrumbs::newBoard()"
+    />
 
     <form wire:submit="save" class="grid gap-6 lg:grid-cols-3">
         <div class="space-y-6 lg:col-span-2">

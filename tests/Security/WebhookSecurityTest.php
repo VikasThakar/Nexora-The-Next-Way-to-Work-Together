@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Security;
 
-use App\Livewire\Tickets\Components\GithubActivity;
+use App\Enums\TicketEventType;
+use App\Livewire\Tickets\Components\Activity as TicketTimeline;
 use App\Models\GithubLink;
 use App\Models\WebhookDelivery;
 use App\Services\GitHub\GithubLinkReader;
 use App\Services\GitHub\WebhookSignature;
+use App\Services\TicketActivity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
@@ -168,6 +170,15 @@ class WebhookSecurityTest extends TestCase
         $this->assertSame(0, GithubLink::query()->forTicket($victim)->count());
     }
 
+    /**
+     * GitHub activity now lives in the ticket's own timeline rather than in a
+     * panel of its own, which changes how it is kept from a customer: the
+     * component is one they are allowed to open, and the *rows* are what must
+     * not be in it.
+     *
+     * That is TicketEvent::readableBy() dropping every type
+     * TicketEventType::isInternalOnly() marks — in SQL, before the renderer.
+     */
     public function test_a_customer_cannot_see_github_activity_on_their_own_ticket(): void
     {
         $team = $this->teamMember();
@@ -175,15 +186,27 @@ class WebhookSecurityTest extends TestCase
         $board = $this->boardWithColumns([$team, $customer]);
         $ticket = $this->ticketOn($board, $customer, ['title' => 'Export broken']);
 
-        GithubLink::factory()->forTicket($ticket)->pullRequest()->create([
+        app(TicketActivity::class)->recordWithoutActor($ticket, TicketEventType::GithubPullRequestOpened, [
+            'reference' => '#128',
+            'short_reference' => '#128',
             'title' => 'Disable VAT for EU resellers',
+            'url' => 'https://github.com/acme/app/pull/128',
+            'repository' => 'acme/app',
+            'author' => 'octocat',
         ]);
 
-        // 404 rather than 403: a customer must not learn that their ticket has
-        // an engineering trail attached to it.
         Livewire::actingAs($customer)
-            ->test(GithubActivity::class, ['ticket' => $ticket])
-            ->assertNotFound();
+            ->test(TicketTimeline::class, ['ticket' => $ticket])
+            ->assertDontSee('Disable VAT for EU resellers')
+            ->assertDontSee('#128')
+            ->assertDontSee('acme/app')
+            ->assertDontSee('octocat');
+
+        // …and the delivery team does see it, so the four assertions above are
+        // the boundary working rather than an empty timeline.
+        Livewire::actingAs($team)
+            ->test(TicketTimeline::class, ['ticket' => $ticket])
+            ->assertSee('Disable VAT for EU resellers');
     }
 
     public function test_the_ticket_page_renders_no_github_detail_for_a_customer(): void
@@ -195,12 +218,19 @@ class WebhookSecurityTest extends TestCase
 
         GithubLink::factory()->forTicket($ticket)->branch('aqd-1-disable-vat-for-eu-resellers')->create();
 
+        app(TicketActivity::class)->recordWithoutActor($ticket, TicketEventType::GithubBranchCreated, [
+            'reference' => 'aqd-1-disable-vat-for-eu-resellers',
+            'short_reference' => 'aqd-1-disable-vat-for-eu-resellers',
+            'url' => 'https://github.com/acme/app/tree/aqd-1-disable-vat-for-eu-resellers',
+            'repository' => 'acme/app',
+        ]);
+
         $this->actingAs($customer)
             ->get(route('tickets.show', ['board' => $board, 'number' => $ticket->number]))
             ->assertOk()
             // A branch name is often a paraphrase of the fix.
             ->assertDontSee('disable-vat-for-eu-resellers')
-            ->assertDontSee('GitHub');
+            ->assertDontSee('acme/app');
     }
 
     public function test_the_reader_returns_nothing_for_a_customer_even_when_asked_directly(): void

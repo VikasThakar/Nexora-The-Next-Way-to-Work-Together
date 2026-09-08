@@ -6,6 +6,7 @@ namespace App\Observers;
 
 use App\Actions\AI\TriggerAutomaticAiRun;
 use App\Actions\Notifications\AlertCriticalTicket;
+use App\Enums\TicketPriority;
 use App\Models\BoardColumn;
 use App\Models\Ticket;
 use App\Models\User;
@@ -103,7 +104,49 @@ class TicketObserver
         // "Shipped" still works.
         if ($ticket->wasChanged('board_column_id')) {
             $this->announceIfDone($ticket);
+            $this->notifyStatusChange($ticket);
         }
+
+        if ($ticket->wasChanged('priority')) {
+            $this->notifyPriorityChange($ticket);
+        }
+    }
+
+    /**
+     * "AQD-42 moved to In Progress", for the assignee and the reporter.
+     *
+     * Skipped when the ticket says so. Deleting a column moves every ticket out
+     * of it one model at a time (App\Actions\Columns\DeleteColumn), and that
+     * arrives here as a status change per ticket — so tidying a board would
+     * send a notification for every card on it, to everybody assigned one. The
+     * flag is set on the instances that flow through that path and nowhere
+     * else; see Ticket::$withoutStatusNotification for why it lives on the
+     * model rather than as a switch on this class.
+     */
+    private function notifyStatusChange(Ticket $ticket): void
+    {
+        if ($ticket->withoutStatusNotification) {
+            return;
+        }
+
+        $column = BoardColumn::query()->find($ticket->board_column_id);
+
+        if (! $column instanceof BoardColumn) {
+            return;
+        }
+
+        $this->notifications->ticketStatusChanged($ticket, $column, $this->currentUser());
+    }
+
+    private function notifyPriorityChange(Ticket $ticket): void
+    {
+        $priority = $ticket->priority;
+
+        if (! $priority instanceof TicketPriority) {
+            return;
+        }
+
+        $this->notifications->ticketPriorityChanged($ticket, $priority, $this->currentUser());
     }
 
     /**

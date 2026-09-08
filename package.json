@@ -8,6 +8,11 @@
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.0.0",
+        "@tiptap/core": "^3.31.3",
+        "@tiptap/extension-image": "^3.31.3",
+        "@tiptap/extension-list": "^3.31.3",
+        "@tiptap/extension-table": "^3.31.3",
+        "@tiptap/starter-kit": "^3.31.3",
         "axios": "^1.11.0",
         "concurrently": "^9.0.1",
         "laravel-echo": "^2.4.0",

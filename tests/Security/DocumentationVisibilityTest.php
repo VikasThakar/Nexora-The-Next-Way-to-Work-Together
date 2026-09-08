@@ -10,7 +10,9 @@ use App\Livewire\Docs\Show as DocsShow;
 use App\Models\DocPage;
 use App\Services\DocPageFinder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use RuntimeException;
 use Tests\TestCase;
@@ -279,6 +281,86 @@ class DocumentationVisibilityTest extends TestCase
             ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
             ->call('confirmDelete')
             ->assertForbidden();
+    }
+
+    /**
+     * The editor added three write paths that are reachable without going
+     * through startEditing() — a timer, a blurred field and a button on the
+     * read view. Each has to refuse a customer on its own.
+     */
+    public function test_a_customer_cannot_reach_the_editors_own_write_paths(): void
+    {
+        $team = $this->teamMember();
+        $customer = $this->customer();
+        $board = $this->boardWithColumns([$team, $customer]);
+
+        $page = $this->publishedPageOn($board, $team, [
+            'title' => 'Readable',
+            'body_md' => 'As published.',
+        ]);
+
+        // The autosave. Marked as editing first, because a customer forging a
+        // request would.
+        Livewire::actingAs($customer)
+            ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
+            ->set('editing', true)
+            ->set('descriptionHtml', '<p>Injected.</p>')
+            ->call('autosave')
+            ->assertForbidden();
+
+        // The title field's blur hook.
+        Livewire::actingAs($customer)
+            ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
+            ->set('editing', true)
+            ->set('title', 'Renamed by a customer')
+            ->assertForbidden();
+
+        Livewire::actingAs($customer)
+            ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
+            ->call('cancelEditing')
+            ->assertForbidden();
+
+        Livewire::actingAs($customer)
+            ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
+            ->call('discardDraft')
+            ->assertForbidden();
+
+        $page->refresh();
+
+        $this->assertSame('Readable', $page->title);
+        $this->assertSame('As published.', (string) $page->body_md);
+        $this->assertNull($page->draft_saved_at);
+    }
+
+    /**
+     * A file pasted into the editor is an attachment on the page, so it is
+     * exactly as protected as the page — and a customer may not add one at all.
+     */
+    public function test_a_customer_cannot_attach_a_file_through_the_editor(): void
+    {
+        Storage::fake('local');
+
+        $team = $this->teamMember();
+        $customer = $this->customer();
+        $board = $this->boardWithColumns([$team, $customer]);
+
+        $page = $this->publishedPageOn($board, $team, ['title' => 'Readable']);
+
+        Livewire::actingAs($customer)
+            ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
+            ->set('pendingUploads', [UploadedFile::fake()->image('theirs.png')])
+            ->call('attachUploads')
+            // manageAttachments on a page is DocPagePolicy::update, which is
+            // staff only. The upload never reaches AttachmentStorage.
+            ->assertForbidden();
+
+        $this->assertSame(0, $page->attachments()->count());
+
+        // And the control is not offered either.
+        $this->actingAs($customer)
+            ->get(route('docs.show', ['board' => $board, 'slug' => $page->slug]))
+            ->assertOk()
+            ->assertDontSee('attachUploads');
     }
 
     public function test_a_customer_cannot_reorder_the_tree(): void

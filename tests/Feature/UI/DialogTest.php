@@ -262,9 +262,9 @@ class DialogTest extends TestCase
         // Guards the regex itself: if the attribute spelling ever changes, this
         // test would otherwise pass by scanning nothing at all.
         $this->assertSame(
-            8,
+            11,
             $found,
-            'Expected to find the 8 known confirmations; found '.$found.'. '
+            'Expected to find the 11 known confirmations; found '.$found.'. '
             .'If a confirmation was added or removed, update this count.'
         );
     }

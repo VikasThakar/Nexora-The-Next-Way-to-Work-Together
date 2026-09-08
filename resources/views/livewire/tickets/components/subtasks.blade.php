@@ -7,6 +7,36 @@
     title="Checklist"
     :description="$total > 0 ? $completedCount.' of '.$total.' complete' : 'Break this ticket down into steps.'"
 >
+    @if ($canConvert)
+        {{--
+            The transition off this panel.
+
+            Checklists now also live inside the description, which is what the
+            client asked for. Both work, and nothing converts on its own: this
+            is the one deliberate, per-ticket step, and the confirmation says
+            plainly what it keeps and what it does not.
+        --}}
+        <x-slot:actions>
+            <x-ui.button
+                type="button"
+                variant="ghost"
+                size="sm"
+                wire:click="convertToChecklist"
+                :confirm="[
+                    'title' => 'Move this checklist into the description?',
+                    'body' => 'The '.$total.' '.\Illuminate\Support\Str::plural('item', $total).' will be appended to the '
+                        .'description as a checklist you can tick there, and this panel will empty. Which items are '
+                        .'complete is kept; who completed them and when is recorded in the ticket history rather than '
+                        .'shown on the item. This cannot be undone from here.',
+                    'confirmText' => 'Move into description',
+                    'tone' => 'warning',
+                ]"
+            >
+                Move into description
+            </x-ui.button>
+        </x-slot:actions>
+    @endif
+
     @if ($total > 0)
         <div class="mb-4 h-1.5 overflow-hidden rounded-full bg-slate-100">
             <div class="h-full rounded-full bg-emerald-500 transition-all" style="width: {{ $percent }}%"></div>

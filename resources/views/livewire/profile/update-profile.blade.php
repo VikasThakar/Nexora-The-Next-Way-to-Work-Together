@@ -6,6 +6,7 @@
     <x-ui.page-header
         title="Profile"
         description="Your account details and password."
+        :trail="\App\Support\Breadcrumbs::settings('Profile')"
     />
 
     <div class="grid max-w-4xl gap-6 lg:grid-cols-3">

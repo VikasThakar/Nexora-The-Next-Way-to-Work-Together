@@ -31,7 +31,7 @@
 
 /** Shape of a dialog, with the defaults every caller inherits. */
 const DEFAULTS = {
-    // success | error | warning | info | confirm
+    // success | error | warning | info | confirm | prompt
     type: 'info',
     title: '',
     body: '',
@@ -39,6 +39,20 @@ const DEFAULTS = {
     tone: 'danger',
     confirmText: 'Confirm',
     cancelText: 'Cancel',
+
+    /*
+     * `prompt` only: the text field.
+     *
+     * A prompt exists because the rich text editor needs to ask for a link
+     * address, and `window.prompt` is exactly the kind of native dialog this
+     * file replaces — unstyleable, tab-blocking, and prefixed with the host
+     * name. Adding the type here rather than building an input into the editor
+     * means one dialog in the DOM, one focus trap, one Escape handler, and any
+     * future "name this thing" question gets it for free.
+     */
+    value: '',
+    placeholder: '',
+    inputLabel: '',
     /*
      * Whether Escape and a backdrop click dismiss it.
      *
@@ -111,20 +125,34 @@ function createStore() {
             }
         },
 
+        /**
+         * A prompt resolves with the text; everything else with true.
+         *
+         * Trimmed here rather than at the call site, so no caller has to
+         * remember: whitespace typed into a link field is not an address.
+         */
         confirmed() {
-            this.settle(true)
+            this.settle(this.isPrompt ? String(this.config.value ?? '').trim() : true)
         },
 
         dismissed() {
             // Ignored for a dialog that must be acknowledged.
-            if (this.config.dismissible) {
-                this.settle(false)
+            if (! this.config.dismissible) {
+                return
             }
+
+            // null rather than false, so a prompt can tell "cancelled" from
+            // "submitted empty" — which for a link means "remove the link".
+            this.settle(this.isPrompt ? null : false)
         },
 
-        /** Non-confirmation dialogs have one button, which just closes them. */
+        /** Dialogs with a cancel button as well as an action. */
         get isConfirmation() {
-            return this.config.type === 'confirm'
+            return this.config.type === 'confirm' || this.isPrompt
+        },
+
+        get isPrompt() {
+            return this.config.type === 'prompt'
         },
     }
 }
@@ -162,6 +190,17 @@ function createApi(store) {
 
         /** @returns {Promise<boolean>} */
         confirm: (config) => store.show({ type: 'confirm', confirmText: 'Confirm', ...config }),
+
+        /**
+         * Ask for a line of text.
+         *
+         * Resolves with the trimmed string, or null if it was dismissed. An
+         * empty string is a real answer and is deliberately distinguishable
+         * from a cancellation.
+         *
+         * @returns {Promise<string|null>}
+         */
+        ask: (config) => store.show({ type: 'prompt', confirmText: 'Save', ...config }),
 
         success: message('success'),
         error: message('error'),

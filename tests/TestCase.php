@@ -34,6 +34,22 @@ use Tests\Support\UnreachableAiProvider;
 abstract class TestCase extends BaseTestCase
 {
     /**
+     * Frames streamed by a Livewire component during this test.
+     *
+     * Filled by the output handler installed in setUp(); read through
+     * streamedOutput().
+     */
+    private string $streamedOutput = '';
+
+    /**
+     * The output-buffer depth before this test installed its own handler.
+     *
+     * PHPUnit wraps each test in a buffer of its own, so tearDown() must unwind
+     * only as far as this — closing PHPUnit's buffer makes every test "risky".
+     */
+    private int $outputBufferDepth = 0;
+
+    /**
      * Make the suite independent of whoever's `.env` it happens to run against.
      *
      * The test suite loads the developer's `.env` (there is no `.env.testing`),
@@ -61,6 +77,58 @@ abstract class TestCase extends BaseTestCase
         config(['ai.anthropic.api_key' => null]);
 
         $this->app->instance(AiProviderInterface::class, new UnreachableAiProvider);
+
+        /*
+         * Capture Livewire's streamed frames instead of printing them.
+         *
+         * Livewire streams by echoing a JSON frame per fragment and flushing —
+         * correct in a real request, and unreadable in a test runner, where one
+         * streamed answer prints a dozen frames between the test names.
+         *
+         * A handler that returns '' is what makes this work: ob_flush() passes
+         * the buffer to the handler and sends on whatever it returns, so
+         * returning nothing swallows the frame while still letting the test see
+         * it through streamedOutput(). A plain ob_start() would not do — the
+         * flush would print the frames and empty the buffer before a test could
+         * read it.
+         *
+         * PHPUnit's own printer writes to php://stdout directly rather than
+         * through PHP's output buffering, so failure reporting is unaffected.
+         */
+        $this->streamedOutput = '';
+        $this->outputBufferDepth = ob_get_level();
+
+        ob_start(function (string $chunk): string {
+            $this->streamedOutput .= $chunk;
+
+            return '';
+        });
+    }
+
+    protected function tearDown(): void
+    {
+        while (ob_get_level() > $this->outputBufferDepth) {
+            ob_end_clean();
+        }
+
+        parent::tearDown();
+    }
+
+    /**
+     * Everything the component streamed during this test.
+     *
+     * The raw JSON frames, so an assertion can check what actually went on the
+     * wire — which is the only way to prove streamed content was escaped, given
+     * that Livewire's client assigns it with innerHTML.
+     */
+    protected function streamedOutput(): string
+    {
+        // Frames written since the last flush are still sitting in the buffer.
+        if (ob_get_level() > 0) {
+            ob_flush();
+        }
+
+        return $this->streamedOutput;
     }
 
     protected function admin(array $attributes = []): User

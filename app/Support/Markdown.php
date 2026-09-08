@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support;
 
+use App\Support\Underline\UnderlineExtension;
 use Illuminate\Support\Str;
 
 /**
@@ -43,6 +44,12 @@ class Markdown
             // Code blocks are highlighted here rather than in the browser; see
             // App\Support\CodeHighlightExtension for why.
             new CodeHighlightExtension,
+
+            // `++underline++`, the one place this flavour is wider than
+            // GitHub's. Registered here rather than at the ticket screen so
+            // every surface that renders prose agrees about the same stored
+            // text. See App\Support\Underline\Underline for why it exists.
+            new UnderlineExtension,
         ]);
     }
 

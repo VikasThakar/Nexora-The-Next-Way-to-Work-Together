@@ -54,9 +54,28 @@
     <div class="mt-3 flex items-center gap-2 text-xs text-slate-500">
         <span class="font-mono font-medium text-slate-400">{{ $ticket->key() }}</span>
 
+        {{--
+            The type, shown only when it is a Bug.
+
+            Task is the default and Feature is unremarkable, so labelling all
+            three would put a chip on every card and communicate nothing. A bug
+            is the one that changes how somebody reads the board at a glance.
+        --}}
+        @if ($ticket->type === \App\Enums\TicketType::Bug)
+            <span class="inline-flex items-center rounded px-1 py-px text-[10px] font-semibold text-rose-700 ring-1 ring-rose-200 ring-inset"
+                  title="Bug">
+                Bug
+            </span>
+        @endif
+
         @if ($canSeeInternal && ! $ticket->customer_visible)
-            {{-- Only staff ever render this, and only staff can see the ticket. --}}
-            <span class="inline-flex items-center gap-1 rounded px-1 py-px text-[10px] font-medium text-amber-700 ring-1 ring-amber-200 ring-inset"
+            {{--
+                Only staff ever render this, and only staff can see the ticket.
+                Kept as a bare chip rather than x-ui.internal-badge: a Kanban
+                card is dense, and the full pill with its lock crowds the row.
+                The colour and wording match the badge.
+            --}}
+            <span class="inline-flex items-center gap-1 rounded px-1 py-px text-[10px] font-medium text-slate-500 ring-1 ring-slate-300 ring-inset"
                   title="Internal only. Not visible to the customer.">
                 Internal
             </span>

@@ -6,6 +6,7 @@ use App\Http\Controllers\AttachmentController;
 use App\Http\Controllers\Auth\LogoutController;
 use App\Http\Controllers\GitHubWebhookController;
 use App\Http\Controllers\HealthController;
+use App\Http\Controllers\StatisticsExportController;
 use App\Livewire\Activity\Index as ActivityIndex;
 use App\Livewire\Ai\Chat as AiChat;
 use App\Livewire\Auth\ConfirmPassword;
@@ -22,6 +23,7 @@ use App\Livewire\Boards\Show as BoardShow;
 use App\Livewire\Dashboard\Index as Dashboard;
 use App\Livewire\Docs\Show as DocsShow;
 use App\Livewire\Profile\UpdateProfile;
+use App\Livewire\Settings\Index as SettingsIndex;
 use App\Livewire\Stats\Customer as CustomerStats;
 use App\Livewire\Stats\Team as TeamStats;
 use App\Livewire\Tickets\Create as TicketCreate;
@@ -93,6 +95,17 @@ Route::middleware('auth')->group(function (): void {
 
     Route::get('/dashboard', Dashboard::class)->name('dashboard');
 
+    /*
+     * Settings.
+     *
+     * The index is a directory, not a store: it renders authorized links to the
+     * profile, the per-board configuration screens and workspace
+     * administration, all of which continue to own their own settings and
+     * re-authorize on arrival. It is listed before the profile route only for
+     * readability — the two URIs are distinct literals and cannot collide.
+     */
+    Route::get('/settings', SettingsIndex::class)->name('settings');
+
     Route::get('/settings/profile', UpdateProfile::class)->name('profile.edit');
 
     /*
@@ -109,6 +122,24 @@ Route::middleware('auth')->group(function (): void {
      */
     Route::get('/stats', TeamStats::class)->middleware('role:admin,team')->name('stats');
     Route::get('/stats/customer', CustomerStats::class)->name('stats.customer');
+
+    /*
+     * The numbers behind a chart, as a CSV.
+     *
+     * Behind the same role gate as the team screen, and re-checked inside the
+     * controller. It takes the same four filter values the screen puts in its
+     * query string and resolves them through the same
+     * StatisticsScopeResolver — so a download link on the page and the report
+     * on the page cannot describe different periods, and a board slug in the
+     * URL cannot widen either.
+     *
+     * PNG and SVG are not here. Those are the rendered chart, serialised from
+     * the page in the browser (resources/js/chart-export.js); there is nothing
+     * for the server to do and nothing extra to authorize.
+     */
+    Route::get('/stats/export', StatisticsExportController::class)
+        ->middleware('role:admin,team')
+        ->name('stats.export');
 
     /*
      * Activity.

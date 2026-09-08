@@ -1,16 +1,10 @@
 <div>
-    <x-ui.page-header :title="$ticket->title">
-        <x-slot:breadcrumb>
-            <a href="{{ route('boards.show', $board) }}" wire:navigate class="hover:text-slate-700">{{ $board->name }}</a>
-            <span class="mx-1">/</span>
-            <span class="font-mono font-medium text-slate-600">{{ $ticket->key() }}</span>
-        </x-slot:breadcrumb>
-
+    <x-ui.page-header :title="$ticket->title" :trail="\App\Support\Breadcrumbs::ticket($ticket)">
         <x-slot:actions>
             @if ($ticket->customer_visible)
                 <x-ui.badge variant="emerald">Customer-visible</x-ui.badge>
             @elseif ($canSeeInternal)
-                <x-ui.badge variant="amber">Internal only</x-ui.badge>
+                <x-ui.internal-badge label="Internal only" />
             @endif
 
             <x-ui.button :href="route('boards.show', $board)" variant="secondary" size="sm">Back to board</x-ui.button>
@@ -29,6 +23,14 @@
             <x-ui.card :title="$editing ? 'Edit ticket' : 'Description'">
                 @if ($editing)
                     <x-slot:actions>
+                        {{-- Markdown source, for anybody who wants their
+                             formatting left exactly as they typed it: the rich
+                             editor normalises bullet characters and table
+                             padding. See App\Support\RichText\RichText. --}}
+                        <x-ui.button type="button" variant="ghost" size="sm" wire:click="toggleMarkdownMode">
+                            {{ $markdownMode ? 'Rich text' : 'Markdown' }}
+                        </x-ui.button>
+
                         <x-ui.button type="button" variant="ghost" size="sm" wire:click="togglePreview">
                             {{ $previewing ? 'Write' : 'Preview' }}
                         </x-ui.button>
@@ -39,19 +41,31 @@
                             <x-ui.input id="ticket-title" wire:model="title" :invalid="$errors->has('title')" />
                         </x-ui.field>
 
+                        {{--
+                            `for` only in Markdown mode.
+
+                            A <label for> has to name an element that exists.
+                            The rich editor's writing surface is created by
+                            ProseMirror at runtime and carries its own
+                            aria-label, so pointing a label at the id of a
+                            textarea that is not rendered would be worse than
+                            no association at all.
+                        --}}
                         <x-ui.field
                             label="Description"
-                            for="ticket-description"
+                            :for="$markdownMode ? 'ticket-description' : null"
                             :error="$errors->first('descriptionMd')"
-                            hint="Markdown is supported. Raw HTML is stripped."
+                            :hint="$markdownMode
+                                ? 'Markdown source. Raw HTML is stripped.'
+                                : 'Paste a screenshot to attach it. Markdown shortcuts work as you type.'"
                         >
                             @if ($previewing)
                                 <div class="markdown min-h-40 rounded-lg border border-slate-200 bg-slate-50 p-3">
                                     {{-- Safe to render unescaped: App\Support\Markdown strips raw
                                          HTML and unsafe link schemes before this point. --}}
-                                    {!! $descriptionHtml ?: '<p class="text-slate-400">Nothing to preview.</p>' !!}
+                                    {!! $renderedDescription ?: '<p class="text-slate-400">Nothing to preview.</p>' !!}
                                 </div>
-                            @else
+                            @elseif ($markdownMode)
                                 <x-ui.textarea
                                     id="ticket-description"
                                     rows="12"
@@ -59,6 +73,27 @@
                                     wire:model="descriptionMd"
                                     :invalid="$errors->has('descriptionMd')"
                                 >{{ $descriptionMd }}</x-ui.textarea>
+                            @else
+                                {{--
+                                    wire:key differs between the two branches on
+                                    purpose. The editor lives inside wire:ignore,
+                                    so Livewire's morph must be made to replace
+                                    the element rather than patch around it —
+                                    otherwise switching back from Markdown would
+                                    leave the old, stale editor in place.
+                                --}}
+                                <div wire:key="rich-{{ $ticket->id }}">
+                                    <x-ui.rich-editor
+                                        property="descriptionHtml"
+                                        :html="$editorHtml"
+                                        :uploader="$canAttachInEditor ? 'pendingUploads' : null"
+                                        :invalid="$errors->has('descriptionMd')"
+                                    />
+                                </div>
+
+                                @error('pendingUploads.*')
+                                    <p class="mt-1 text-xs text-rose-600">{{ $message }}</p>
+                                @enderror
                             @endif
                         </x-ui.field>
 
@@ -71,7 +106,65 @@
                     @if (trim((string) $ticket->description_md) === '')
                         <p class="text-sm text-slate-400">No description yet.</p>
                     @else
-                        <div class="markdown">{!! $descriptionHtml !!}</div>
+                        {{--
+                            The rendered description, with its checklist made
+                            live.
+
+                            CommonMark renders a task list as a *disabled*
+                            checkbox, which is correct as a default — the reader
+                            may not be allowed to change it. So the boxes stay
+                            exactly as rendered for a reader without the right,
+                            and for everybody else a real control is overlaid
+                            per item below.
+                        --}}
+                        <div class="markdown @if ($canTickTasks) markdown-interactive @endif">{!! $renderedDescription !!}</div>
+
+                        @if ($canTickTasks && $descriptionTasks !== [])
+                            @php
+                                $done = collect($descriptionTasks)->where('checked', true)->count();
+                                $total = count($descriptionTasks);
+                            @endphp
+
+                            {{--
+                                The live checklist.
+
+                                Rendered as its own list rather than by rewiring
+                                the checkboxes inside the prose above, because
+                                those are produced by the Markdown renderer and
+                                cannot carry a wire:click without this template
+                                parsing and rewriting rendered HTML — which is
+                                exactly the kind of string surgery that turns
+                                into an injection bug.
+                            --}}
+                            <div class="mt-4 border-t border-slate-100 pt-3">
+                                <p class="mb-2 text-xs font-medium text-slate-500">
+                                    Checklist in this description &middot; {{ $done }} of {{ $total }} complete
+                                </p>
+
+                                <div class="space-y-0.5">
+                                    @foreach ($descriptionTasks as $task)
+                                        <label
+                                            wire:key="desc-task-{{ $task['index'] }}"
+                                            class="flex cursor-pointer items-baseline gap-2 rounded px-1 py-1 text-sm transition hover:bg-slate-50"
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                @checked($task['checked'])
+                                                wire:click="toggleDescriptionTask({{ $task['index'] }})"
+                                                wire:loading.attr="disabled"
+                                                wire:target="toggleDescriptionTask"
+                                                class="mt-0.5 size-4 shrink-0 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                            >
+                                            <span @class([
+                                                'min-w-0 flex-1',
+                                                'text-slate-400 line-through' => $task['checked'],
+                                                'text-slate-800' => ! $task['checked'],
+                                            ])>{{ $task['label'] }}</span>
+                                        </label>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endif
                     @endif
                 @endif
             </x-ui.card>
@@ -88,10 +181,18 @@
             --}}
             @if ($canSeeInternal)
                 <livewire:tickets.components.ai-runs :ticket="$ticket" :key="'ai-runs-'.$ticket->id" />
-
-                {{-- Same reasoning: internal, and the component 404s anyway. --}}
-                <livewire:tickets.components.github-activity :ticket="$ticket" :key="'github-'.$ticket->id" />
             @endif
+
+            {{--
+                There is no GitHub panel here any more.
+
+                Branches, commits and pull requests are events on the Activity
+                card at the foot of this column, interleaved with what people
+                did — which is what the client asked for and what makes the
+                order of a day's work readable. Nothing was dropped: the same
+                `github_links` rows still back them, and each event links out to
+                the object on GitHub.
+            --}}
 
             <livewire:tickets.components.subtasks :ticket="$ticket" :key="'subtasks-'.$ticket->id" />
 
@@ -112,6 +213,14 @@
                         <x-ui.select id="ticket-column" wire:model.live="columnId" :disabled="! $canMove">
                             @foreach ($columns as $column)
                                 <option value="{{ $column->id }}">{{ $column->name }}</option>
+                            @endforeach
+                        </x-ui.select>
+                    </x-ui.field>
+
+                    <x-ui.field label="Type" for="ticket-type" :error="$errors->first('type')">
+                        <x-ui.select id="ticket-type" wire:model.live="type" :disabled="! $canEdit">
+                            @foreach ($typeOptions as $option)
+                                <option value="{{ $option->value }}">{{ $option->label() }}</option>
                             @endforeach
                         </x-ui.select>
                     </x-ui.field>

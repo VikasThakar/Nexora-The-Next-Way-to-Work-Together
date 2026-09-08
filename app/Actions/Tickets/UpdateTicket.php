@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Tickets;
 
 use App\Enums\TicketPriority;
+use App\Enums\TicketType;
 use App\Models\Board;
 use App\Models\Ticket;
 use App\Models\User;
@@ -56,6 +57,17 @@ class UpdateTicket
                 $ticket->priority = $priority instanceof TicketPriority
                     ? $priority
                     : (TicketPriority::tryFrom((string) $priority) ?? $ticket->priority);
+            }
+
+            if (array_key_exists('type', $attributes)) {
+                $type = $attributes['type'];
+
+                // An unrecognised value leaves the current type alone rather
+                // than resetting it to the default, which would quietly
+                // reclassify a bug as a task on a malformed request.
+                $ticket->type = $type instanceof TicketType
+                    ? $type
+                    : (TicketType::tryFrom((string) $type) ?? $ticket->type);
             }
 
             if (array_key_exists('due_date', $attributes)) {
@@ -130,7 +142,7 @@ class UpdateTicket
      */
     private function scalar(mixed $value): mixed
     {
-        if ($value instanceof TicketPriority) {
+        if ($value instanceof TicketPriority || $value instanceof TicketType) {
             return $value->value;
         }
 

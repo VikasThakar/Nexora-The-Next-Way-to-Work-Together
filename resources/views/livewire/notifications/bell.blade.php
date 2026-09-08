@@ -77,7 +77,7 @@
                                         {{-- Only ever rendered for somebody who may
                                              observe internal content: the reader
                                              would have dropped the row otherwise. --}}
-                                        <x-ui.badge variant="amber">Internal</x-ui.badge>
+                                        <x-ui.internal-badge />
                                     @endif
                                 </span>
                             </span>
@@ -85,6 +85,15 @@
                     </li>
                 @endforeach
             </ul>
+
+            @if ($hidden > 0)
+                {{-- The badge counts everything readable in the reader's
+                     window; the list shows fifteen. Saying so is the difference
+                     between a truncated list and one that looks broken. --}}
+                <p class="border-t border-slate-100 px-4 py-2 text-center text-xs text-slate-400">
+                    {{ $hidden }} older {{ \Illuminate\Support\Str::plural('notification', $hidden) }} not shown
+                </p>
+            @endif
         @endif
     </div>
 </div>

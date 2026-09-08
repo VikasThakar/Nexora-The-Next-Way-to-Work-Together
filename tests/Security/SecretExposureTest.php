@@ -4,15 +4,17 @@ declare(strict_types=1);
 
 namespace Tests\Security;
 
+use App\Enums\TicketEventType;
 use App\Enums\TicketPriority;
 use App\Livewire\Boards\AiSettings;
 use App\Livewire\Boards\Integrations;
 use App\Livewire\Stats\Customer;
 use App\Livewire\Stats\Team as TeamStats;
-use App\Livewire\Tickets\Components\GithubActivity;
+use App\Livewire\Tickets\Components\Activity as TicketTimeline;
 use App\Models\GithubLink;
 use App\Models\SmsMessage;
 use App\Models\WebhookDelivery;
+use App\Services\TicketActivity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
@@ -94,7 +96,12 @@ class SecretExposureTest extends TestCase
         $this->assertNoSecretsIn(Livewire::actingAs($team)->test(Customer::class));
     }
 
-    public function test_the_github_panel_exposes_nothing(): void
+    /**
+     * The GitHub panel this used to point at was folded into the ticket's
+     * activity timeline, so the same question is now asked of the timeline —
+     * which is where a webhook payload's contents surface.
+     */
+    public function test_the_activity_timeline_exposes_nothing(): void
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
@@ -102,8 +109,17 @@ class SecretExposureTest extends TestCase
 
         GithubLink::factory()->forTicket($ticket)->pullRequest()->create();
 
+        app(TicketActivity::class)->recordWithoutActor($ticket, TicketEventType::GithubPullRequestOpened, [
+            'reference' => '#128',
+            'short_reference' => '#128',
+            'title' => 'Disable VAT for EU resellers',
+            'url' => 'https://github.com/acme/app/pull/128',
+            'repository' => 'acme/app',
+            'author' => 'octocat',
+        ]);
+
         $this->assertNoSecretsIn(
-            Livewire::actingAs($team)->test(GithubActivity::class, ['ticket' => $ticket])
+            Livewire::actingAs($team)->test(TicketTimeline::class, ['ticket' => $ticket])
         );
     }
 

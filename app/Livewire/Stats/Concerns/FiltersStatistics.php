@@ -7,6 +7,7 @@ namespace App\Livewire\Stats\Concerns;
 use App\Models\Board;
 use App\Services\BoardAccess;
 use App\Services\Statistics\StatisticsScope;
+use App\Services\Statistics\StatisticsScopeResolver;
 use App\Support\StatsPeriod;
 use Livewire\Attributes\Url;
 
@@ -71,28 +72,43 @@ trait FiltersStatistics
      */
     protected function scope(): StatisticsScope
     {
-        $board = $this->selectedBoard();
-
-        // A slug was asked for and did not resolve. Report nothing rather than
-        // silently widening to every board — see StatisticsScope::none().
-        if ($board === null && trim($this->boardSlug) !== '') {
-            return StatisticsScope::none(auth()->user(), $this->period(
-                (string) config('workspace.board_defaults.timezone', 'UTC')
-            ));
-        }
-
-        // The timezone is the board's when a single board is selected, so its
-        // days and weeks are cut where the team actually works.
-        $base = StatisticsScope::for(auth()->user(), null, $board);
-
-        return $base->withPeriod($this->period($base->timezone()));
+        /*
+         * Delegated rather than inlined, because the CSV export route has to
+         * answer exactly the same question from exactly the same four values
+         * and is a controller rather than a component. Two implementations of
+         * "which numbers may this person ask for" is one too many.
+         */
+        return app(StatisticsScopeResolver::class)->resolve(
+            auth()->user(),
+            $this->boardSlug,
+            $this->range,
+            $this->customFrom,
+            $this->customTo,
+        );
     }
 
     protected function period(string $timezone): StatsPeriod
     {
-        return $this->range === StatsPeriod::CUSTOM
-            ? StatsPeriod::between($this->customFrom, $this->customTo, $timezone)
-            : StatsPeriod::preset($this->range, $timezone);
+        return app(StatisticsScopeResolver::class)
+            ->period($this->range, $this->customFrom, $this->customTo, $timezone);
+    }
+
+    /**
+     * The filters as the export route expects them.
+     *
+     * Built here so the download link on the page and the report on the page
+     * cannot describe different periods.
+     *
+     * @return array<string, string>
+     */
+    protected function exportQuery(): array
+    {
+        return array_filter([
+            'board' => $this->boardSlug,
+            'range' => $this->range,
+            'from' => $this->customFrom,
+            'to' => $this->customTo,
+        ], static fn (string $value): bool => $value !== '');
     }
 
     /**

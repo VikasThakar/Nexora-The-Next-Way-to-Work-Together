@@ -3,8 +3,13 @@
 
     Customers cannot reach this: the route group carries role:admin,team, the
     component authorizes useAiChat on mount and on every render, and
-    AiChatMessage::visibleTo() refuses them in SQL. The amber framing is the
-    product's consistent signal for "internal".
+    AiChatMessage::visibleTo() refuses them in SQL. The notice below is the
+    product's consistent signal for "internal" — see x-ui.internal-notice.
+
+    Assistant turns carry a quiet brand tint rather than the slate of the panel
+    around them. That is the one accent the design system spends on generated
+    content: enough to tell you at a glance who wrote a paragraph, without
+    implying anything is wrong with it.
 
     Message bodies are rendered per viewer by ContentRenderer, so a ticket
     reference links only for somebody who may open that ticket.
@@ -13,20 +18,19 @@
     <x-ui.page-header
         title="Workspace AI"
         :description="'Ask about this board. Internal to the delivery team — '.$model.'.'"
+        :trail="\App\Support\Breadcrumbs::boardChild($board, 'Workspace AI')"
     >
-        <x-slot:breadcrumb>
-            <a href="{{ route('boards.index') }}" wire:navigate class="hover:text-slate-700">Boards</a>
-            <span class="mx-1">/</span>
-            <a href="{{ route('boards.show', $board) }}" wire:navigate class="hover:text-slate-700">{{ $board->name }}</a>
-        </x-slot:breadcrumb>
 
         <x-slot:actions>
             @if ($canConfigure)
                 <x-ui.button :href="route('boards.ai-settings', $board)" variant="secondary">AI settings</x-ui.button>
+            @endif
 
-                @if ($messages->isNotEmpty())
-                    <x-ui.button type="button" variant="ghost" wire:click="clearHistory">Clear conversation</x-ui.button>
-                @endif
+            {{-- No longer behind the board-configuration ability: the
+                 transcript is this person's own, so clearing it can only ever
+                 discard their own turns. --}}
+            @if ($messages->isNotEmpty())
+                <x-ui.button type="button" variant="ghost" wire:click="clearHistory">Clear conversation</x-ui.button>
             @endif
 
             <x-ui.button :href="route('boards.show', $board)" variant="secondary">Back to board</x-ui.button>
@@ -39,22 +43,17 @@
         </div>
     @endif
 
-    @if (session('error'))
+    @if ($aiError)
         <div class="mb-5 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-            {{ session('error') }}
+            {{ $aiError }}
         </div>
     @endif
 
-    <div class="mb-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-        <svg class="mt-0.5 size-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
-        </svg>
-        <span>
-            This conversation is shared with everyone on the delivery team for this board and is never
-            shown to customers. The assistant only receives board data <strong>you</strong> are allowed to
-            see, and it cannot change anything without you confirming it first.
-        </span>
-    </div>
+    <x-ui.internal-notice class="mb-5" title="Your conversation, on this board.">
+        Only you can read it, and it is never shown to customers. The assistant only receives
+        board data <strong>you</strong> are allowed to see, and it cannot change anything without
+        you confirming it first.
+    </x-ui.internal-notice>
 
     {{-- ------------------------------------------------------------- --}}
     {{-- Transcript                                                      --}}
@@ -71,7 +70,7 @@
             <div wire:key="chat-{{ $message->id }}" @class([
                 'rounded-xl border p-4',
                 'border-slate-200 bg-white' => ! $message->role->isAssistant(),
-                'border-amber-200 bg-amber-50/50' => $message->role->isAssistant(),
+                'border-brand-200 bg-brand-50/40' => $message->role->isAssistant(),
             ])>
                 <div class="mb-2 flex items-center gap-2 text-xs">
                     <span class="font-semibold text-slate-800">
@@ -89,91 +88,7 @@
 
                 <div class="markdown text-sm">{!! $rendered[$message->id] ?? e($message->content) !!}</div>
 
-                {{-- --------------------------------------------------- --}}
-                {{-- A proposed action, and its state                      --}}
-                {{-- --------------------------------------------------- --}}
-                @php $action = $message->action(); @endphp
-
-                @if ($action)
-                    @php
-                        $type = $message->actionType();
-                        $state = $message->actionState();
-                        $input = $message->actionInput();
-                    @endphp
-
-                    <div @class([
-                        'mt-4 rounded-lg border p-3',
-                        'border-brand-200 bg-brand-50' => $state === \App\Models\AiChatMessage::ACTION_PROPOSED,
-                        'border-emerald-200 bg-emerald-50' => $state === \App\Models\AiChatMessage::ACTION_CONFIRMED,
-                        'border-slate-200 bg-slate-50' => $state === \App\Models\AiChatMessage::ACTION_DISCARDED,
-                        'border-rose-200 bg-rose-50' => $state === \App\Models\AiChatMessage::ACTION_FAILED,
-                    ])>
-                        <p class="text-xs font-semibold text-slate-800">
-                            Proposed: {{ $type?->label() ?? 'unknown action' }}
-                        </p>
-
-                        {{-- The preview. Everything the model proposed, so what is
-                             being confirmed is visible before confirming it. --}}
-                        <dl class="mt-2 space-y-1 text-xs">
-                            @foreach ($input as $field => $value)
-                                @if (is_scalar($value) && filled($value))
-                                    <div>
-                                        <dt class="font-medium text-slate-600">{{ str_replace(['_md', '_'], ['', ' '], (string) $field) }}</dt>
-                                        <dd class="whitespace-pre-wrap text-slate-700">{{ \Illuminate\Support\Str::limit((string) $value, 1200) }}</dd>
-                                    </div>
-                                @endif
-                            @endforeach
-                        </dl>
-
-                        @if ($state === \App\Models\AiChatMessage::ACTION_PROPOSED)
-                            @if ($confirming && $confirming->id === $message->id)
-                                <p class="mt-3 text-xs font-medium text-brand-900">
-                                    Confirm this change? It will be made now, as you, and recorded in the
-                                    ticket or page history.
-                                </p>
-                                <div class="mt-2 flex items-center gap-2">
-                                    <x-ui.button type="button" size="sm" wire:click="confirm">
-                                        {{ $type?->confirmLabel() ?? 'Confirm' }}
-                                    </x-ui.button>
-                                    <x-ui.button type="button" size="sm" variant="ghost" wire:click="cancelConfirming">
-                                        Not yet
-                                    </x-ui.button>
-                                </div>
-                            @else
-                                <div class="mt-3 flex items-center gap-2">
-                                    <x-ui.button
-                                        type="button"
-                                        size="sm"
-                                        wire:click="startConfirming({{ $message->id }})"
-                                    >
-                                        Review and confirm
-                                    </x-ui.button>
-                                    <x-ui.button
-                                        type="button"
-                                        size="sm"
-                                        variant="ghost"
-                                        wire:click="discard({{ $message->id }})"
-                                    >
-                                        Discard
-                                    </x-ui.button>
-                                </div>
-                            @endif
-                        @elseif ($state === \App\Models\AiChatMessage::ACTION_CONFIRMED)
-                            <p class="mt-2 text-xs text-emerald-800">
-                                {{ $action['result']['label'] ?? 'Done.' }}
-                                @if (! empty($action['result']['url']))
-                                    &middot; <a href="{{ $action['result']['url'] }}" wire:navigate class="underline">Open</a>
-                                @endif
-                            </p>
-                        @elseif ($state === \App\Models\AiChatMessage::ACTION_DISCARDED)
-                            <p class="mt-2 text-xs text-slate-500">Discarded. Nothing was changed.</p>
-                        @elseif ($state === \App\Models\AiChatMessage::ACTION_FAILED)
-                            <p class="mt-2 text-xs text-rose-800">
-                                {{ $action['error'] ?? 'That change could not be made.' }}
-                            </p>
-                        @endif
-                    </div>
-                @endif
+                <x-ai.proposal :message="$message" :confirming="$confirming" />
             </div>
         @endforeach
     </div>
@@ -188,14 +103,28 @@
                 Set <code class="font-mono">ANTHROPIC_API_KEY</code> on the web service.
             </p>
         @else
+            {{--
+                Where the answer appears while it is still arriving.
+
+                Livewire replaces this element's innerHTML with each streamed
+                fragment, so the component escapes every fragment before
+                sending it. Once the turn is stored it renders in the transcript
+                above through ContentRenderer, and this is cleared.
+            --}}
+            <div
+                wire:stream.replace="answer"
+                class="mb-3 empty:hidden rounded-xl border border-brand-200 bg-brand-50/40 p-4 text-sm whitespace-pre-wrap text-slate-700"
+            ></div>
+
             <form wire:submit="send" class="space-y-2">
                 <x-ui.textarea
                     wire:model="draft"
                     rows="3"
                     placeholder="Ask about this board — tickets, documentation, repositories. Or ask for a ticket to be drafted."
                     :invalid="$errors->has('draft')"
-                    @keydown.meta.enter="$wire.send()"
-                    @keydown.ctrl.enter="$wire.send()"
+                    :disabled="$sending"
+                    @keydown.meta.enter.prevent="$wire.send()"
+                    @keydown.ctrl.enter.prevent="$wire.send()"
                 >{{ $draft }}</x-ui.textarea>
 
                 @error('draft')
@@ -203,7 +132,9 @@
                 @enderror
 
                 <div class="flex items-center gap-3">
-                    <x-ui.button type="submit" wire:loading.attr="disabled" wire:target="send">
+                    {{-- Disabled while a question is in flight. The real guard
+                         is the re-entry check in TalksToWorkspaceAi::send(). --}}
+                    <x-ui.button type="submit" wire:loading.attr="disabled" wire:target="send" :disabled="$sending">
                         <span wire:loading.remove wire:target="send">Send</span>
                         <span wire:loading wire:target="send">Thinking…</span>
                     </x-ui.button>

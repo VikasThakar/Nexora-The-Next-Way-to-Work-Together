@@ -6,9 +6,12 @@ namespace App\Livewire\Tickets;
 
 use App\Actions\Tickets\CreateTicket;
 use App\Enums\TicketPriority;
+use App\Enums\TicketType;
+use App\Livewire\Concerns\EditsRichText;
 use App\Models\Board;
 use App\Models\Ticket;
 use App\Support\Markdown;
+use App\Support\RichText\RichText;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
@@ -25,6 +28,8 @@ use Livewire\Component;
 #[Layout('layouts.app')]
 class Create extends Component
 {
+    use EditsRichText;
+
     public Board $board;
 
     public string $title = '';
@@ -32,6 +37,8 @@ class Create extends Component
     public string $descriptionMd = '';
 
     public bool $previewing = false;
+
+    public string $type = '';
 
     public string $priority = '';
 
@@ -53,6 +60,7 @@ class Create extends Component
         $this->authorize('create', [Ticket::class, $board]);
 
         $this->board = $board;
+        $this->type = TicketType::default()->value;
         $this->priority = TicketPriority::default()->value;
         $this->columnId = (string) ($board->columns()->ordered()->value('id') ?? '');
     }
@@ -62,13 +70,30 @@ class Create extends Component
         $this->previewing = ! $this->previewing;
     }
 
-    public function save(CreateTicket $createTicket)
+    /**
+     * The board files would be filed under, if any could be.
+     *
+     * Required by EditsRichText, which needs it whenever there is an owner.
+     * There never is one here — see uploadOwner() on that trait — so this is
+     * only ever reached if a future draft-ticket flow gives it one.
+     */
+    protected function uploadBoard(): Board
+    {
+        return $this->board;
+    }
+
+    public function save(CreateTicket $createTicket, RichText $rich)
     {
         $this->authorize('create', [Ticket::class, $this->board]);
+
+        // Converted before validation, so the length limit applies to what
+        // will be stored rather than to the editor's much longer HTML.
+        $this->descriptionMd = $this->markdownFromEditor($rich, $this->descriptionMd);
 
         $validated = $this->validate([
             'title' => ['required', 'string', 'max:200'],
             'descriptionMd' => ['nullable', 'string', 'max:20000'],
+            'type' => ['required', Rule::enum(TicketType::class)],
             'priority' => ['required', Rule::enum(TicketPriority::class)],
             'columnId' => ['nullable', 'integer'],
             'assigneeId' => ['nullable', 'integer'],
@@ -81,6 +106,7 @@ class Create extends Component
         $ticket = $createTicket->handle($this->board, [
             'title' => $validated['title'],
             'description_md' => $validated['descriptionMd'],
+            'type' => $validated['type'],
             'priority' => $validated['priority'],
             'board_column_id' => $validated['columnId'] ?: null,
             'assignee_id' => $validated['assigneeId'] ?: null,
@@ -98,16 +124,18 @@ class Create extends Component
         );
     }
 
-    public function render(Markdown $markdown)
+    public function render(Markdown $markdown, RichText $rich)
     {
         $user = auth()->user();
 
         return view('livewire.tickets.create', [
             'previewHtml' => $markdown->toHtml($this->descriptionMd),
+            'editorHtml' => $this->editorHtml($rich),
             'columns' => $this->board->columns()->ordered()->get(),
             'boardLabels' => $this->board->labels()->ordered()->get(),
             'assignableMembers' => $this->board->assignableMembers()->orderBy('name')->get(),
             'priorityOptions' => TicketPriority::ordered(),
+            'typeOptions' => TicketType::ordered(),
             // Everything below the fold is staff-only. The action enforces the
             // same split, so hiding it here is presentation, not security.
             'isStaff' => $user->isStaff(),

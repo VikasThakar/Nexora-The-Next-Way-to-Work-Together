@@ -104,6 +104,17 @@ class DeleteColumn
         $tickets = $column->tickets()->ordered()->get();
 
         foreach ($tickets as $index => $ticket) {
+            /*
+             * One notification per card would be a notification per card.
+             *
+             * The observer reads a status change out of the saved diff and
+             * cannot tell a person dragging one ticket from this loop tidying a
+             * board — so it is told here, on the instances that belong to this
+             * loop. The move is still broadcast and still recorded in the
+             * timeline, where it says the column was removed.
+             */
+            $ticket->withoutStatusNotification = true;
+
             $ticket->forceFill([
                 'board_column_id' => $destination->getKey(),
                 'position' => $offset + $index,

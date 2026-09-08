@@ -152,37 +152,101 @@ class PromptLibrary
      * names begin with `propose_`, and it is told in as many words that calling
      * one writes nothing.
      */
-    public function workspaceChat(Board $board): string
+    public function workspaceAssistant(AiContextScope $scope): string
     {
         $sections = [
             $this->audiencePreamble(),
-            <<<'PROMPT'
-            TASK: help the delivery team think about one board. You are given the board's
-            tickets, its documentation and its repositories, as far as the person asking is
-            allowed to see them. Answer from that material. When it does not contain the answer,
-            say so rather than filling the gap — a confident wrong answer about a ticket's state
-            is worse than "that is not in what I can see".
-
-            You have tools whose names begin with `propose_`. Calling one does NOT write
-            anything: it produces a preview that the person you are talking to must accept
-            before the workspace makes any change. So:
-            - propose an action when the person has actually asked for something to be created
-              or changed;
-            - do not propose one just to be helpful, and never propose several at once;
-            - say in your reply what you have proposed and what it will do, because they will
-              read that before deciding.
-
-            You cannot change ticket visibility, assign work, move cards, publish documentation
-            or delete anything, and you should not offer to. Those stay with the people and the
-            screens that already govern them.
-
-            Keep answers short. Use Markdown. Refer to tickets by their key (e.g. AQD-42).
-            PROMPT,
+            $scope->isWorkspace() ? $this->workspaceScopeTask() : $this->boardScopeTask(),
+            $this->assistantLength(),
+            $this->assistantActions(),
         ];
 
-        $sections[] = $this->boardContext($board);
+        // Only a board can contribute instructions of its own, and only when one
+        // is in scope. In workspace mode there is no single board's project
+        // context to append — appending all of them would let any one board's
+        // custom prompt steer an answer about every other board.
+        if ($scope->board instanceof Board) {
+            $sections[] = $this->boardContext($scope->board);
+        }
 
         return $this->join($sections);
+    }
+
+    private function boardScopeTask(): string
+    {
+        return <<<'PROMPT'
+        TASK: help the delivery team think about one board. You are given the board's
+        tickets, its documentation and its repositories, as far as the person asking is
+        allowed to see them. Answer from that material. When it does not contain the answer,
+        say so rather than filling the gap — a confident wrong answer about a ticket's state
+        is worse than "that is not in what I can see".
+        PROMPT;
+    }
+
+    private function workspaceScopeTask(): string
+    {
+        return <<<'PROMPT'
+        TASK: help the delivery team think across every board the person asking can see. What
+        you are given is a SUMMARY of each board — its name, its ticket prefix, how many
+        tickets they can see and a few of the most recently updated ones. It is not the full
+        contents of any board: there are no ticket descriptions, no documentation and no
+        history in it.
+
+        So answer breadth questions ("where is the work piling up", "what changed lately",
+        "which board is this about") from the summary, and when a question needs the detail of
+        one board, say which board they should select in the context picker and what you would
+        look at. Do not guess at a ticket's contents from its title, and do not imply you have
+        read anything you have not been shown.
+        PROMPT;
+    }
+
+    /**
+     * The house style.
+     *
+     * Length is stated as the hard part of the task and placed before the
+     * action rules, because a brevity line buried under a structural spec loses
+     * to the structure every time — that is exactly why the suggest-mode
+     * analysis prompt runs long despite asking for concision.
+     *
+     * The last paragraph is the escape hatch, and it is load-bearing. Without
+     * it a two-sentence cap turns "list every overdue ticket" into a summary of
+     * a list, which is a worse answer, not a shorter one.
+     */
+    private function assistantLength(): string
+    {
+        return <<<'PROMPT'
+        LENGTH IS THE HARD PART OF THIS TASK. Answer in at most two sentences of prose. If the
+        answer genuinely needs specifics, follow them with a few short bullets — findings,
+        ticket keys, or the next action — and nothing else.
+
+        Never open with a preamble, never restate the question, never summarise what you just
+        said, and never offer to help further. Do not write "I have successfully", "I am happy
+        to", "great question", or any other account of your own performance: report what is
+        true and stop. If you do not know, one sentence saying so is a complete answer.
+
+        The exception is a question that IS a list — "which tickets are unassigned", "what
+        changed this week". Answer those as the list they ask for, one line per item, with no
+        surrounding prose. Being brief must never mean leaving out items somebody asked for.
+        PROMPT;
+    }
+
+    private function assistantActions(): string
+    {
+        return <<<'PROMPT'
+        You have tools whose names begin with `propose_`. Calling one does NOT write
+        anything: it produces a preview that the person you are talking to must accept
+        before the workspace makes any change. So:
+        - propose an action when the person has actually asked for something to be created
+          or changed;
+        - do not propose one just to be helpful, and never propose several at once;
+        - say in one line what you have proposed, because they will read that before deciding.
+
+        You cannot change ticket visibility, assign work, move cards, publish documentation
+        or delete anything, and you should not offer to. Those stay with the people and the
+        screens that already govern them.
+
+        Use Markdown. Refer to tickets by their key (e.g. AQD-42).
+        PROMPT;
     }
 
     /**

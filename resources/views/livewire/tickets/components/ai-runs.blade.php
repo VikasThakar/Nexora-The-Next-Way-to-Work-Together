@@ -3,25 +3,28 @@
 
     Rendered only for staff: the component authorizes on mount AND on every
     render, and AiRun::visibleTo() returns nothing for a customer anyway. The
-    amber styling is the same visual language as the internal notes tab — if it
-    is amber in this product, the customer cannot see it.
+    slate surface and the lock in the header are the same visual language as the
+    internal notes tab — see x-ui.internal-badge. Amber is no longer used for
+    this: it also means "needs attention" in this product, and a whole card of it
+    said the wrong thing loudly.
 
     Polling runs only while something is queued or running, and stops by itself.
 --}}
 <div
     @if ($hasActive) wire:poll.5s @endif
-    class="overflow-hidden rounded-xl border border-amber-200 bg-amber-50/40 shadow-xs"
+    class="overflow-hidden rounded-xl border border-slate-300 bg-slate-50 shadow-xs"
 >
-    <header class="flex flex-wrap items-start justify-between gap-3 border-b border-amber-200 bg-amber-50 px-5 py-4">
+    <header class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-300 bg-slate-100 px-5 py-4">
         <div class="min-w-0">
-            <h2 class="flex items-center gap-2 text-sm font-semibold text-amber-900">
+            <h2 class="flex items-center gap-2 text-sm font-semibold text-slate-900">
                 <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" />
                 </svg>
                 AI automation
+                <x-ui.internal-badge />
             </h2>
-            <p class="mt-0.5 text-xs text-amber-700">
-                Internal only. Nothing here is visible to the customer.
+            <p class="mt-0.5 text-xs text-slate-500">
+                Nothing here is visible to the customer.
             </p>
         </div>
 
@@ -58,7 +61,7 @@
         {{-- Starting a run                                                  --}}
         {{-- ------------------------------------------------------------- --}}
         @if (! $providerConfigured)
-            <p class="text-xs text-amber-800">
+            <p class="text-xs text-slate-600">
                 No AI provider is configured for this deployment, so no run can be started.
                 Set <code class="font-mono">ANTHROPIC_API_KEY</code> on the web and worker services.
             </p>
@@ -97,17 +100,17 @@
             </form>
 
             @if ($refusal)
-                <p class="text-xs text-amber-800">{{ $refusal->getMessage() }}</p>
+                <p class="text-xs text-slate-600">{{ $refusal->getMessage() }}</p>
             @endif
         @endif
 
         {{-- ------------------------------------------------------------- --}}
         {{-- Automation state and caps                                       --}}
         {{-- ------------------------------------------------------------- --}}
-        <dl class="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-amber-200 pt-4 text-xs sm:grid-cols-3">
+        <dl class="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-slate-300 pt-4 text-xs sm:grid-cols-3">
             <div>
-                <dt class="text-amber-700">Automatic runs</dt>
-                <dd class="font-medium text-amber-900">
+                <dt class="text-slate-500">Automatic runs</dt>
+                <dd class="font-medium text-slate-900">
                     @if ($settings->automaticMode())
                         {{ $settings->automaticMode()->label() }}
                     @else
@@ -116,25 +119,25 @@
                 </dd>
             </div>
             <div>
-                <dt class="text-amber-700">Automatic today</dt>
-                <dd class="font-medium text-amber-900">{{ $autoUsedToday }} / {{ $autoLimit }}</dd>
+                <dt class="text-slate-500">Automatic today</dt>
+                <dd class="font-medium text-slate-900">{{ $autoUsedToday }} / {{ $autoLimit }}</dd>
             </div>
             <div>
-                <dt class="text-amber-700">Manual today</dt>
-                <dd class="font-medium text-amber-900">{{ $manualUsedToday }} / {{ $manualLimit }}</dd>
+                <dt class="text-slate-500">Manual today</dt>
+                <dd class="font-medium text-slate-900">{{ $manualUsedToday }} / {{ $manualLimit }}</dd>
             </div>
         </dl>
 
         {{-- ------------------------------------------------------------- --}}
         {{-- History                                                         --}}
         {{-- ------------------------------------------------------------- --}}
-        <div class="border-t border-amber-200 pt-4">
+        <div class="border-t border-slate-300 pt-4">
             @if ($runs->isEmpty())
-                <p class="text-xs text-amber-700">No AI run has been started on this ticket.</p>
+                <p class="text-xs text-slate-500">No AI run has been started on this ticket.</p>
             @else
                 <ul class="space-y-3">
                     @foreach ($runs as $run)
-                        <li wire:key="ai-run-{{ $run->id }}" class="rounded-lg border border-amber-200 bg-white p-3">
+                        <li wire:key="ai-run-{{ $run->id }}" class="rounded-lg border border-slate-200 bg-white p-3">
                             <div class="flex flex-wrap items-center gap-2">
                                 <x-ui.badge :variant="$run->status->badge()">{{ $run->status->label() }}</x-ui.badge>
                                 <span class="text-xs font-medium text-slate-700">{{ $run->mode->label() }}</span>

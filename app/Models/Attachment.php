@@ -55,9 +55,49 @@ class Attachment extends Model
         return $this->belongsTo(User::class, 'uploaded_by_id');
     }
 
-    public function isImage(): bool
+    /**
+     * Does the stored type say this is an image?
+     *
+     * The strict question, and the only one a security decision may ask. It
+     * reads the recorded MIME type and nothing else — never the filename, which
+     * the uploader chose. App\Http\Controllers\AttachmentController uses this
+     * to decide whether a file may be served inline.
+     */
+    public function hasImageMimeType(): bool
     {
         return str_starts_with((string) $this->mime_type, 'image/');
+    }
+
+    /**
+     * Should this be presented as a picture?
+     *
+     * The lenient question, for icons and for whether the editor inserts an
+     * `<img>` or a link. It falls back to the extension, because rows written
+     * before App\Services\AttachmentStorage detected types properly all carry
+     * `application/octet-stream` — a Livewire upload loses the browser's
+     * declared type before the application ever sees it. Without the fallback
+     * every image attached before that fix would show as a generic document,
+     * for the lifetime of the workspace.
+     *
+     * Safe to be lenient here precisely because it is not the inline-serving
+     * decision: a historical row named `x.png` whose bytes are something else
+     * still gets `Content-Type: application/octet-stream` and a download.
+     */
+    public function isImage(): bool
+    {
+        if ($this->hasImageMimeType()) {
+            return true;
+        }
+
+        if ($this->mime_type !== null && $this->mime_type !== 'application/octet-stream') {
+            return false;
+        }
+
+        return in_array(
+            strtolower(pathinfo((string) $this->filename, PATHINFO_EXTENSION)),
+            ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'avif'],
+            true
+        );
     }
 
     /**

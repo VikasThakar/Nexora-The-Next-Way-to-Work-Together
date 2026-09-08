@@ -3,13 +3,11 @@
 @endphp
 
 <div>
-    <x-ui.page-header :title="$board->name" :description="$board->description">
-        <x-slot:breadcrumb>
-            <a href="{{ route('boards.index') }}" wire:navigate class="hover:text-slate-700">Boards</a>
-            <span class="mx-1">/</span>
-            <span class="font-mono">{{ $board->ticket_prefix }}</span>
-        </x-slot:breadcrumb>
-
+    <x-ui.page-header
+        :title="$board->name"
+        :description="$board->description"
+        :trail="\App\Support\Breadcrumbs::board($board)"
+    >
         <x-slot:actions>
             @unless ($canSeeInternal)
                 {{-- Customers see a permanent reminder that this is their view
@@ -25,13 +23,18 @@
                 Docs
             </x-ui.button>
 
-            {{-- Team only. Hiding the link is usability; BoardPolicy::useAiChat
-                 denies a customer as 404 on the route itself. --}}
-            @if ($canUseAiChat)
-                <x-ui.button :href="route('boards.ai-chat', $board)" variant="secondary" size="sm">
-                    Workspace AI
-                </x-ui.button>
-            @endif
+            {{--
+                The "Workspace AI" button used to be here.
+
+                The assistant is now reached from the chat icon in the top bar,
+                which opens it as a panel over whatever page you are on and is
+                available everywhere rather than only on a board. Opening it
+                here pre-selects this board as the context.
+
+                The full-page chat at boards.ai-chat is not gone — it is still
+                linked from this board's AI settings screen, and its URL still
+                works — but it is no longer the way in.
+            --}}
 
             @if ($canConfigureBoard)
                 <x-ui.button :href="route('boards.settings', $board)" variant="secondary" size="sm">
@@ -239,11 +242,19 @@
                         <div class="px-2 pb-2">
                             @if ($quickAddColumnId === $column->id)
                                 <form wire:submit="quickAdd" class="rounded-lg border border-brand-300 bg-white p-2 shadow-sm">
+                                    {{--
+                                        Enter creates the ticket; Shift-Enter is
+                                        left alone so a title can wrap. This is
+                                        the fast path and it still needs nothing
+                                        but a title, however many fields are
+                                        revealed below.
+                                    --}}
                                     <textarea
                                         wire:model="quickAddTitle"
                                         rows="2"
                                         autofocus
                                         placeholder="What needs doing?"
+                                        aria-label="Ticket title"
                                         class="w-full resize-none border-0 p-1 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-0 focus:outline-none"
                                         @keydown.enter.prevent="$wire.quickAdd()"
                                         @keydown.escape="$wire.cancelQuickAdd()"
@@ -253,8 +264,82 @@
                                         <p class="px-1 pb-1 text-xs text-rose-600">{{ $message }}</p>
                                     @enderror
 
+                                    @if ($canQuickAddDetails)
+                                        <div
+                                            @class([
+                                                'space-y-2 border-t border-slate-100 pt-2',
+                                                'hidden' => ! $quickAddExpanded,
+                                            ])
+                                            id="quick-add-details-{{ $column->id }}"
+                                        >
+                                            <div class="grid grid-cols-2 gap-1.5">
+                                                <label class="sr-only" for="qa-type-{{ $column->id }}">Type</label>
+                                                <select id="qa-type-{{ $column->id }}" wire:model="quickAddType"
+                                                        class="w-full rounded border-slate-200 py-1 text-xs text-slate-700 focus:border-brand-400 focus:ring-brand-500/30">
+                                                    @foreach ($typeOptions as $option)
+                                                        <option value="{{ $option->value }}">{{ $option->label() }}</option>
+                                                    @endforeach
+                                                </select>
+
+                                                <label class="sr-only" for="qa-priority-{{ $column->id }}">Priority</label>
+                                                <select id="qa-priority-{{ $column->id }}" wire:model="quickAddPriority"
+                                                        class="w-full rounded border-slate-200 py-1 text-xs text-slate-700 focus:border-brand-400 focus:ring-brand-500/30">
+                                                    @foreach ($priorityOptions as $option)
+                                                        <option value="{{ $option->value }}">{{ $option->label() }}</option>
+                                                    @endforeach
+                                                </select>
+                                            </div>
+
+                                            <label class="sr-only" for="qa-assignee-{{ $column->id }}">Assignee</label>
+                                            <select id="qa-assignee-{{ $column->id }}" wire:model="quickAddAssigneeId"
+                                                    class="w-full rounded border-slate-200 py-1 text-xs text-slate-700 focus:border-brand-400 focus:ring-brand-500/30">
+                                                <option value="">Unassigned</option>
+                                                @foreach ($assignableMembers as $member)
+                                                    <option value="{{ $member->id }}">{{ $member->name }}</option>
+                                                @endforeach
+                                            </select>
+
+                                            <label class="sr-only" for="qa-due-{{ $column->id }}">Due date</label>
+                                            <input type="date" id="qa-due-{{ $column->id }}" wire:model="quickAddDueDate"
+                                                   class="w-full rounded border-slate-200 py-1 text-xs text-slate-700 focus:border-brand-400 focus:ring-brand-500/30">
+
+                                            @error('quickAddDueDate')
+                                                <p class="text-xs text-rose-600">{{ $message }}</p>
+                                            @enderror
+
+                                            @if ($boardLabels->isNotEmpty())
+                                                <div class="flex flex-wrap gap-1" role="group" aria-label="Labels">
+                                                    @foreach ($boardLabels as $label)
+                                                        <button
+                                                            type="button"
+                                                            wire:click="toggleQuickAddLabel({{ $label->id }})"
+                                                            aria-pressed="{{ in_array($label->id, $quickAddLabelIds, true) ? 'true' : 'false' }}"
+                                                            @class([
+                                                                'rounded-full transition',
+                                                                'opacity-100 ring-2 ring-slate-900 ring-offset-1' => in_array($label->id, $quickAddLabelIds, true),
+                                                                'opacity-50 hover:opacity-100' => ! in_array($label->id, $quickAddLabelIds, true),
+                                                            ])
+                                                        >
+                                                            <x-ui.label-chip :label="$label" />
+                                                        </button>
+                                                    @endforeach
+                                                </div>
+                                            @endif
+                                        </div>
+                                    @endif
+
                                     <div class="flex items-center gap-2 pt-1">
                                         <x-ui.button type="submit" size="sm">Add</x-ui.button>
+
+                                        @if ($canQuickAddDetails)
+                                            <x-ui.button type="button" variant="ghost" size="sm"
+                                                         wire:click="toggleQuickAddDetails"
+                                                         aria-expanded="{{ $quickAddExpanded ? 'true' : 'false' }}"
+                                                         aria-controls="quick-add-details-{{ $column->id }}">
+                                                {{ $quickAddExpanded ? 'Fewer' : 'Details' }}
+                                            </x-ui.button>
+                                        @endif
+
                                         <x-ui.button type="button" variant="ghost" size="sm" wire:click="cancelQuickAdd">
                                             Cancel
                                         </x-ui.button>

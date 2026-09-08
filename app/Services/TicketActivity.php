@@ -46,6 +46,37 @@ class TicketActivity
         array $payload = [],
         ?User $actor = null,
     ): TicketEvent {
+        return $this->write($ticket, $type, $payload, $actor ?? $this->currentUser());
+    }
+
+    /**
+     * Record an event that no user performed.
+     *
+     * GitHub events are the case this exists for. A delivery names a GitHub
+     * login, which is not a user of this workspace, and record()'s fallback to
+     * the authenticated user would attribute a webhook to whoever happened to
+     * be signed in when it arrived — a wrong name in an append-only audit
+     * trail, which is worse than no name at all.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function recordWithoutActor(
+        Ticket $ticket,
+        TicketEventType $type,
+        array $payload = [],
+    ): TicketEvent {
+        return $this->write($ticket, $type, $payload, null);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function write(
+        Ticket $ticket,
+        TicketEventType $type,
+        array $payload,
+        ?User $actor,
+    ): TicketEvent {
         $event = TicketEvent::query()->create([
             'ticket_id' => $ticket->getKey(),
             'board_id' => $ticket->board_id,
@@ -57,7 +88,7 @@ class TicketActivity
             'from_column_id' => $this->columnId($payload, 'from_column_id'),
             'to_column_id' => $this->columnId($payload, 'to_column_id'),
             'payload' => $payload === [] ? null : $payload,
-            'actor_id' => ($actor ?? $this->currentUser())?->getKey(),
+            'actor_id' => $actor?->getKey(),
         ]);
 
         // The workspace feed. Passed the event rather than the arguments so the
