@@ -7,37 +7,46 @@ namespace Tests\Feature\Docs;
 use App\Actions\Docs\SaveDraft;
 use App\Actions\Docs\UpdatePage;
 use App\Enums\ActivityType;
+use App\Events\BoardUpdated;
 use App\Livewire\Docs\Show as DocsShow;
 use App\Models\Activity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
- * The save experience: autosaved drafts, the explicit save, and what reaches
- * the activity feed.
+ * The save experience: what an autosave writes, and what reaches the activity
+ * feed.
  *
- * The whole design turns on one rule — the autosave never writes `body_md`.
- * There is no revision history in this product, so a document written straight
- * through on a timer could be destroyed by one stray keystroke and there would
- * be nothing to recover it from; and a page published to customers would show
- * them half-written prose. The draft columns exist so autosave can be safe
- * rather than merely convenient, and most of this file is about proving that
- * separation holds.
+ * The design turns on one rule, and it is a rule about audience rather than
+ * about timing: an autosave writes as far as the page's readers allow.
+ *
+ *   an internal page is committed as it is typed. Nobody outside the delivery
+ *   team can read it, so there is nothing to protect a reader from, and the
+ *   editor behaves the way a document editor should.
+ *
+ *   a published page's autosave stops at `draft_md` and waits to be published.
+ *   A page a customer is reading changes when its author says so, and not
+ *   between their keystrokes.
+ *
+ * Most of this file is about proving that boundary holds in both directions —
+ * that the internal case really does reach `body_md`, and that the published
+ * case really does not.
  */
 class DocumentSaveStateTest extends TestCase
 {
     use RefreshDatabase;
 
     // -----------------------------------------------------------------
-    // The autosave writes a draft, not the page
+    // A published page: the autosave writes a draft, not the page
     // -----------------------------------------------------------------
 
-    public function test_an_autosave_writes_a_draft_and_leaves_the_page_alone(): void
+    public function test_an_autosave_on_a_published_page_writes_a_draft_and_leaves_the_page_alone(): void
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
-        $page = $this->docPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Saved prose.']);
+        $page = $this->publishedPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Saved prose.']);
 
         Livewire::actingAs($team)
             ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
@@ -65,7 +74,7 @@ class DocumentSaveStateTest extends TestCase
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
-        $page = $this->docPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Saved prose.']);
+        $page = $this->publishedPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Saved prose.']);
 
         $updatedAt = $page->updated_at;
 
@@ -87,7 +96,7 @@ class DocumentSaveStateTest extends TestCase
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
-        $page = $this->docPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Saved prose.']);
+        $page = $this->publishedPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Saved prose.']);
 
         $component = Livewire::actingAs($team)
             ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
@@ -111,7 +120,7 @@ class DocumentSaveStateTest extends TestCase
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
-        $page = $this->docPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Saved prose.']);
+        $page = $this->publishedPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Saved prose.']);
 
         $component = Livewire::actingAs($team)
             ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
@@ -134,7 +143,7 @@ class DocumentSaveStateTest extends TestCase
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
-        $page = $this->docPageOn($board, $team, ['title' => 'Runbook']);
+        $page = $this->publishedPageOn($board, $team, ['title' => 'Runbook']);
 
         Livewire::actingAs($team)
             ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
@@ -150,16 +159,43 @@ class DocumentSaveStateTest extends TestCase
         $this->assertNull($page->refresh()->draft_saved_at);
     }
 
-    public function test_an_autosave_outside_the_editor_does_nothing(): void
+    /**
+     * There is no "outside the editor" for a writer any more — the surface is
+     * live from the first paint. What is still guarded is an autosave arriving
+     * with no page open at all: the section index, or a replayed request.
+     */
+    public function test_an_autosave_with_no_page_open_does_nothing(): void
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
         $page = $this->docPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Saved prose.']);
 
-        // A timer that fires just after the editor closed, or a replayed
-        // request. Neither may write.
         Livewire::actingAs($team)
+            ->test(DocsShow::class, ['board' => $board])
+            ->set('descriptionHtml', '<p>Should not land.</p>')
+            ->call('autosave')
+            ->assertReturned('idle');
+
+        $page->refresh();
+
+        $this->assertSame('Saved prose.', (string) $page->body_md);
+        $this->assertNull($page->draft_saved_at);
+    }
+
+    /**
+     * A reader who may not edit cannot autosave either, however the request is
+     * built. `$editing` is decided by the policy in mount(), not by the browser.
+     */
+    public function test_a_customer_cannot_autosave_a_published_page(): void
+    {
+        $team = $this->teamMember();
+        $customer = $this->customer();
+        $board = $this->boardWithColumns([$team, $customer]);
+        $page = $this->publishedPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Saved prose.']);
+
+        Livewire::actingAs($customer)
             ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
+            ->assertSet('editing', false)
             ->set('descriptionHtml', '<p>Should not land.</p>')
             ->call('autosave')
             ->assertReturned('idle');
@@ -174,7 +210,7 @@ class DocumentSaveStateTest extends TestCase
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
-        $page = $this->docPageOn($board, $team, ['title' => 'Old name', 'body_md' => 'Saved prose.']);
+        $page = $this->publishedPageOn($board, $team, ['title' => 'Old name', 'body_md' => 'Saved prose.']);
 
         Livewire::actingAs($team)
             ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
@@ -199,11 +235,11 @@ class DocumentSaveStateTest extends TestCase
     // Saving and recovering
     // -----------------------------------------------------------------
 
-    public function test_saving_moves_the_draft_into_the_page_and_clears_it(): void
+    public function test_publishing_moves_the_draft_into_the_page_and_clears_it(): void
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
-        $page = $this->docPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Old.']);
+        $page = $this->publishedPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Old.']);
 
         Livewire::actingAs($team)
             ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
@@ -212,7 +248,9 @@ class DocumentSaveStateTest extends TestCase
             ->call('autosave')
             ->call('save')
             ->assertHasNoErrors()
-            ->assertSet('editing', false);
+            // Publishing is something done to the document, not a way out of
+            // writing it, so the surface stays live.
+            ->assertSet('editing', true);
 
         $page->refresh();
 
@@ -225,7 +263,7 @@ class DocumentSaveStateTest extends TestCase
     {
         $team = $this->teamMember(['name' => 'Ada Fell']);
         $board = $this->boardWithColumns([$team]);
-        $page = $this->docPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Saved prose.']);
+        $page = $this->publishedPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Saved prose.']);
 
         // The browser closed here.
         Livewire::actingAs($team)
@@ -246,7 +284,7 @@ class DocumentSaveStateTest extends TestCase
             ->assertSee('Ada Fell');
     }
 
-    public function test_the_read_view_warns_a_writer_that_a_draft_is_waiting(): void
+    public function test_a_waiting_draft_reaches_a_writer_and_never_a_customer(): void
     {
         $author = $this->teamMember(['name' => 'Ada Fell']);
         $colleague = $this->teamMember();
@@ -260,30 +298,30 @@ class DocumentSaveStateTest extends TestCase
 
         app(SaveDraft::class)->store($page, 'Service levels', 'Rewrite in progress.', $author);
 
-        // A colleague sees it, and is told whose it is.
+        // A colleague opens straight into the unpublished work, and is told
+        // whose it is rather than silently adopting it as their own.
         $this->actingAs($colleague)
             ->get(route('docs.show', ['board' => $board, 'slug' => $page->slug]))
             ->assertOk()
-            ->assertSee('Unsaved changes')
+            ->assertSee('unpublished changes')
             ->assertSee('Ada Fell')
-            // The page still reads as it was saved.
-            ->assertSee('We answer within a day.')
-            ->assertDontSee('Rewrite in progress.');
+            ->assertSee('Rewrite in progress.');
 
-        // A customer is told nothing and shown nothing.
+        // The customer is the whole point: the draft is not theirs to see, and
+        // the page still reads as it was published.
         $this->actingAs($customer)
             ->get(route('docs.show', ['board' => $board, 'slug' => $page->slug]))
             ->assertOk()
             ->assertSee('We answer within a day.')
-            ->assertDontSee('Unsaved changes')
+            ->assertDontSee('unpublished changes')
             ->assertDontSee('Rewrite in progress.');
     }
 
-    public function test_cancelling_out_of_the_editor_throws_the_draft_away(): void
+    public function test_discarding_unpublished_changes_throws_the_draft_away(): void
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
-        $page = $this->docPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Saved prose.']);
+        $page = $this->publishedPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Saved prose.']);
 
         Livewire::actingAs($team)
             ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
@@ -291,7 +329,8 @@ class DocumentSaveStateTest extends TestCase
             ->set('descriptionHtml', '<p>Abandoned.</p>')
             ->call('autosave')
             ->call('cancelEditing')
-            ->assertSet('editing', false)
+            // The surface stays live; what ended is the draft.
+            ->assertSet('editing', true)
             // Reverted to what is stored, not left holding the abandoned text.
             ->assertSet('bodyMd', 'Saved prose.');
 
@@ -333,7 +372,7 @@ class DocumentSaveStateTest extends TestCase
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
-        $page = $this->docPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Original.']);
+        $page = $this->publishedPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Original.']);
 
         Livewire::actingAs($team)
             ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
@@ -370,14 +409,226 @@ class DocumentSaveStateTest extends TestCase
     }
 
     // -----------------------------------------------------------------
-    // What reaches the feed
+    // An internal page: the autosave writes the page itself
     // -----------------------------------------------------------------
 
-    public function test_an_autosave_records_no_activity(): void
+    /**
+     * The headline behaviour. No Edit step, no Save button, no draft — the text
+     * is simply kept, because nobody outside the delivery team can read it.
+     */
+    public function test_an_autosave_on_an_internal_page_commits_to_the_page(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $page = $this->docPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Old prose.']);
+
+        Livewire::actingAs($team)
+            ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
+            // Live from the first paint: nothing had to be clicked to get here.
+            ->assertSet('editing', true)
+            ->set('descriptionHtml', '<p>New prose.</p>')
+            ->call('autosave')
+            ->assertReturned('saved');
+
+        $page->refresh();
+
+        $this->assertSame('New prose.', (string) $page->body_md);
+
+        // Nothing is left waiting to be published, because there is nobody to
+        // publish it to.
+        $this->assertFalse($page->hasDraft());
+        $this->assertNull($page->draft_saved_at);
+    }
+
+    public function test_a_rename_on_an_internal_page_commits_as_it_is_typed(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $page = $this->docPageOn($board, $team, ['title' => 'Old name', 'body_md' => 'Prose.']);
+
+        Livewire::actingAs($team)
+            ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
+            ->set('title', 'New name');
+
+        $page->refresh();
+
+        $this->assertSame('New name', $page->title);
+
+        // The URL is not part of a rename — see App\Actions\Docs\UpdatePage.
+        $this->assertSame('old-name', $page->slug);
+    }
+
+    /**
+     * The reason a live autosave is affordable at all: UpdatePage writes
+     * nothing when the row is clean.
+     */
+    public function test_a_live_autosave_with_nothing_new_writes_nothing(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $page = $this->docPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'Prose.']);
+
+        $component = Livewire::actingAs($team)
+            ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug]);
+
+        $component->call('autosave')->assertReturned('unchanged');
+
+        $component->set('descriptionHtml', '<p>Changed.</p>')->call('autosave')->assertReturned('saved');
+
+        // A second pass over the same text is free, and says so rather than
+        // flashing "Saved" at somebody who has typed nothing.
+        $component->call('autosave')->assertReturned('unchanged');
+    }
+
+    /**
+     * An afternoon of typing is one line in the feed, not one per pass. This is
+     * what makes committing on a timer tolerable for anybody reading activity.
+     */
+    public function test_a_live_editing_session_records_one_edit_not_one_per_autosave(): void
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
         $page = $this->docPageOn($board, $team, ['title' => 'Runbook']);
+
+        $component = Livewire::actingAs($team)
+            ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug]);
+
+        foreach (['One.', 'One and two.', 'One, two and three.'] as $body) {
+            $component->set('descriptionHtml', '<p>'.$body.'</p>')->call('autosave');
+        }
+
+        $this->assertSame('One, two and three.', (string) $page->refresh()->body_md);
+        $this->assertSame(1, $this->countActivities(ActivityType::PageUpdated));
+    }
+
+    /**
+     * Typing must not refresh anybody else's screen.
+     *
+     * A board with a busy documentation page would otherwise re-render for
+     * every reader every few seconds, which would make the realtime layer a
+     * nuisance to the people relying on it.
+     */
+    public function test_a_live_autosave_does_not_broadcast(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $page = $this->docPageOn($board, $team, ['title' => 'Runbook']);
+
+        Event::fake([BoardUpdated::class]);
+
+        Livewire::actingAs($team)
+            ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
+            ->set('descriptionHtml', '<p>Typing away.</p>')
+            ->call('autosave')
+            ->assertReturned('saved');
+
+        Event::assertNotDispatched(BoardUpdated::class);
+
+        // The write really did happen; it just kept quiet about it.
+        $this->assertSame('Typing away.', (string) $page->refresh()->body_md);
+    }
+
+    /**
+     * Publishing a page changes where its autosave lands, from that moment on.
+     * The branch is read from the page on every pass rather than captured when
+     * the editor opened, so it cannot go stale.
+     */
+    public function test_publishing_a_page_moves_its_autosave_into_the_draft(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $page = $this->docPageOn($board, $team, ['title' => 'Runbook', 'body_md' => 'First.']);
+
+        $component = Livewire::actingAs($team)
+            ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug]);
+
+        // Internal: straight through.
+        $component->set('descriptionHtml', '<p>Second.</p>')->call('autosave');
+        $this->assertSame('Second.', (string) $page->refresh()->body_md);
+
+        $component->call('toggleVisibility');
+
+        // Published: held back.
+        $component->set('descriptionHtml', '<p>Third.</p>')->call('autosave');
+
+        $page->refresh();
+
+        $this->assertSame('Second.', (string) $page->body_md);
+        $this->assertSame('Third.', (string) $page->draft_md);
+    }
+
+    // -----------------------------------------------------------------
+    // Page icons
+    // -----------------------------------------------------------------
+
+    public function test_an_icon_can_be_set_and_removed(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $page = $this->docPageOn($board, $team, ['title' => 'Runbook']);
+
+        $component = Livewire::actingAs($team)
+            ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug]);
+
+        $component->call('setIcon', '🚀');
+        $this->assertSame('🚀', (string) $page->refresh()->icon);
+
+        $component->call('setIcon', '');
+        $this->assertNull($page->refresh()->icon);
+    }
+
+    /**
+     * The column is not a second title. Anything with letters, digits or
+     * whitespace in it is refused, so a payload posted straight at the
+     * component cannot smuggle text into the sidebar.
+     */
+    public function test_the_icon_field_refuses_text(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $page = $this->docPageOn($board, $team, ['title' => 'Runbook']);
+
+        $component = Livewire::actingAs($team)
+            ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug]);
+
+        $rejected = [
+            'Read me first',
+            'A',
+            '1',
+            '🚀 rocket',
+            str_repeat('🚀', 9),
+        ];
+
+        foreach ($rejected as $value) {
+            $component->call('setIcon', $value);
+            $this->assertNull($page->refresh()->icon, $value.' should not have been stored');
+        }
+    }
+
+    public function test_a_customer_cannot_set_an_icon(): void
+    {
+        $team = $this->teamMember();
+        $customer = $this->customer();
+        $board = $this->boardWithColumns([$team, $customer]);
+        $page = $this->publishedPageOn($board, $team, ['title' => 'Runbook']);
+
+        Livewire::actingAs($customer)
+            ->test(DocsShow::class, ['board' => $board, 'slug' => $page->slug])
+            ->call('setIcon', '🚀')
+            ->assertForbidden();
+
+        $this->assertNull($page->refresh()->icon);
+    }
+
+    // -----------------------------------------------------------------
+    // What reaches the feed
+    // -----------------------------------------------------------------
+
+    public function test_an_autosave_to_a_draft_records_no_activity(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $page = $this->publishedPageOn($board, $team, ['title' => 'Runbook']);
 
         $before = Activity::query()->count();
 

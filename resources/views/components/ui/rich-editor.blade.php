@@ -33,6 +33,17 @@
      */
     'autosave' => null,
 
+    /*
+     * What the indicator says once a save has landed.
+     *
+     * A prop rather than a fixed string because the same editor writes to two
+     * different places depending on who can read the page it is editing: an
+     * internal documentation page is committed as it is typed, and telling its
+     * author "Draft saved" would describe a holding state that no longer
+     * exists. See App\Livewire\Docs\Show::autosave().
+     */
+    'savedLabel' => 'Draft saved',
+
     'label' => 'Description',
     'placeholder' => 'Write what needs doing. Use the toolbar, or Markdown shortcuts like ## and - [ ].',
     'invalid' => false,
@@ -234,7 +245,7 @@
             >
                 <span x-show="saveState === 'dirty'" x-cloak class="text-amber-700">Unsaved changes</span>
                 <span x-show="saveState === 'saving'" x-cloak class="text-slate-500">Saving…</span>
-                <span x-show="saveState === 'saved'" x-cloak class="text-emerald-700">Draft saved</span>
+                <span x-show="saveState === 'saved'" x-cloak class="text-emerald-700">{{ $savedLabel }}</span>
                 <span x-show="saveState === 'failed'" x-cloak class="text-rose-700">Not saved</span>
             </span>
         @endif

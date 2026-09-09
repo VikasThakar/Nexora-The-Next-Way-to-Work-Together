@@ -86,17 +86,24 @@ class DocumentationTest extends TestCase
         $this->assertSame($team->id, $page->updated_by_id);
     }
 
+    /**
+     * Read as a customer, because a customer is who reads the rendered
+     * document: anybody who may edit the page gets the editor instead, and the
+     * Markdown pipeline this covers is what the reading half of the product is
+     * built on.
+     */
     public function test_a_page_renders_markdown_including_tables_and_code(): void
     {
         $team = $this->teamMember();
-        $board = $this->boardWithColumns([$team]);
+        $customer = $this->customer();
+        $board = $this->boardWithColumns([$team, $customer]);
 
-        $page = $this->docPageOn($board, $team, [
+        $page = $this->publishedPageOn($board, $team, [
             'title' => 'Reference',
             'body_md' => "# Title\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n```php\n\$x = 1;\n```\n",
         ]);
 
-        $this->actingAs($team)
+        $this->actingAs($customer)
             ->get(route('docs.show', ['board' => $board, 'slug' => $page->slug]))
             ->assertOk()
             ->assertSee('<h1>Title</h1>', escape: false)
@@ -318,7 +325,8 @@ class DocumentationTest extends TestCase
         $this->actingAs($team)
             ->get(route('docs.index', $board))
             ->assertOk()
-            ->assertSee('Nothing has been written for this board yet.');
+            ->assertSee('Your documentation starts here')
+            ->assertSee('Create your first page');
     }
 
     public function test_a_title_is_required(): void

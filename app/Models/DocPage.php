@@ -39,10 +39,22 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
  * Drafts
  * ------
  * `draft_md` is the documentation editor's autosave buffer, not a second body.
- * It exists because the editor saves on a timer and `body_md` must not: there
- * is no revision history to recover a mistake from, and a published page would
- * otherwise show customers half-written prose. Only an explicit save moves a
- * draft into `body_md`. Nothing renders `draft_md` to a reader.
+ * Which of the two an autosave writes depends on who can read the page, and
+ * that split is deliberate:
+ *
+ *   an internal page autosaves straight into `body_md`. Nobody outside the
+ *   delivery team can read it, so there is no audience to show half-written
+ *   prose to, and the editor can behave the way a document editor should —
+ *   no save button, no mode, the text is simply kept.
+ *
+ *   a customer-visible page autosaves into `draft_md` and stays there until
+ *   somebody publishes it. A page a customer is reading must change when its
+ *   author decides it changes, not between their keystrokes.
+ *
+ * Nothing renders `draft_md` to a reader, published or not. See
+ * App\Livewire\Docs\Show::autosave() for the branch, and
+ * App\Actions\Docs\SaveDraft for why a draft write never touches the page's
+ * own timestamps.
  *
  * @property-read int $depth
  */
@@ -58,6 +70,7 @@ class DocPage extends Model
      */
     protected $fillable = [
         'title',
+        'icon',
         'body_md',
     ];
 

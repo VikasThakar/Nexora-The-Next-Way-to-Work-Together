@@ -34,7 +34,7 @@ class CreatePage
     ) {}
 
     /**
-     * @param  array{title: string, body_md?: ?string, parent_id?: int|string|null}  $attributes
+     * @param  array{title: string, icon?: ?string, body_md?: ?string, parent_id?: int|string|null}  $attributes
      */
     public function handle(Board $board, array $attributes, User $author): DocPage
     {
@@ -49,6 +49,7 @@ class CreatePage
         return DB::transaction(function () use ($board, $attributes, $author, $title, $parent): DocPage {
             $page = new DocPage([
                 'title' => $title,
+                'icon' => $this->nullIfBlank($attributes['icon'] ?? null),
                 'body_md' => $this->nullIfBlank($attributes['body_md'] ?? null),
             ]);
 

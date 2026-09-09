@@ -66,6 +66,13 @@ import './theme'
 import './chart-export'
 
 /*
+ * "On this page" for a documentation page, as the `docToc` Alpine component.
+ * Reads the headings out of whatever is on screen — rendered document or live
+ * editor — and assigns the anchors it links to; see ./doc-toc.
+ */
+import './doc-toc'
+
+/*
  * The ticket conversation's scroll box, as the `commentThread` Alpine
  * component. Caps the thread to the last few messages and follows new ones,
  * but only while the reader has not scrolled back through the history — see

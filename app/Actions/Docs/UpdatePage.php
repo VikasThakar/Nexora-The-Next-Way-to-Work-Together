@@ -9,7 +9,7 @@ use App\Models\User;
 use App\Services\ActivityLogger;
 
 /**
- * Edit a page's title and body.
+ * Edit a page's title, icon and body.
  *
  * Not its slug, its parent or its visibility. Those three are the things that
  * can break a link, restructure the tree or expose material to a customer, so
@@ -32,7 +32,7 @@ class UpdatePage
     ) {}
 
     /**
-     * @param  array{title?: string, body_md?: ?string}  $attributes
+     * @param  array{title?: string, icon?: ?string, body_md?: ?string}  $attributes
      */
     public function handle(DocPage $page, array $attributes, User $actor): DocPage
     {
@@ -44,6 +44,19 @@ class UpdatePage
             if ($title !== '') {
                 $page->title = $title;
             }
+        }
+
+        /*
+         * An icon can be removed as well as set, so blank means null rather
+         * than "leave it alone" — the caller says nothing at all by omitting
+         * the key. Not recorded in the feed: picking an emoji is not an edit
+         * to the documentation, and a line about it would push the entries
+         * that matter off the screen.
+         */
+        if (array_key_exists('icon', $attributes)) {
+            $icon = trim((string) $attributes['icon']);
+
+            $page->icon = $icon === '' ? null : $icon;
         }
 
         if (array_key_exists('body_md', $attributes)) {

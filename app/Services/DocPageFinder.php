@@ -47,6 +47,7 @@ class DocPageFinder
         'doc_pages.parent_id',
         'doc_pages.title',
         'doc_pages.slug',
+        'doc_pages.icon',
         'doc_pages.customer_visible',
         'doc_pages.position',
     ];
@@ -113,6 +114,147 @@ class DocPageFinder
         $byParent = $pages->groupBy(fn (DocPage $page): string => (string) ($page->parent_id ?? ''));
 
         return $this->build($byParent, null, $visibleIds, 0);
+    }
+
+    /**
+     * Search results for the documentation sidebar: the page, where it sits,
+     * and enough of its text to recognise it by.
+     *
+     * A bare list of titles is a poor result set for documentation, because the
+     * titles repeat — every product has an "Overview" and three "Getting
+     * started"s — and the thing that tells them apart is the path above them.
+     *
+     * Two queries, whatever the result count:
+     *
+     *   1. every page on the board this viewer may see, as id/parent/title
+     *      only. Small, covered by the board index, and it is what the paths
+     *      are assembled from.
+     *   2. the matches themselves, which is the only place `body_md` is read,
+     *      and only for as many rows as are shown.
+     *
+     * The map from the first query does double duty as the ancestor check: it
+     * holds only visible pages, so a match whose parent is missing from it is a
+     * page filed under something this viewer cannot see, and is dropped along
+     * with the internal titles its path would otherwise have spelled out. That
+     * is the same rule as ancestorsAreVisible(), decided from memory instead of
+     * one walk per result.
+     *
+     * @return Collection<int, object{page: DocPage, path: list<string>, snippet: string}>
+     */
+    public function searchResults(
+        Board $board,
+        ?Authenticatable $viewer,
+        string $term,
+        int $limit = 30,
+    ): Collection {
+        if (trim($term) === '' || $limit < 1) {
+            return collect();
+        }
+
+        $index = $this->query($board, $viewer)
+            ->select(['doc_pages.id', 'doc_pages.parent_id', 'doc_pages.title'])
+            ->get()
+            ->keyBy(fn (DocPage $page): int => (int) $page->getKey());
+
+        return $this->query($board, $viewer)
+            ->search($term)
+            ->select([...self::TREE_COLUMNS, 'doc_pages.body_md'])
+            ->ordered()
+            ->limit($limit)
+            ->get()
+            ->map(function (DocPage $page) use ($index, $term): ?object {
+                $path = $this->pathFrom($index, $page);
+
+                // null, not an empty path: a root page has no path and is a
+                // perfectly good result, while an unreachable one is not a
+                // result at all.
+                if ($path === null) {
+                    return null;
+                }
+
+                return (object) [
+                    'page' => $page,
+                    'path' => $path,
+                    'snippet' => self::snippet((string) $page->body_md, $term),
+                ];
+            })
+            ->filter()
+            ->values();
+    }
+
+    /**
+     * The titles above a page, root first, or null when one of them is not in
+     * the visible index.
+     *
+     * @param  Collection<int, DocPage>  $index
+     * @return list<string>|null
+     */
+    private function pathFrom(Collection $index, DocPage $page): ?array
+    {
+        $path = [];
+        $parentId = $page->parent_id === null ? null : (int) $page->parent_id;
+        $steps = 0;
+
+        while ($parentId !== null) {
+            // Bounded for the same reason the database walks are: a cycle from
+            // a bad write must not spin here either.
+            if ($steps++ > DocPage::MAX_DEPTH + 1) {
+                return null;
+            }
+
+            $parent = $index->get($parentId);
+
+            if (! $parent instanceof DocPage) {
+                return null;
+            }
+
+            array_unshift($path, (string) $parent->title);
+            $parentId = $parent->parent_id === null ? null : (int) $parent->parent_id;
+        }
+
+        return $path;
+    }
+
+    /**
+     * A window of a page's Markdown around the match.
+     *
+     * Shown around the term rather than from the top of the document, because
+     * a preview of the first line tells the searcher nothing about why this
+     * page came back. The source is Markdown, so the syntax is flattened
+     * first — a snippet reading `## Setting **up**` is noise where the words
+     * are what is being scanned for.
+     *
+     * Returned as plain text and escaped by the template like any other
+     * string. Nothing here produces markup, and it deliberately does not
+     * highlight the match with tags: that would mean rendering unescaped HTML
+     * built from page content, which is not a trade worth making for a bold
+     * word.
+     */
+    private static function snippet(string $markdown, string $term, int $length = 120): string
+    {
+        $text = trim(preg_replace(
+            ['/```.*?```/s', '/[#>*_`~\[\]!]+/', '/\((?:https?|mailto):[^)]*\)/i', '/\s+/'],
+            ['', '', '', ' '],
+            $markdown
+        ) ?? '');
+
+        if ($text === '') {
+            return '';
+        }
+
+        $at = mb_stripos($text, trim($term));
+
+        if ($at === false) {
+            // The term matched the title, not the body. The opening line is
+            // then the most useful thing the body can offer.
+            return mb_strimwidth($text, 0, $length, '…');
+        }
+
+        // A little context before the match, clamped so a hit near the start
+        // does not produce a leading ellipsis for no reason.
+        $from = max(0, $at - 40);
+
+        return ($from > 0 ? '…' : '').mb_strimwidth($text, $from, $length, '…');
     }
 
     /**

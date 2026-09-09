@@ -42,25 +42,48 @@ use RuntimeException;
  * bypasses all of that, so the page is re-authorized on every render.
  *
  *
+ * The editor is not a mode
+ * ------------------------
+ * Anybody who may edit a page gets the editor, immediately, on the page they
+ * opened. There is no Edit button and no read-only step in front of it: a
+ * documentation tool whose default state is "looking at" rather than "working
+ * on" makes every small correction a four-click job, which is how
+ * documentation goes stale. `$editing` therefore means "the writing surface is
+ * live", and it is decided by the policy in mount() rather than by a click.
+ *
+ * A reader who may not edit still gets the rendered document, and never so
+ * much as the markup of a control they could not use.
+ *
+ *
  * Saving
  * ------
- * Two writes, and the difference between them is the whole design:
+ * Where an autosave lands depends on who can read the page, and that is the
+ * one genuinely load-bearing decision in this class:
  *
- *   save()      the button. Moves the editor's text into `body_md` through
- *               App\Actions\Docs\UpdatePage, records the edit in the feed,
- *               tells other clients, and throws the draft away.
- *   autosave()  the timer. Writes App\Actions\Docs\SaveDraft only, so an
- *               interrupted editing session is recoverable without the page
- *               itself changing under its readers.
+ *   internal page    autosave writes `body_md` through
+ *                    App\Actions\Docs\UpdatePage. Nobody outside the delivery
+ *                    team can read it, so there is no audience to show
+ *                    half-finished prose to, and the text is simply kept the
+ *                    way a document editor keeps text.
  *
- * Autosave deliberately does not touch `body_md`. There is no revision history
- * in this product, so a select-all-delete written straight through would be
- * unrecoverable seconds later; and a page published to customers would show
- * them half-written prose between keystrokes. Both are worse than the problem
- * autosave exists to solve, and a draft solves that problem without either.
+ *   published page   autosave writes `draft_md` through
+ *                    App\Actions\Docs\SaveDraft, and stays there until
+ *                    somebody presses Publish. A page a customer is reading
+ *                    changes when its author says so, not between keystrokes.
  *
- * Autosave also does not broadcast. A colleague reading this board should not
- * have their screen refreshed every few seconds because somebody is typing.
+ * save() is that publish step. It moves the draft into `body_md`, records the
+ * edit, tells other clients and discards the draft — and on an internal page,
+ * where the text is already committed, it is a harmless no-op.
+ *
+ * Two properties of the write path make the internal case safe on a timer, and
+ * neither is incidental: UpdatePage returns early unless the row is actually
+ * dirty, and ActivityLogger coalesces an editing session into one feed entry
+ * per person per page. An afternoon's typing is therefore a handful of writes
+ * and one line in the feed.
+ *
+ * Autosave never broadcasts, on either branch. A colleague reading this board
+ * should not have their screen pulled out from under them every few seconds
+ * because somebody two desks away is typing.
  */
 #[Layout('layouts.app')]
 class Show extends Component
@@ -75,12 +98,19 @@ class Show extends Component
     #[Url(as: 'q', except: '')]
     public string $search = '';
 
-    // Editing the open page
+    /**
+     * Is the writing surface live?
+     *
+     * Not a mode the reader toggles — see the class comment. Set in mount()
+     * from the page's own policy, and false for somebody who may only read.
+     */
     public bool $editing = false;
 
     public bool $previewing = false;
 
     public string $title = '';
+
+    public string $icon = '';
 
     public string $bodyMd = '';
 
@@ -106,6 +136,8 @@ class Show extends Component
 
     public string $newTitle = '';
 
+    public string $newIcon = '';
+
     public ?int $newParentId = null;
 
     public bool $confirmingDelete = false;
@@ -116,9 +148,23 @@ class Show extends Component
 
         $this->board = $board;
 
-        if ($slug !== null && $slug !== '') {
-            $this->page = $finder->findOrFail($board, $slug, auth()->user());
-            $this->syncFromPage();
+        if ($slug === null || $slug === '') {
+            return;
+        }
+
+        $this->page = $finder->findOrFail($board, $slug, auth()->user());
+        $this->syncFromPage();
+
+        /*
+         * The editor is live from the first paint for anybody who may write.
+         * Asked here rather than in render() because the answer decides what
+         * $title and $bodyMd are seeded with, and render() is too late for
+         * that.
+         */
+        $this->editing = auth()->user()->can('update', $this->page);
+
+        if ($this->editing) {
+            $this->adoptDraft();
         }
     }
 
@@ -164,9 +210,50 @@ class Show extends Component
     private function syncFromPage(): void
     {
         $this->title = (string) $this->page?->title;
+        $this->icon = (string) $this->page?->icon;
         $this->bodyMd = (string) $this->page?->body_md;
     }
 
+    /**
+     * Open on unpublished work rather than on the published text.
+     *
+     * Only published pages accumulate drafts now — an internal page commits as
+     * it is typed — so in practice this is the editor picking up changes to a
+     * customer-facing page that nobody has pressed Publish on yet. Leaving them
+     * behind would be the one case where opening the editor loses work.
+     *
+     * Anybody who may edit the page may continue its draft: they are all on the
+     * same delivery team and there is no locking here. The banner names whose
+     * work it is and when, so nobody silently adopts somebody else's
+     * half-finished paragraph believing it to be their own.
+     */
+    private function adoptDraft(): void
+    {
+        if (! $this->page instanceof DocPage || ! $this->page->hasDraft()) {
+            return;
+        }
+
+        // Strict mode forbids a lazy load, and render() may not have run yet.
+        $this->page->loadMissing('draftBy');
+
+        $this->title = (string) $this->page->draft_title;
+        $this->bodyMd = (string) $this->page->draft_md;
+        $this->recoveredDraft = true;
+        $this->recoveredFrom = trim(implode(', ', array_filter([
+            $this->page->draftBy?->name,
+            $this->page->draft_saved_at?->format('j M Y \a\t H:i'),
+        ])));
+    }
+
+    /**
+     * Bring the editor back to the draft, from the "Resume editing" button on
+     * the unpublished-changes notice.
+     *
+     * The surface itself is already live; what this does is re-seed it. Kept as
+     * its own action rather than folded into mount() because the notice offers
+     * the opposite choice too, and discarding has to be reachable from the same
+     * place.
+     */
     public function startEditing(): void
     {
         $this->requirePage();
@@ -176,35 +263,17 @@ class Show extends Component
         $this->previewing = false;
         $this->descriptionHtml = '';
         $this->syncFromPage();
-
-        /*
-         * Pick up where an interrupted session left off.
-         *
-         * Anybody who may edit the page may continue its draft — they are all
-         * on the same delivery team and there is no locking here — but the
-         * banner names whose work it is and when, so nobody silently adopts
-         * somebody else's half-finished paragraph believing it to be their own.
-         */
-        if ($this->page->hasDraft()) {
-            // Strict mode forbids a lazy load, and render() has not run yet.
-            $this->page->loadMissing('draftBy');
-
-            $this->title = (string) $this->page->draft_title;
-            $this->bodyMd = (string) $this->page->draft_md;
-            $this->recoveredDraft = true;
-            $this->recoveredFrom = trim(implode(', ', array_filter([
-                $this->page->draftBy?->name,
-                $this->page->draft_saved_at?->format('j M Y \a\t H:i'),
-            ])));
-        }
+        $this->adoptDraft();
     }
 
     /**
-     * Leave the editor, discarding whatever was not saved.
+     * Throw away unpublished changes and put the published text back in the
+     * editor.
      *
-     * Cancel means cancel: the draft goes with it, or reopening the editor
-     * would restore the work that was just abandoned. The button asks first
-     * whenever there is anything to lose.
+     * The editor stays live — there is nowhere to "leave" it to any more. What
+     * ends is the draft: it goes with the discard, or the next load would
+     * restore the work that was just abandoned. The button asks first whenever
+     * there is anything to lose.
      */
     public function cancelEditing(SaveDraft $drafts): void
     {
@@ -213,7 +282,6 @@ class Show extends Component
 
         $drafts->discard($this->page);
 
-        $this->editing = false;
         $this->previewing = false;
         $this->recoveredDraft = false;
         $this->recoveredFrom = '';
@@ -274,7 +342,9 @@ class Show extends Component
         $drafts->discard($this->page);
 
         $this->page->refresh();
-        $this->editing = false;
+
+        // The surface stays live. Publishing is something done to the document,
+        // not a way out of writing it.
         $this->previewing = false;
         $this->recoveredDraft = false;
         $this->recoveredFrom = '';
@@ -283,7 +353,9 @@ class Show extends Component
 
         $broadcaster->documentationChanged((int) $this->board->getKey(), (bool) $this->page->customer_visible);
 
-        session()->flash('status', 'Page saved.');
+        session()->flash('status', $this->page->customer_visible
+            ? 'Changes published. Customers on this board now see them.'
+            : 'Page saved.');
     }
 
     /**
@@ -294,9 +366,12 @@ class Show extends Component
      * nothing about whether the last few minutes are safe is the failure this
      * method exists to prevent.
      *
+     * Which write it performs is decided by the page's audience, not by a
+     * setting — see the class comment for why.
+     *
      * @return string one of saved, unchanged, invalid, idle
      */
-    public function autosave(SaveDraft $drafts, RichText $rich): string
+    public function autosave(SaveDraft $drafts, RichText $rich, UpdatePage $updatePage): string
     {
         if (! $this->editing || ! $this->page instanceof DocPage) {
             return 'idle';
@@ -327,9 +402,44 @@ class Show extends Component
         $this->resetValidation();
         $this->bodyMd = $markdown;
 
-        $written = $drafts->store($this->page, $this->title, $markdown, auth()->user());
+        /*
+         * A published page's autosave stops at the draft. Everything below
+         * this line would be visible to a customer the moment it was written,
+         * which is the one thing the draft column exists to prevent.
+         */
+        if ($this->page->customer_visible) {
+            return $drafts->store($this->page, $this->title, $markdown, auth()->user())
+                ? 'saved'
+                : 'unchanged';
+        }
 
-        return $written ? 'saved' : 'unchanged';
+        /*
+         * An internal page is committed as it is typed.
+         *
+         * Safe on a timer because of two things UpdatePage already does: it
+         * returns without writing unless the row is dirty, and the feed entry
+         * it records is coalesced per person per page. No broadcast, though —
+         * see the class comment.
+         */
+        $page = $updatePage->handle($this->page, [
+            'title' => $this->title,
+            'body_md' => $markdown,
+        ], auth()->user());
+
+        $this->recoveredDraft = false;
+        $this->recoveredFrom = '';
+
+        /*
+         * `unchanged` rather than `saved` when the row was already up to date,
+         * so the indicator does not flash "Saved" at somebody who has typed
+         * nothing since the last pass.
+         *
+         * Read from the model rather than by comparing `updated_at`: that
+         * column has one-second resolution, so two passes inside the same
+         * second would be indistinguishable — which is precisely the interval
+         * an autosave runs at.
+         */
+        return $page->wasChanged() ? 'saved' : 'unchanged';
     }
 
     /**
@@ -340,9 +450,36 @@ class Show extends Component
      * save, which is exactly the state a title-only edit leaves behind — so a
      * rename cannot overwrite a body draft with the stored text.
      */
-    public function updatedTitle(SaveDraft $drafts, RichText $rich): void
+    public function updatedTitle(SaveDraft $drafts, RichText $rich, UpdatePage $updatePage): void
     {
-        $this->autosave($drafts, $rich);
+        $this->autosave($drafts, $rich, $updatePage);
+    }
+
+    /**
+     * The icon picker, which commits on choice rather than on a timer.
+     *
+     * Straight to the page on both branches, published or not. An emoji beside
+     * a title is not prose a customer could catch mid-sentence, and holding it
+     * in the draft would mean an icon that silently reverted every time
+     * somebody discarded unrelated changes.
+     */
+    public function setIcon(UpdatePage $updatePage, string $icon = ''): void
+    {
+        $this->requirePage();
+        $this->authorize('update', $this->page);
+
+        $icon = trim($icon);
+
+        // No letters, digits or whitespace: the picker offers emoji, and this
+        // is what stops the field being used as a second, unvalidated title by
+        // anything posting straight to the component.
+        if ($icon !== '' && (mb_strlen($icon) > 8 || preg_match('/[\p{L}\p{N}\s]/u', $icon) === 1)) {
+            return;
+        }
+
+        $updatePage->handle($this->page, ['icon' => $icon], auth()->user());
+
+        $this->icon = (string) $this->page->icon;
     }
 
     /**
@@ -366,6 +503,7 @@ class Show extends Component
 
         $this->creating = true;
         $this->newTitle = '';
+        $this->newIcon = '';
         $this->newParentId = $parentId;
         $this->resetValidation();
     }
@@ -374,6 +512,7 @@ class Show extends Component
     {
         $this->creating = false;
         $this->newTitle = '';
+        $this->newIcon = '';
         $this->newParentId = null;
         $this->resetValidation();
     }
@@ -384,8 +523,17 @@ class Show extends Component
 
         $this->validate(['newTitle' => ['required', 'string', 'max:200']], attributes: ['newTitle' => 'title']);
 
+        $icon = trim($this->newIcon);
+
+        // Same guard as setIcon(): the picker offers emoji, and a tampered
+        // payload does not get to smuggle text in beside the title.
+        if ($icon !== '' && (mb_strlen($icon) > 8 || preg_match('/[\p{L}\p{N}\s]/u', $icon) === 1)) {
+            $icon = '';
+        }
+
         $page = $createPage->handle($this->board, [
             'title' => $this->newTitle,
+            'icon' => $icon,
             'parent_id' => $this->newParentId,
         ], auth()->user());
 
@@ -441,6 +589,75 @@ class Show extends Component
 
         if ($this->page !== null) {
             $this->page->refresh();
+        }
+    }
+
+    /**
+     * Delete a page from its row in the sidebar, which may not be the page
+     * currently open.
+     *
+     * Resolved the same way movePage() resolves its arguments, and for the same
+     * reason: an id arriving from the browser is a request, not a fact. It is
+     * re-fetched through the visibility scope so a page this viewer cannot see
+     * cannot be named, and then put to the policy.
+     */
+    public function deletePage(int $pageId, DocPageFinder $finder, DeletePage $deletePage, BoardBroadcaster $broadcaster): void
+    {
+        $page = $finder->query($this->board, auth()->user())->whereKey($pageId)->first();
+
+        abort_unless($page instanceof DocPage, 404);
+
+        $this->authorize('delete', $page);
+
+        $wasPublished = (bool) $page->customer_visible;
+        $openPageWasRemoved = $this->page !== null
+            && $finder->query($this->board, auth()->user())
+                ->whereKey($this->page->getKey())
+                ->exists()
+            && $this->isSelfOrDescendantOf($this->page, $page);
+
+        $removed = $deletePage->handle($page);
+
+        $broadcaster->documentationChanged((int) $this->board->getKey(), $wasPublished);
+
+        session()->flash('status', $removed > 1
+            ? $removed.' pages were deleted.'
+            : 'Page deleted.');
+
+        // Deleting the branch you were reading leaves nothing to render, so go
+        // back to the section rather than to a 404.
+        if ($openPageWasRemoved) {
+            $this->redirect(route('docs.index', $this->board), navigate: true);
+        }
+    }
+
+    /**
+     * Is $page the same as $ancestor, or somewhere beneath it?
+     *
+     * Walks upward, bounded by MAX_DEPTH, so a cycle from a bad write cannot
+     * spin here.
+     */
+    private function isSelfOrDescendantOf(DocPage $page, DocPage $ancestor): bool
+    {
+        $current = $page;
+        $steps = 0;
+
+        while (true) {
+            if ($current->getKey() === $ancestor->getKey()) {
+                return true;
+            }
+
+            if ($current->parent_id === null || $steps++ > DocPage::MAX_DEPTH + 1) {
+                return false;
+            }
+
+            $parent = DocPage::query()->whereKey($current->parent_id)->first();
+
+            if (! $parent instanceof DocPage) {
+                return false;
+            }
+
+            $current = $parent;
         }
     }
 
@@ -533,9 +750,18 @@ class Show extends Component
 
         $ancestors = $this->page === null ? collect() : $finder->ancestors($this->page, $user);
 
+        $searching = trim($this->search) !== '';
+
         return view('livewire.docs.show', [
-            'tree' => $finder->tree($this->board, $user, $this->search),
-            'searching' => trim($this->search) !== '',
+            /*
+             * The tree and the search results are two different shapes, so they
+             * are two different variables rather than one that changes meaning.
+             * Only one of them is ever queried: a search does not need the tree
+             * and the tree does not need snippets.
+             */
+            'tree' => $searching ? collect() : $finder->tree($this->board, $user, null),
+            'results' => $searching ? $finder->searchResults($this->board, $user, $this->search) : collect(),
+            'searching' => $searching,
             'breadcrumb' => $ancestors,
 
             /*
@@ -582,6 +808,17 @@ class Show extends Component
             // Only somebody who may edit is told there is unsaved work. To a
             // customer the page simply reads as it was last saved.
             'hasDraft' => $canEditPage && $this->page->hasDraft(),
+
+            /*
+             * Does typing reach the readers of this page?
+             *
+             * The one fact the document header has to get right. On an internal
+             * page the answer is yes and the header says the work is simply
+             * kept; on a published one it is no, and the header has to offer
+             * the Publish step instead. Derived from the page rather than from a
+             * property, so it cannot drift from what autosave() actually does.
+             */
+            'autosavesLive' => $canEditPage && ! $this->page->customer_visible,
         ])->title($this->page?->title ?? ($this->board->name.' documentation'));
     }
 
