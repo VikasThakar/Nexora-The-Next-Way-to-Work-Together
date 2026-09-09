@@ -97,7 +97,7 @@ class DialogTest extends TestCase
             ->assertSee('role="alertdialog"', escape: false);
     }
 
-    public function test_deleting_a_comment_asks_first_and_still_deletes(): void
+    public function test_the_thread_offers_no_delete_button_but_the_action_still_works(): void
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
@@ -106,12 +106,13 @@ class DialogTest extends TestCase
 
         $component = Livewire::actingAs($team)->test(Comments::class, ['ticket' => $ticket]);
 
-        // The button carries a confirmation…
-        $component->assertSee('Delete this comment?', escape: false)
-            ->assertSee('Delete comment', escape: false)
-            ->assertDontSee('wire:confirm', escape: false);
+        // Deleting a message was taken out of the thread: a comment is part of a
+        // conversation the other side may already have read, so it stays. Edit remains.
+        $component->assertSee('Edit', escape: false)
+            ->assertDontSee('Delete this comment?', escape: false);
 
-        // …and the action behind it is untouched.
+        // The action behind it is untouched - policy-guarded, and still the way a
+        // comment is removed when one has to be.
         $component->call('remove', $comment->id);
 
         $this->assertSoftDeleted('comments', ['id' => $comment->id]);
@@ -262,9 +263,9 @@ class DialogTest extends TestCase
         // Guards the regex itself: if the attribute spelling ever changes, this
         // test would otherwise pass by scanning nothing at all.
         $this->assertSame(
-            11,
+            10,
             $found,
-            'Expected to find the 11 known confirmations; found '.$found.'. '
+            'Expected to find the 10 known confirmations; found '.$found.'. '
             .'If a confirmation was added or removed, update this count.'
         );
     }

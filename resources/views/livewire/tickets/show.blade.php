@@ -328,8 +328,8 @@
                                 wire:key="label-toggle-{{ $label->id }}"
                                 wire:click="toggleLabel({{ $label->id }})"
                                 @class([
-                                    'rounded-full transition',
-                                    'opacity-100 ring-2 ring-slate-900 ring-offset-1' => in_array($label->id, $selectedLabelIds, true),
+                                    'inline-flex rounded-full transition',
+                                    'opacity-100 ring-2 ring-slate-900 ring-offset-1 ring-offset-surface' => in_array($label->id, $selectedLabelIds, true),
                                     'opacity-50 hover:opacity-100' => ! in_array($label->id, $selectedLabelIds, true),
                                 ])
                             >

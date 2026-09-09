@@ -146,7 +146,7 @@
                                 <label class="cursor-pointer">
                                     <input type="checkbox" value="{{ $label->id }}" wire:model="selectedLabelIds"
                                            class="peer sr-only">
-                                    <span class="block rounded-full opacity-50 transition peer-checked:opacity-100 peer-checked:ring-2 peer-checked:ring-slate-900 peer-checked:ring-offset-1 hover:opacity-100">
+                                    <span class="inline-flex rounded-full opacity-50 transition peer-checked:opacity-100 peer-checked:ring-2 peer-checked:ring-slate-900 peer-checked:ring-offset-1 peer-checked:ring-offset-surface hover:opacity-100">
                                         <x-ui.label-chip :label="$label" />
                                     </span>
                                 </label>

@@ -315,8 +315,8 @@
                                                             wire:click="toggleQuickAddLabel({{ $label->id }})"
                                                             aria-pressed="{{ in_array($label->id, $quickAddLabelIds, true) ? 'true' : 'false' }}"
                                                             @class([
-                                                                'rounded-full transition',
-                                                                'opacity-100 ring-2 ring-slate-900 ring-offset-1' => in_array($label->id, $quickAddLabelIds, true),
+                                                                'inline-flex rounded-full transition',
+                                                                'opacity-100 ring-2 ring-slate-900 ring-offset-1 ring-offset-surface' => in_array($label->id, $quickAddLabelIds, true),
                                                                 'opacity-50 hover:opacity-100' => ! in_array($label->id, $quickAddLabelIds, true),
                                                             ])
                                                         >

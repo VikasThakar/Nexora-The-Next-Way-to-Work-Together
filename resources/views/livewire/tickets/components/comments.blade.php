@@ -161,24 +161,12 @@
                                     </ul>
                                 @endif
 
-                                <div class="mt-1.5 flex items-center gap-3 text-xs">
-                                    @can('update', $comment)
+                                @can('update', $comment)
+                                    <div class="mt-1.5 flex items-center gap-3 text-xs">
                                         <button type="button" class="text-slate-500 hover:text-slate-800"
                                                 wire:click="startEditing({{ $comment->id }})">Edit</button>
-                                    @endcan
-
-                                    @can('delete', $comment)
-                                        <button type="button" class="text-rose-600 hover:text-rose-700"
-                                                wire:click="remove({{ $comment->id }})"
-                                                x-confirm="@js([
-                                                    'title' => 'Delete this comment?',
-                                                    'body' => 'It disappears from the thread for everyone, not just for you. This cannot be undone.',
-                                                    'confirmText' => 'Delete comment',
-                                                ])">
-                                            Delete
-                                        </button>
-                                    @endcan
-                                </div>
+                                    </div>
+                                @endcan
                             @endif
                         </div>
                     </li>

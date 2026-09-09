@@ -42,6 +42,29 @@ COPY --from=vendor \
     ./vendor/laravel/framework/src/Illuminate/Pagination/resources/views
 RUN mkdir -p storage/framework/views
 
+# Realtime, compiled in.
+#
+# Vite inlines `import.meta.env.*` at BUILD time, so these have to be present
+# here and cannot be supplied as runtime variables later: resources/js/echo.js
+# only constructs window.Echo when a key is set, so an image built without one
+# ships a browser bundle that never subscribes to anything, whatever the
+# server is configured to broadcast.
+#
+# Only the PUBLIC key belongs in this stage. REVERB_APP_SECRET must never be
+# passed here — everything in this stage is readable in the shipped JS.
+#
+# Empty is a working default, not a broken one: the build succeeds and the
+# application runs exactly as it does with realtime switched off.
+ARG VITE_REVERB_APP_KEY=""
+ARG VITE_REVERB_HOST=""
+ARG VITE_REVERB_PORT="443"
+ARG VITE_REVERB_SCHEME="https"
+
+ENV VITE_REVERB_APP_KEY=$VITE_REVERB_APP_KEY \
+    VITE_REVERB_HOST=$VITE_REVERB_HOST \
+    VITE_REVERB_PORT=$VITE_REVERB_PORT \
+    VITE_REVERB_SCHEME=$VITE_REVERB_SCHEME
+
 RUN npm run build
 
 
