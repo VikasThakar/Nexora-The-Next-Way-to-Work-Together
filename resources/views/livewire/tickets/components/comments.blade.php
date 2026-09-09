@@ -78,7 +78,19 @@
                 {{ $internal ? 'No internal notes on this ticket yet.' : 'No messages yet.' }}
             </p>
         @else
-            <ol class="space-y-4">
+            {{--
+                The scroll box. `commentThread` measures the last few messages
+                and caps this element to exactly their height; the Tailwind cap
+                is what stands in before that runs, and without JavaScript at
+                all. `tabindex` because a region that scrolls has to be
+                reachable from the keyboard.
+            --}}
+            <ol
+                x-data="commentThread"
+                tabindex="0"
+                aria-label="{{ $internal ? 'Internal notes' : 'Customer conversation' }}"
+                class="max-h-[30rem] space-y-4 overflow-y-auto rounded-lg pr-1 focus-visible:ring-2 focus-visible:ring-brand-500/30 focus-visible:outline-none"
+            >
                 @foreach ($comments as $comment)
                     <li wire:key="comment-{{ $comment->id }}" class="flex gap-3">
                         @php $automated = in_array($comment->id, $automatedIds, true); @endphp

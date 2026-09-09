@@ -64,3 +64,11 @@ import './theme'
  * re-derived under the viewer's own scope — see ./chart-export.
  */
 import './chart-export'
+
+/*
+ * The ticket conversation's scroll box, as the `commentThread` Alpine
+ * component. Caps the thread to the last few messages and follows new ones,
+ * but only while the reader has not scrolled back through the history — see
+ * ./comment-thread.
+ */
+import './comment-thread'
