@@ -7,6 +7,7 @@ namespace App\Livewire\Ai\Concerns;
 use App\Actions\AI\ExecuteChatAction;
 use App\Enums\AiChatMode;
 use App\Enums\AiChatRole;
+use App\Enums\AiKnowledgeScope;
 use App\Models\AiAttachment;
 use App\Models\AiChatMessage;
 use App\Models\AiSession;
@@ -145,6 +146,31 @@ trait TalksToWorkspaceAi
     public string $chatMode = AiChatMode::READING;
 
     /**
+     * May this conversation reach outside the project? The "Outside Project"
+     * checkbox.
+     *
+     * Bound with wire:model.live rather than driven by an action, which is a
+     * deliberate departure from the two selectors around it — and the reason is
+     * that the objection to binding does not apply here. `selectChatMode` and
+     * `selectScope` are actions because their values need CHECKING: a
+     * bound property is assigned from the browser before any hook could refuse
+     * it, so a tampered <option> would already have been accepted. This value
+     * needs no checking. Both settings are permitted for everybody, a customer
+     * included, because the scope is not an authorization setting — see
+     * App\Enums\AiKnowledgeScope.
+     *
+     * What it does need is to be WRITTEN somewhere durable, and that is what
+     * updatedOutsideProject() is for. The property is the browser's opinion;
+     * the session column is the fact. session() re-reads the column into this
+     * property on every render, so a value that was refused — toggled while a
+     * question was in flight — is corrected on the way back rather than left
+     * showing something the next question would not honour. That is exactly how
+     * `chatMode` behaves, and a checkbox that keeps its keyboard focus is worth
+     * the difference in mechanism.
+     */
+    public bool $outsideProject = false;
+
+    /**
      * The answer being streamed, as plain text.
      *
      * Held so a re-render mid-exchange does not blank the panel. It is not the
@@ -263,6 +289,18 @@ trait TalksToWorkspaceAi
          */
         $this->chatMode = AiChatMode::coerce($session->chat_mode?->value)->value;
 
+        /*
+         * And the same for the knowledge scope, for the same reason.
+         *
+         * This is what makes the checkbox self-healing. The property is
+         * browser-writable and its `updated` hook can refuse to persist a
+         * change — mid-question, most obviously — so reading it back from the
+         * stored column here means the box on screen always shows what the
+         * NEXT question would actually do, never what a browser asked for and
+         * did not get.
+         */
+        $this->outsideProject = AiKnowledgeScope::coerce($session->knowledge_scope?->value)->isOutside();
+
         return $session;
     }
 
@@ -277,6 +315,14 @@ trait TalksToWorkspaceAi
      * The new session inherits the current setting rather than resetting to
      * Reading: somebody who has been drafting tickets and hits the ceiling
      * wants to carry on drafting tickets.
+     *
+     * The knowledge scope does NOT come with it, and the difference is
+     * intentional. Carrying "may reach outside this project" into a
+     * conversation nobody has asked that of is a widening that nothing on
+     * screen would announce, so a new session starts project-only and the
+     * checkbox comes back unticked. Somebody who wants it again ticks it
+     * again, which costs one click and is the click that makes it their
+     * choice. See AiKnowledgeScope and AiSessionManager::start().
      */
     public function startNewSession(AiSessionManager $sessions): void
     {
@@ -331,6 +377,88 @@ trait TalksToWorkspaceAi
         $this->chatMode = $session->chat_mode?->value ?? AiChatMode::READING;
 
         $this->aiError = $granted === $requested ? null : $this->chatModeRefusal();
+    }
+
+    /**
+     * Persist the "Outside Project" checkbox.
+     *
+     * Runs after Livewire has assigned the property, which is why the first
+     * thing it does is establish whether the assignment may stand. Three
+     * outcomes:
+     *
+     *   no access    reverted and dropped. The panel is about to close down to
+     *                its empty state anyway.
+     *   mid-question refused. This is edge case 6 from the brief: somebody
+     *                toggles the box while an answer is streaming. Honouring it
+     *                would mean the turn already in flight ran under one scope
+     *                while the screen claimed another, and the transcript would
+     *                record a setting the answer was not produced under. So the
+     *                request is dropped, the property is put back, and the
+     *                composer — already disabled while sending — simply does
+     *                not appear to have changed.
+     *   otherwise    written to the session, which is the only durable record
+     *                and the only thing WorkspaceChatService reads.
+     *
+     * There is no authorization branch here and none is missing. Both values
+     * are permitted for every role; the scope decides where knowledge comes
+     * from, not what may be read or changed.
+     */
+    public function updatedOutsideProject(): void
+    {
+        /*
+         * Read the request before anything else touches the property.
+         *
+         * session() re-syncs `outsideProject` from the stored column as part
+         * of resolving — that is what makes the checkbox self-healing — so
+         * reading the property after calling it would read the OLD value back
+         * and persist that. Capturing it here is what makes the order of the
+         * two lines below irrelevant.
+         */
+        $requested = AiKnowledgeScope::fromCheckbox($this->outsideProject);
+
+        if (! $this->requireAccess()) {
+            $this->outsideProject = false;
+
+            return;
+        }
+
+        if ($this->sending) {
+            // Put back to whatever the session says, which session() does as
+            // it resolves — so the box returns to the truth rather than to a
+            // guess about what it was before the click.
+            $this->session();
+
+            return;
+        }
+
+        $session = app(AiSessionManager::class)->useKnowledgeScope(
+            $this->session(),
+            $requested,
+        );
+
+        $this->outsideProject = AiKnowledgeScope::coerce($session->knowledge_scope?->value)->isOutside();
+
+        /*
+         * A stale refusal from the previous turn is cleared, because changing
+         * the scope is one of the things that can answer it: "Outside Project
+         * mode is currently disabled" is an assistant refusal somebody has
+         * just acted on, and leaving it on screen beside a now-checked box
+         * reads as the change not having worked.
+         */
+        $this->aiError = null;
+    }
+
+    /**
+     * Where the next question would be allowed to source its answer from.
+     *
+     * The property is what the browser holds; this is the enum the rest of the
+     * application thinks in. Read by anything that renders, exactly as
+     * effectiveChatMode() is — and, like it, a courtesy rather than the
+     * control: WorkspaceChatService reads the session column itself.
+     */
+    protected function effectiveKnowledgeScope(): AiKnowledgeScope
+    {
+        return AiKnowledgeScope::fromCheckbox($this->outsideProject);
     }
 
     /**
@@ -433,6 +561,17 @@ trait TalksToWorkspaceAi
         $this->sessionExhausted = false;
         $this->uploadError = null;
         $this->streamingAnswer = '';
+
+        /*
+         * Back to project-only, unticked.
+         *
+         * Set here as well as being re-read from the new session by session(),
+         * because the two answers must agree and this is the one somebody
+         * reading startNewSession() can see. A fresh conversation reaching
+         * outside the project because the previous one did is precisely the
+         * silent widening AiKnowledgeScope exists to prevent.
+         */
+        $this->outsideProject = AiKnowledgeScope::default()->isOutside();
 
         // Not the attachments: they belong to the session, and switching
         // conversations switches which ones are on screen rather than

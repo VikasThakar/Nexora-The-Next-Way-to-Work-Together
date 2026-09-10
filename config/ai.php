@@ -553,6 +553,22 @@ return [
 
         'max_output_tokens' => (int) env('AI_CHAT_MAX_OUTPUT_TOKENS', 4000),
 
+        /*
+         * The ceiling for a conversation in Outside Project scope.
+         *
+         * Higher, because that mode's whole point is a complete answer to a
+         * general question — an explanation with examples and trade-offs — and
+         * 4,000 tokens is enough to cut one off mid-sentence. A truncated
+         * answer is worse than a short one: a short answer is a choice, a
+         * truncated one looks like a fault.
+         *
+         * It is a ceiling and not a target. The prompt still asks for a direct
+         * answer to a project question, so an "outside" conversation about what
+         * is overdue costs no more than it did before — see
+         * App\Services\AI\PromptLibrary::assistantLength().
+         */
+        'max_output_tokens_outside' => (int) env('AI_CHAT_MAX_OUTPUT_TOKENS_OUTSIDE', 8000),
+
         // How much board context is assembled per question. Every one of these
         // is read through the asking user's own visibility scope.
         'context' => [
@@ -697,6 +713,62 @@ return [
          * rather than being cut off mid-answer.
          */
         'max_result_characters' => (int) env('AI_TOOLS_MAX_CHARACTERS', 60000),
+    ],
+    /*
+    |--------------------------------------------------------------------------
+    | Outside Project: external knowledge
+    |--------------------------------------------------------------------------
+    |
+    | The assistant's knowledge scope is a per-conversation setting, not a
+    | deployment one — see App\Enums\AiKnowledgeScope and the "Outside Project"
+    | checkbox. Nothing here switches that feature on or off; a conversation in
+    | Outside scope always answers from general knowledge and always still
+    | answers from the project.
+    |
+    | What this block configures is the OPTIONAL extra: live lookup against an
+    | outside service, for questions about things that postdate a model's
+    | training. No driver ships with this application, so the container resolves
+    | App\Services\AI\Knowledge\UnavailableExternalKnowledge by default and the
+    | assistant says out loud that it could not look something up rather than
+    | guessing. That is the intended state, not a gap.
+    |
+    | To connect one: write a class implementing ExternalKnowledgeProviderInterface,
+    | add a case to the match in App\Providers\AppServiceProvider, and set
+    | AI_KNOWLEDGE_DRIVER to its name.
+    |
+    */
+    'knowledge' => [
+
+        /*
+         * The kill switch for live lookup, and only for live lookup.
+         *
+         * A deployment that must guarantee no request leaves the network for a
+         * search sets this to false. Outside Project mode keeps working — what
+         * stops is the tool that would contact a third party.
+         */
+        'enabled' => (bool) env('AI_KNOWLEDGE_ENABLED', true),
+
+        /*
+         * Which implementation to resolve. Empty — the default — means none,
+         * which resolves to the refusing implementation.
+         */
+        'driver' => (string) env('AI_KNOWLEDGE_DRIVER', ''),
+
+        /*
+         * How many results one lookup may bring back.
+         *
+         * A ceiling on context spend rather than on usefulness: external
+         * material sits in the same window as the project's own data, and the
+         * project's data is the half that must not get squeezed out.
+         */
+        'max_results' => (int) env('AI_KNOWLEDGE_MAX_RESULTS', 5),
+
+        /*
+         * Seconds to wait on the service before giving up. Short, because the
+         * person is watching an answer stream and the fallback — answer from
+         * what you know, say the lookup failed — is a perfectly good answer.
+         */
+        'timeout' => (int) env('AI_KNOWLEDGE_TIMEOUT', 10),
     ],
     /*
     |--------------------------------------------------------------------------

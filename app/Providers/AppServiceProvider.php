@@ -46,6 +46,8 @@ use App\Services\AI\ClaudeService;
 use App\Services\AI\CodeGeneration\ClaudeCodeGenerator;
 use App\Services\AI\CodeGeneration\CodeChangeGeneratorInterface;
 use App\Services\AI\CodeGeneration\UnavailableCodeChangeGenerator;
+use App\Services\AI\Knowledge\ExternalKnowledgeProviderInterface;
+use App\Services\AI\Knowledge\UnavailableExternalKnowledge;
 use App\Services\AI\Tools\AiToolContract;
 use App\Services\AI\Tools\AiToolRegistry;
 use App\Services\AI\Tools\GetActivityTool;
@@ -56,6 +58,7 @@ use App\Services\AI\Tools\GetRepositoryTool;
 use App\Services\AI\Tools\GetStatisticsTool;
 use App\Services\AI\Tools\GetTicketTool;
 use App\Services\AI\Tools\SearchDocumentationTool;
+use App\Services\AI\Tools\SearchExternalKnowledgeTool;
 use App\Services\AI\Tools\SearchTicketsTool;
 use App\Services\AI\Voice\OpenAiVoiceProvider;
 use App\Services\AI\Voice\UnavailableVoiceProvider;
@@ -213,6 +216,18 @@ class AppServiceProvider extends ServiceProvider
             GetDocumentationPageTool::class,
             GetRepositoryTool::class,
             GetCodeActivityTool::class,
+            /*
+             * The one tool that reads nothing in this application.
+             *
+             * Tagged alongside the others rather than special-cased, because
+             * being an ordinary tool is what gets it the schema validation,
+             * the audit row and — the reason it exists as a tool at all — the
+             * per-request availability check. Under Project scope, or with no
+             * external provider configured, availableTo() answers false and
+             * the model is never told the capability exists. See
+             * App\Services\AI\Tools\SearchExternalKnowledgeTool.
+             */
+            SearchExternalKnowledgeTool::class,
         ], AiToolContract::class);
 
         $this->app->singleton(AiToolRegistry::class, function ($app): AiToolRegistry {
@@ -244,6 +259,42 @@ class AppServiceProvider extends ServiceProvider
                 default => new UnavailableVoiceProvider(
                     'No voice provider is configured. Set AI_VOICE_DRIVER=openai and supply an '
                     .'OpenAI API key to enable spoken conversation.'
+                ),
+            };
+        });
+
+        /*
+         * External knowledge, for Outside Project mode.
+         *
+         * The same shape again, and the default is the refusing implementation
+         * because no deployment of this application has an external search
+         * vendor today. That is not a missing feature: Outside Project mode
+         * works without it — what it adds is *live* lookup, for questions about
+         * things that postdate a model's training.
+         *
+         * A deployment that wants one writes a class implementing
+         * ExternalKnowledgeProviderInterface, adds a case here, and sets
+         * AI_KNOWLEDGE_DRIVER. Nothing else changes: the checkbox, the tool,
+         * the prompt and the audit trail are already in place.
+         */
+        $this->app->singleton(ExternalKnowledgeProviderInterface::class, function (): ExternalKnowledgeProviderInterface {
+            if (! (bool) config('ai.knowledge.enabled', true)) {
+                return new UnavailableExternalKnowledge(
+                    'External lookup is switched off for this deployment. Outside Project mode still '
+                    .'answers from general knowledge; an administrator can enable live lookup by '
+                    .'setting AI_KNOWLEDGE_ENABLED=true and configuring a provider.'
+                );
+            }
+
+            return match ((string) config('ai.knowledge.driver', '')) {
+                // Anything unrecognised, including the empty default, resolves
+                // to the refusing implementation. A typo in a deployment
+                // variable must not silently produce a lookup that quietly
+                // returns nothing.
+                default => new UnavailableExternalKnowledge(
+                    'This workspace has no external knowledge service configured, so nothing can be '
+                    .'looked up live outside the project. Outside Project mode still answers from '
+                    .'general knowledge.'
                 ),
             };
         });

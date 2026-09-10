@@ -24,6 +24,16 @@
         <x-slot:actions>
             <x-ai.mode-badge :mode="$configuration->mode" :inherited="$configuration->isInherited('mode')" />
 
+            {{-- Where this conversation may look, beside what it may do — the
+                 same pairing the panel's header makes, so the two surfaces
+                 present one setting in one place. --}}
+            <x-ai.knowledge-scope
+                id="ai-chat-outside-project"
+                :disabled="$sending"
+                :checked="$outsideProject"
+                compact
+            />
+
             @if ($canConfigure)
                 <x-ui.button :href="route('boards.ai-settings', $board)" variant="secondary">AI settings</x-ui.button>
             @endif
@@ -210,6 +220,10 @@
 
                     <span class="text-xs text-slate-400">⌘/Ctrl + Enter</span>
                 </div>
+
+                {{-- The knowledge toggle was briefly here, below the composer.
+                     It is in the page header now, beside the capability badge,
+                     matching the panel. One control, one place. --}}
             </form>
         @endif
     </div>

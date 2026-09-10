@@ -69,29 +69,81 @@
                 </h2>
 
                 @if ($eligible)
-                    {{-- What the AI may do here, at a glance. It is the first
-                         thing to check when the assistant declines to draft
-                         something, so it sits in the header rather than in the
-                         settings screen it comes from. --}}
-                    <div class="mt-1.5">
+                    {{--
+                        The two facts about what this conversation is, side by
+                        side: what the AI may DO here, and where it may LOOK.
+
+                        The capability badge is the first thing to check when
+                        the assistant declines to draft something, which is why
+                        it is in the header rather than in the settings screen
+                        it comes from. The knowledge toggle earns its place next
+                        to it for the same reason — it is the first thing to
+                        check when the assistant declines to answer something.
+
+                        Wrapping, because these are two controls of unrelated
+                        width in a drawer that is 28rem on desktop and the full
+                        viewport on a phone.
+                    --}}
+                    <div class="mt-1.5 flex flex-wrap items-center gap-2">
                         <x-ai.mode-badge
                             :mode="$configuration->mode"
                             :inherited="$configuration->isInherited('mode')"
+                        />
+
+                        <x-ai.knowledge-scope
+                            id="ai-panel-outside-project"
+                            :disabled="$sending"
+                            :checked="$outsideProject"
+                            compact
                         />
                     </div>
                 @endif
             </div>
 
-            <button
-                type="button"
-                @click="$store.aiPanel.close()"
-                class="-m-1 rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
-                aria-label="Close Workspace AI"
-            >
-                <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                </svg>
-            </button>
+            <div class="flex shrink-0 items-center gap-1">
+                {{--
+                    Clear, in the header.
+
+                    It used to sit beside Send, and it was the wrong thing to
+                    have there: everything else in that row is part of asking
+                    the next question, and a destructive control among them is
+                    one mis-click from discarding a conversation somebody was
+                    reading. Up here it is filed with the panel's other
+                    whole-conversation controls — the context it applies to and
+                    the close button — and the composer is left doing one job.
+
+                    There is exactly one Clear in this component. It calls the
+                    same clearHistory() it always did, with the same behaviour:
+                    this person's own turns in this conversation, and neither
+                    the session nor its usage ledger. See
+                    TalksToWorkspaceAi::clearHistory() and
+                    WorkspaceChatService::clear().
+                --}}
+                @if ($eligible && $messages->isNotEmpty())
+                    <button
+                        type="button"
+                        wire:click="clearHistory"
+                        wire:loading.attr="disabled"
+                        wire:target="send"
+                        @disabled($sending)
+                        class="rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Delete the turns in this conversation. Only you can see them."
+                    >
+                        Clear
+                    </button>
+                @endif
+
+                <button
+                    type="button"
+                    @click="$store.aiPanel.close()"
+                    class="-m-1 rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+                    aria-label="Close Workspace AI"
+                >
+                    <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
         </header>
 
         @if (! $eligible)
@@ -154,6 +206,12 @@
                         Tickets, documentation and repositories on {{ $scope->label() }}.
                     @endif
                 </p>
+
+                {{-- The knowledge toggle used to sit here, under the context it
+                     qualifies. It reads better in the header beside the
+                     capability badge: the two answer the matching pair of
+                     questions about the conversation, and this band is then
+                     back to doing one job. There is only one of it. --}}
             </div>
 
             {{-- Conversation --------------------------------------------- --}}
@@ -326,18 +384,10 @@
                                     :disabled="$sending"
                                 />
 
-                                @if ($messages->isNotEmpty())
-                                    <x-ui.button
-                                        type="button"
-                                        size="sm"
-                                        variant="ghost"
-                                        wire:click="clearHistory"
-                                        wire:loading.attr="disabled"
-                                        wire:target="send"
-                                    >
-                                        Clear
-                                    </x-ui.button>
-                                @endif
+                                {{-- Clear used to be here. It is in the panel
+                                     header now, with the other controls that
+                                     act on the whole conversation rather than
+                                     on the next question. There is only one. --}}
                             </div>
 
                             <div class="flex items-center gap-2">

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\AI\Tools;
 
 use App\Enums\AiCapabilityMode;
+use App\Enums\AiKnowledgeScope;
 use App\Models\AiSession;
 use App\Models\Board;
 use App\Models\User;
@@ -29,6 +30,14 @@ use App\Services\AI\AiContextScope;
  * boundary. They answer different questions and both are needed: the mode says
  * how much the AI is trusted here, and the boundary says who it is working for.
  * A customer under AI Agent is still a customer.
+ *
+ * `knowledge` is a third question again, and the one it is easiest to mistake
+ * for the other two: it says where an answer may be SOURCED from, not what may
+ * be read or written. It carries no authority of any kind. Nothing a tool does
+ * with it may widen what its reader returns — a tool that consulted it before
+ * deciding which rows to hand back would be using a preference as a permission.
+ * The only legitimate use is the one the external-knowledge tool makes of it:
+ * deciding whether the tool exists for this turn at all.
  */
 final readonly class AiToolContext
 {
@@ -38,6 +47,13 @@ final readonly class AiToolContext
         public AiSession $session,
         public AiCapabilityMode $mode,
         public bool $staff,
+        /*
+         * Defaulted, so every existing construction — and every test that
+         * builds one to exercise a workspace tool — means "project only"
+         * without having to say so. The safe case is the one you get by not
+         * choosing; see AiKnowledgeScope.
+         */
+        public AiKnowledgeScope $knowledge = AiKnowledgeScope::Project,
     ) {}
 
     /**
@@ -68,5 +84,23 @@ final readonly class AiToolContext
     public function allowsProposals(): bool
     {
         return $this->staff && $this->mode->canProposeWrites();
+    }
+
+    /**
+     * May this turn reach for knowledge that is not in the workspace?
+     *
+     * The one thing the knowledge scope decides, and it decides it in exactly
+     * one place: whether an external capability is offered. A false answer
+     * means the tool is not in the list the model is sent, which is stronger
+     * than refusing the call — there is nothing to call.
+     *
+     * It says nothing about workspace content. Every project tool answers
+     * availableTo() the same way in both scopes, because "answer from this
+     * project only" and "answer from this project and from outside it" are
+     * both questions about the same project.
+     */
+    public function allowsExternalKnowledge(): bool
+    {
+        return $this->knowledge->allowsExternalKnowledge();
     }
 }

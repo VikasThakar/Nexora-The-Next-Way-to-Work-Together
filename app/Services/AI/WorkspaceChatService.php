@@ -7,6 +7,7 @@ namespace App\Services\AI;
 use App\Enums\AiActionType;
 use App\Enums\AiChatMode;
 use App\Enums\AiChatRole;
+use App\Enums\AiKnowledgeScope;
 use App\Enums\AiUsagePurpose;
 use App\Models\AiChatMessage;
 use App\Models\AiSession;
@@ -20,6 +21,7 @@ use App\Services\AI\Exceptions\AiProviderException;
 use App\Services\AI\Tools\AiToolContext;
 use App\Services\AI\Tools\AiToolRegistry;
 use App\Services\AI\Tools\AiToolRunner;
+use App\Services\AI\Tools\SearchExternalKnowledgeTool;
 use App\Services\BoardAccess;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -69,6 +71,15 @@ use RuntimeException;
  * sent only when both allow it, and neither can grant what the other refuses —
  * choosing Writing in an AI Observer workspace, or as a customer, gets no write
  * tool at all.
+ *
+ * A third setting sits alongside them and is not a ceiling at all: the
+ * conversation's AiKnowledgeScope, the "Outside Project" checkbox. It decides
+ * whether an external-knowledge tool exists for this turn, and nothing else. It
+ * cannot widen what a person may read — every workspace tool is offered
+ * identically in both scopes, because both scopes are questions about the same
+ * project — and it cannot permit a write. It is applied here for the same
+ * reason the other two are: so "what was this model offered" has one answer,
+ * decided in one place.
  *
  * Withholding a tool is stronger than sending it and refusing the result: a
  * model with no write tool cannot produce a proposal, so there is no preview,
@@ -265,12 +276,24 @@ class WorkspaceChatService
          * — a customer under AI Agent is still a customer, and every tool
          * decides for itself whether it exists for one.
          */
+        /*
+         * Where this conversation may source answers from.
+         *
+         * Read from the session and coerced through the enum, exactly as the
+         * chat mode below is: a session that has not been given one resolves to
+         * Project rather than to null. It is orthogonal to both ceilings and it
+         * narrows neither — it decides which knowledge tools exist, and nothing
+         * about what may be read or changed.
+         */
+        $knowledge = AiKnowledgeScope::coerce($session->knowledge_scope?->value);
+
         $toolContext = new AiToolContext(
             user: $asker,
             scope: $scope,
             session: $session,
             mode: $this->guard->mode($scope->board),
             staff: $this->access->canSeeInternalContent($asker),
+            knowledge: $knowledge,
         );
 
         /*
@@ -291,6 +314,24 @@ class WorkspaceChatService
             ? $this->tools($scope->board, $asker)
             : [];
 
+        /*
+         * Was the external lookup actually offered?
+         *
+         * Asked of the list that was built rather than re-derived from the
+         * scope, because two other things have to be true as well — the
+         * deployment must have a provider, and the chat mode must have allowed
+         * read tools at all (Writing withholds every lookup, and the external
+         * one is a lookup like any other).
+         *
+         * The prompt needs the real answer, not the intent: a model told it can
+         * search the web when it cannot is a model that says "let me check" and
+         * then invents. See PromptLibrary::knowledgeScope().
+         */
+        $hasExternalTool = array_filter(
+            $readTools,
+            static fn (AiTool $tool): bool => $tool->name === SearchExternalKnowledgeTool::NAME,
+        ) !== [];
+
         $prompt = new AiPrompt(
             model: $session->model,
             /*
@@ -307,10 +348,32 @@ class WorkspaceChatService
              * how the answer reads.
              */
             system: $toolContext->staff
-                ? $this->prompts->workspaceAssistant($scope, $readTools !== [], $writeTools !== [])
-                : $this->prompts->customerAssistant($scope, $readTools !== []),
+                ? $this->prompts->workspaceAssistant(
+                    $scope,
+                    $readTools !== [],
+                    $writeTools !== [],
+                    $knowledge,
+                    $hasExternalTool,
+                )
+                : $this->prompts->customerAssistant(
+                    $scope,
+                    $readTools !== [],
+                    $knowledge,
+                    $hasExternalTool,
+                ),
             messages: $this->messages($session, $scope, $asker, $question, $pageHint, $files['text']),
-            maxOutputTokens: (int) config('ai.chat.max_output_tokens', 4000),
+            /*
+             * Room for the answer the scope asks for.
+             *
+             * Outside Project raises the length ceiling in the prompt, so it
+             * has to raise the ceiling on the request too — otherwise a
+             * complete explanation arrives cut off mid-sentence, which reads
+             * as a fault rather than as a limit. Both figures are deployment
+             * configuration; see config/ai.php.
+             */
+            maxOutputTokens: $knowledge->allowsExternalKnowledge()
+                ? (int) config('ai.chat.max_output_tokens_outside', 8000)
+                : (int) config('ai.chat.max_output_tokens', 4000),
             /*
              * The lookups, then the proposals.
              *
@@ -373,6 +436,18 @@ class WorkspaceChatService
             // the session's setting can change and a stored answer has to stay
             // interpretable — see the migration that added the column.
             'chat_mode' => $chatMode->value,
+            /*
+             * Where this turn was allowed to source its answer from.
+             *
+             * Recorded per turn for the same reason the chat mode is: the
+             * session's setting can change, and "was this answer allowed to
+             * reach outside the project?" is exactly the question somebody
+             * asks about an answer that turned out to be wrong about their
+             * project. It is one word beside the mode it belongs with, and it
+             * is not the prompt or the question — this metadata is a record of
+             * the settings a turn ran under, never of its contents.
+             */
+            'knowledge_scope' => $knowledge->value,
         ];
 
         /*

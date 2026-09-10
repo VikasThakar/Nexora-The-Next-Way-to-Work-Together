@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\AI;
 
+use App\Enums\AiKnowledgeScope;
 use App\Models\Board;
 use App\Support\BoardAiSettings;
 
@@ -156,11 +157,29 @@ class PromptLibrary
         AiContextScope $scope,
         bool $hasTools = false,
         bool $canPropose = true,
+        AiKnowledgeScope $knowledge = AiKnowledgeScope::Project,
+        bool $hasExternalTool = false,
     ): string {
         $sections = [
             $this->audiencePreamble(),
             $scope->isWorkspace() ? $this->workspaceScopeTask() : $this->boardScopeTask(),
-            $this->assistantLength(),
+            /*
+             * Immediately after the task and before everything else, because
+             * it qualifies the task rather than adding to it: "help the team
+             * think about this board" reads differently depending on whether
+             * anything outside the board may be brought to bear. Put later —
+             * under the retrieval rules, say — it would be read as a caveat on
+             * tool use rather than as a statement about the job.
+             *
+             * Defaulted to Project so a caller that has not been taught about
+             * the scope produces the narrow prompt. Every default in this
+             * feature points the same way.
+             */
+            $this->knowledgeScope($knowledge, $hasExternalTool),
+            // Which length rule applies is a property of the scope. See the
+            // method: the two-sentence cap is right for a board question and
+            // actively wrong for "explain Docker networking".
+            $this->assistantLength($knowledge),
         ];
 
         /*
@@ -220,8 +239,12 @@ class PromptLibrary
      * answer reads — and tells the model not to speculate about work it cannot
      * see, which is the failure mode a customer would actually notice.
      */
-    public function customerAssistant(AiContextScope $scope, bool $hasTools = false): string
-    {
+    public function customerAssistant(
+        AiContextScope $scope,
+        bool $hasTools = false,
+        AiKnowledgeScope $knowledge = AiKnowledgeScope::Project,
+        bool $hasExternalTool = false,
+    ): string {
         $sections = [
             <<<'PROMPT'
             You are the assistant inside Nexora, a shared workspace used by a software agency and
@@ -249,7 +272,17 @@ class PromptLibrary
             Never include credentials, tokens or environment variable values in your answer, even
             if you find them in the material you are given.
             PROMPT,
-            $this->assistantLength(),
+            /*
+             * A customer gets the same scope section as staff, and it is worth
+             * being explicit about why rather than leaving it to look like an
+             * oversight. The knowledge scope is not an authorization setting:
+             * a customer who asks what Laravel is has asked a question about
+             * Laravel, and answering it exposes nothing. The paragraph above
+             * has already said what they can and cannot see, and the scope
+             * section says nothing that widens it.
+             */
+            $this->knowledgeScope($knowledge, $hasExternalTool),
+            $this->assistantLength($knowledge),
         ];
 
         if ($hasTools) {
@@ -263,6 +296,129 @@ class PromptLibrary
 
         $sections[] = $this->assistantAttachments();
         $sections[] = $this->assistantRichOutput();
+
+        return $this->join($sections);
+    }
+
+    /**
+     * Where this conversation may source its answers from.
+     *
+     * Two sections, chosen by the scope, and never one section with a flag in
+     * it — the same reasoning that keeps the staff and customer prompts apart.
+     * A prompt holding both "decline questions that are not about this project"
+     * and "answer general questions freely" contains its own contradiction, and
+     * a model resolving a contradiction picks whichever half suits the question
+     * in front of it.
+     *
+     * What this text is and is not
+     * ----------------------------
+     * It is how the assistant *talks* about the boundary. It is not what
+     * enforces it: which tools exist for a turn is decided by
+     * App\Services\AI\Tools\AiToolRegistry from the scope on the tool context,
+     * so under Project the external lookup tool is not in the list and cannot
+     * be called however the conversation goes. Saying that plainly matters,
+     * because the one thing no prompt and no data layer can withhold is a
+     * model's own trained knowledge — so under Project this section asks it to
+     * decline rather than to forget, and names the checkbox as the remedy.
+     *
+     * The refusal sentence is fixed wording on purpose. Somebody who has just
+     * been declined needs to know which control changes the answer, and a
+     * refusal that is phrased differently every time reads as a fault rather
+     * than as a setting.
+     *
+     * @param  bool  $hasExternalTool  whether search_external_knowledge was actually offered
+     */
+    public function knowledgeScope(AiKnowledgeScope $scope, bool $hasExternalTool = false): string
+    {
+        if (! $scope->allowsExternalKnowledge()) {
+            return <<<'PROMPT'
+            KNOWLEDGE SCOPE: PROJECT ONLY. The person has not enabled "Outside Project", so answer
+            from this workspace and what you can look up in it — nothing else.
+
+            - A question about this workspace, its boards, tickets, documentation, repositories,
+              statistics or people is answered normally, from the context and your tools.
+            - A question that is NOT about this workspace — what a framework is, who holds an
+              office, today's weather, how some technology works in general, an opinion on an
+              industry practice — is not yours to answer here. Reply with exactly this and nothing
+              more: "Outside Project mode is currently disabled. Enable 'Outside Project' if you
+              want Workspace AI to answer questions using external/general knowledge."
+            - Never dress general knowledge up as a fact about this project. If you do not have it
+              from the context or a tool, you do not have it.
+            - Never invent project information to fill the gap. "That is not in what I can see" is
+              a complete answer.
+
+            Ordinary help with the material in front of you is still project work, not outside
+            knowledge: summarising a ticket, drafting wording for one, spotting that two tickets
+            describe the same problem, or explaining what a document you were given says. Answer
+            those. The line is about where the FACTS come from, not about how simple the question is.
+            PROMPT;
+        }
+
+        $sections = [
+            <<<'PROMPT'
+            KNOWLEDGE SCOPE: PROJECT + OUTSIDE. The person has enabled "Outside Project", so you may
+            use general knowledge from outside this workspace as well as the project's own data.
+
+            This is additive, and both halves still apply:
+
+            - Anything about this workspace still comes from the context and your tools, exactly as
+              before. Outside Project does not license you to answer a question about ticket NL-5
+              from general knowledge, or to guess at a board's numbers.
+            - Anything general — a framework, a protocol, an architecture, a practice — you answer
+              directly, in full, from what you know. You are a capable general assistant here as
+              well as this workspace's assistant, so behave like one.
+            - DECIDE FIRST WHETHER THE QUESTION IS ABOUT THIS PROJECT AT ALL. If it names no
+              board, ticket, document, page, repository or person in this workspace, it is a
+              general question: answer it straight away from your own knowledge. Do NOT search
+              the workspace first. Running lookups for "what is Laravel?" and then reporting that
+              the board does not mention Laravel is the wrong answer to the question that was
+              asked, and it wastes the person's time to get there.
+            - Never begin a general answer with what this project does not contain. If they asked
+              about the wider world, the project's silence on it is not information.
+            - When an answer draws on both, SAY WHICH IS WHICH. Attribute project facts to the
+              project ("your NutriLens board has four tickets in Review") and general statements to
+              general practice ("Laravel applications usually handle this with a service provider").
+              A reader must never have to guess which half of a sentence came from their data.
+            - Never present general knowledge as something you found in this project, and never
+              present a project fact as a general truth.
+            - You have gained no new access. The same boards, tickets, documents and files are
+              visible to this person as before, and nothing outside them has become readable. If
+              something is not visible to them, it is still not visible to you.
+            - You may not do anything you could not do before. Outside Project changes where
+              knowledge comes from; it changes nothing about what you are permitted to change.
+
+            An illustrative chart is allowed here ONLY when the person explicitly asked for a
+            generic or example one, and its title must say so — "Example: typical sprint burndown".
+            Never label illustrative figures with a board's name, and never present them as this
+            workspace's numbers.
+            PROMPT,
+        ];
+
+        /*
+         * The lookup instructions, only when the lookup exists.
+         *
+         * The same rule as the retrieval and action sections above: describing
+         * a tool that was not sent produces an assistant that says it will
+         * check and then does not. Whether it was sent depends on the
+         * deployment having a provider, which most do not — so most Outside
+         * Project conversations get the paragraph below instead, and answer
+         * from what the model knows while being honest about the limit.
+         */
+        $sections[] = $hasExternalTool
+            ? <<<'PROMPT'
+            You also have search_external_knowledge for looking things up outside the workspace. Use
+            it when the question needs something you do not already know or something recent, and
+            send a short search phrase — never workspace content, a ticket description or a
+            customer's details. Cite the sources it returns. It knows nothing about this workspace,
+            so never use it to answer a question about a board, a ticket or this project's
+            documentation.
+            PROMPT
+            : <<<'PROMPT'
+            You have no live external lookup in this workspace, so general answers come from what
+            you already know. If a question needs something current — a version released last
+            month, today's news, a page's present contents — say that you cannot look it up and give
+            what you do know, dated. Never guess at a current fact and never imply you checked.
+            PROMPT;
 
         return $this->join($sections);
     }
@@ -338,8 +494,56 @@ class PromptLibrary
      * it a two-sentence cap turns "list every overdue ticket" into a summary of
      * a list, which is a worse answer, not a shorter one.
      */
-    private function assistantLength(): string
+    private function assistantLength(AiKnowledgeScope $knowledge = AiKnowledgeScope::Project): string
     {
+        /*
+         * Outside Project raises the length ceiling, and it has to.
+         *
+         * The two-sentence rule below is right for the job it was written for:
+         * somebody asking what is overdue on a board wants the answer, not an
+         * essay about it. Applied to "explain Docker networking" it produces
+         * something worse than useless — a hedged paragraph that reads as an
+         * assistant declining to help while technically answering.
+         *
+         * So the wide scope gets its own section rather than a caveat bolted
+         * onto this one. That is the same reasoning knowledgeScope() itself
+         * follows: a prompt holding both "at most two sentences" and "answer
+         * fully" contains its own contradiction, and a model resolving a
+         * contradiction picks whichever half suits the question in front of it
+         * — which in practice was always the terse half, because it is stated
+         * first and stated harder.
+         *
+         * What does NOT change is the anti-preamble rule. "Great question",
+         * "I am happy to help" and a closing offer to do more are noise at any
+         * length, and stripping them is most of what makes a long answer
+         * readable rather than merely long.
+         */
+        if ($knowledge->allowsExternalKnowledge()) {
+            return <<<'PROMPT'
+            LENGTH: MATCH IT TO THE QUESTION. There is no two-sentence cap in this mode.
+
+            A general or explanatory question — how something works, what a technology is, how
+            to approach a problem, a comparison, a recommendation — gets a COMPLETE answer, the
+            kind a knowledgeable colleague would write out properly. Explain the thing, give the
+            reasoning, include concrete examples and code where they help, name the trade-offs
+            and the failure modes, and use headings and bullets to make a long answer
+            navigable. Do not compress it, do not stop at a definition, and do not tell somebody
+            to go and read the documentation instead of answering.
+
+            A question about THIS workspace still gets a direct answer: the ticket's status, the
+            list they asked for, the number. Nobody asking "what is overdue" wants an essay, and
+            padding a project answer out is as wrong as truncating a general one. A question that
+            IS a list gets the list, one line per item, complete — being readable must never mean
+            leaving out items somebody asked for.
+
+            Never open with a preamble, never restate the question, and never close by offering
+            to help further. Do not write "great question", "I am happy to", "I have
+            successfully", or any other account of your own performance. Do not preface a general
+            answer by reporting what the project does not contain — if the question was not about
+            the project, that observation is noise; just answer it.
+            PROMPT;
+        }
+
         return <<<'PROMPT'
         LENGTH IS THE HARD PART OF THIS TASK. Answer in at most two sentences of prose. If the
         answer genuinely needs specifics, follow them with a few short bullets — findings,

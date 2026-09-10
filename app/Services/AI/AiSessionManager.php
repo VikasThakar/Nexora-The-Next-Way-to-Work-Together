@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\AI;
 
 use App\Enums\AiChatMode;
+use App\Enums\AiKnowledgeScope;
 use App\Models\AiSession;
 use App\Models\Board;
 use App\Models\User;
@@ -84,13 +85,26 @@ class AiSessionManager
      * The provider, model and mode are snapshotted from the configuration in
      * force now. They are what this conversation ran under, and they are never
      * refreshed afterwards — see AiSession.
+     *
+     * The knowledge scope is the one setting a new session does NOT inherit,
+     * and the parameter exists only so a caller can be explicit about that
+     * rather than to invite passing something else. Carrying the chat mode over
+     * is a convenience — somebody who has been drafting tickets wants to carry
+     * on drafting tickets — but carrying "may reach outside this project" over
+     * into a conversation nobody has asked that of is a widening that happens
+     * silently, so it does not happen. See AiKnowledgeScope.
      */
-    public function start(AiContextScope $scope, User $user, ?AiChatMode $chatMode = null): AiSession
-    {
+    public function start(
+        AiContextScope $scope,
+        User $user,
+        ?AiChatMode $chatMode = null,
+        ?AiKnowledgeScope $knowledgeScope = null,
+    ): AiSession {
         $configuration = $this->configuration->forBoard($scope->board);
         $chatMode ??= AiChatMode::default();
+        $knowledgeScope ??= AiKnowledgeScope::default();
 
-        return DB::transaction(function () use ($scope, $user, $chatMode, $configuration): AiSession {
+        return DB::transaction(function () use ($scope, $user, $chatMode, $knowledgeScope, $configuration): AiSession {
             $this->query($scope, $user)->open()->each(
                 fn (AiSession $open) => $this->end($open)
             );
@@ -113,6 +127,7 @@ class AiSessionManager
             $session->model = $this->resolveModel($configuration, $chatMode->preferredModel());
             $session->capability_mode = $configuration->mode;
             $session->chat_mode = $chatMode;
+            $session->knowledge_scope = $knowledgeScope;
             $session->tokens_input = null;
             $session->tokens_output = null;
             $session->estimated_cost = null;
@@ -162,6 +177,32 @@ class AiSessionManager
 
         $session->chat_mode = $chatMode;
         $session->model = $this->resolveModel($configuration, $chatMode->preferredModel());
+        $session->save();
+
+        return $session;
+    }
+
+    /**
+     * Change where a session may source its answers from, from here on.
+     *
+     * Deliberately not folded into useChatMode(). That method exists because
+     * the mode and the model must move together; this one has no such coupling
+     * — the knowledge scope does not change which model answers, does not
+     * change what the person may read, and does not change what the AI may
+     * attempt. It writes one column, and keeping it separate is what stops
+     * somebody later assuming that changing one of the three implies anything
+     * about the other two.
+     *
+     * There is no authorization check here, and that is not an omission. Both
+     * values are permitted for everybody, including a customer: a customer in
+     * Outside may ask what Laravel is, and every project row they can reach is
+     * the same set of rows either way. What a customer may see is decided by
+     * the readers each tool calls, and what they may change is decided by
+     * AiCapabilityGuard — neither of which consults this column.
+     */
+    public function useKnowledgeScope(AiSession $session, AiKnowledgeScope $scope): AiSession
+    {
+        $session->knowledge_scope = $scope;
         $session->save();
 
         return $session;

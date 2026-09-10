@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\AiCapabilityMode;
 use App\Enums\AiChatMode;
+use App\Enums\AiKnowledgeScope;
 use App\Enums\AiProvider;
 use App\Models\Concerns\BelongsToBoard;
 use App\Services\BoardAccess;
@@ -80,6 +81,10 @@ class AiSession extends Model
             // What the asker set this conversation to do. Narrows the
             // capability mode above; never widens it. See AiChatMode.
             'chat_mode' => AiChatMode::class,
+            // Where the asker allowed this conversation to source answers
+            // from. Orthogonal to both of the above and not an authorization
+            // setting — see AiKnowledgeScope.
+            'knowledge_scope' => AiKnowledgeScope::class,
             'tokens_input' => 'integer',
             'tokens_output' => 'integer',
             'estimated_cost' => 'decimal:6',
