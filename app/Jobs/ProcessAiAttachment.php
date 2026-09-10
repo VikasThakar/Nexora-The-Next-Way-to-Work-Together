@@ -61,7 +61,36 @@ class ProcessAiAttachment implements ShouldQueue
      */
     public int $timeout = 600;
 
-    public function __construct(public readonly int $aiAttachmentId) {}
+    /**
+     * Read the file where the file is.
+     *
+     * Its own queue, and this is not filing tidiness — it is the only thing
+     * that makes the job correct on a deployment whose attachment disk is a
+     * mounted volume.
+     *
+     * A volume belongs to ONE service. On Railway the web service and the queue
+     * worker each get their own, and both are mounted at the same path, so
+     * `volume` resolves to a different filesystem in each container. The bytes
+     * are written by the web service during the upload request; a worker
+     * elsewhere asking its own /data for that path finds nothing, and because a
+     * missing object is an ordinary condition rather than an error (see
+     * App\Services\AI\Attachments\Concerns\ReadsStoredFiles) the row settles
+     * into Failed without an exception, a retry or a log line worth noticing.
+     *
+     * So this queue is consumed by a worker inside the web container — see
+     * docker/supervisord.conf — while the general `ai` and `default` queues stay
+     * on the separate worker service where they belong. An S3-backed deployment
+     * has no such constraint and is unaffected either way: any worker can read
+     * a bucket, and this one still does.
+     *
+     * The name is configurable because the queue a job runs on is a deployment
+     * concern, and a deployment that consolidates its workers should be able to
+     * say so without editing a class.
+     */
+    public function __construct(public readonly int $aiAttachmentId)
+    {
+        $this->onQueue((string) config('ai.attachments.queue', 'attachments'));
+    }
 
     /**
      * One worker per row.

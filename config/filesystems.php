@@ -72,9 +72,26 @@ return [
          * written. Failing the upload is the honest outcome.
          *
          * Not shared between services: one Railway volume attaches to one
-         * service. Attachments are only ever written and read by web requests
-         * (Livewire uploads and App\Http\Controllers\AttachmentController), never
-         * by a queued job, so the web service is the only one that needs it.
+         * service, so `volume` names a DIFFERENT filesystem in every container
+         * that mounts one — even when they all mount it at the same path.
+         *
+         * That has one consequence worth stating plainly, because getting it
+         * wrong is silent. Uploading and serving are web requests (Livewire
+         * uploads and App\Http\Controllers\AttachmentController), so the web
+         * service is the only one that needs the volume — but reading an AI
+         * attachment is NOT a web request. App\Jobs\ProcessAiAttachment opens
+         * the stored file, and on this disk it can only do so from the
+         * container that wrote it. It therefore runs on its own queue,
+         * consumed by a worker inside the web container; see
+         * docker/supervisord.conf and config('ai.attachments.queue').
+         *
+         * An earlier version of this comment asserted that no queued job ever
+         * reads an attachment. That was true when it was written and stopped
+         * being true when the assistant learned to read files, and the result
+         * was uploads that stored correctly and then reported themselves
+         * unreadable. If a future feature reads an attachment from a queue,
+         * it needs the same treatment — or the deployment needs `s3`, where
+         * the question does not arise.
          */
         'volume' => [
             'driver' => 'local',

@@ -796,6 +796,23 @@ return [
         'enabled' => (bool) env('AI_ATTACHMENTS_ENABLED', true),
 
         /*
+         * The queue App\Jobs\ProcessAiAttachment runs on.
+         *
+         * Its own, apart from `ai` and `default`, because reading an attachment
+         * is the one queued job in this application that must run on the
+         * SERVICE THAT HOLDS THE FILE. With an S3-backed disk that is nobody in
+         * particular; with a volume-backed disk it is the web service, because
+         * a Railway volume attaches to one service and the upload request is
+         * what wrote the bytes.
+         *
+         * A worker for this queue therefore runs inside the web container —
+         * see docker/supervisord.conf. Point this at `default` if a deployment
+         * uses object storage and would rather consolidate its workers; the job
+         * itself does not care.
+         */
+        'queue' => (string) env('AI_ATTACHMENTS_QUEUE', 'attachments'),
+
+        /*
          * Per-file ceiling, and how many may hang off one conversation.
          *
          * 20 MB rather than the ticket limit's 10: a scanned PDF or a short

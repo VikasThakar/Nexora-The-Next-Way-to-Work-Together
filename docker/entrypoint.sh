@@ -14,6 +14,21 @@ PORT="${PORT:-8080}"
 echo "[entrypoint] binding nginx to port ${PORT}"
 sed -i "s/__PORT__/${PORT}/g" /etc/nginx/nginx.conf
 
+# nginx's spill-to-disk directories, made writable by the worker user.
+#
+# nginx buffers a request body larger than client_body_buffer_size — which any
+# uploaded file is — to a file under client_body_temp_path, and a FastCGI
+# response larger than fastcgi_buffers likewise. The workers run as www-data,
+# so those paths must belong to www-data.
+#
+# The Dockerfile already creates and chowns them; this repeats it at boot for
+# the same reason the storage tree above is recreated. It is one mkdir and one
+# chown, and the failure it prevents is the worst kind: uploads returning 500
+# with nothing on the page to say so, because a Livewire upload that fails
+# leaves no error behind — only an empty composer.
+mkdir -p /var/cache/nginx/client_body /var/cache/nginx/fastcgi
+chown -R www-data:www-data /var/cache/nginx
+
 # Storage is ephemeral on Railway; recreate the tree on every boot so a fresh
 # container never fails on a missing directory.
 mkdir -p \
