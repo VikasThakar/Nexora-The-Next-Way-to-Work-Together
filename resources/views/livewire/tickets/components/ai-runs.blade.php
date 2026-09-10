@@ -12,9 +12,9 @@
 --}}
 <div
     @if ($hasActive) wire:poll.5s @endif
-    class="overflow-hidden rounded-xl border border-slate-300 bg-slate-50 shadow-xs"
+    class="overflow-hidden rounded-lg border border-slate-300 bg-slate-50 shadow-xs"
 >
-    <header class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-300 bg-slate-100 px-5 py-4">
+    <header class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-300 bg-slate-100 px-4 py-3">
         <div class="min-w-0">
             <h2 class="flex items-center gap-2 text-sm font-semibold text-slate-900">
                 <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true">
@@ -29,6 +29,11 @@
         </div>
 
         <div class="flex shrink-0 items-center gap-2">
+            {{-- What the AI is permitted to do on this board. It is the first
+                 thing to check when a mode is refused, so it sits next to the
+                 controls rather than only on the settings screen. --}}
+            <x-ai.mode-badge :mode="$capabilityMode" />
+
             @if ($canConfigure)
                 <x-ui.button
                     :href="route('boards.ai-settings', $ticket->board)"
@@ -41,7 +46,7 @@
         </div>
     </header>
 
-    <div class="space-y-5 px-5 py-5">
+    <div class="space-y-4 px-4 py-4">
         {{-- Shown here as well as in the layout: a Livewire action that flashes
              without redirecting re-renders only this component, so the layout's
              banner would not appear until the next full page load. --}}
@@ -62,8 +67,13 @@
         {{-- ------------------------------------------------------------- --}}
         @if (! $providerConfigured)
             <p class="text-xs text-slate-600">
-                No AI provider is configured for this deployment, so no run can be started.
-                Set <code class="font-mono">ANTHROPIC_API_KEY</code> on the web and worker services.
+                No AI provider is configured for this board, so no run can be started.
+                @can('administer-ai')
+                    Add a provider key in the
+                    <a href="{{ route('admin.ai') }}" wire:navigate class="text-brand-700 underline decoration-dotted">global AI settings</a>.
+                @else
+                    Ask an administrator to add a provider key in the global AI settings.
+                @endcan
             </p>
         @elseif ($confirmingApply)
             <div class="rounded-lg border border-rose-200 bg-rose-50 p-4">
@@ -151,6 +161,11 @@
                                     {{ $run->created_at?->diffForHumans() }}
                                 </span>
                             </div>
+
+                            {{-- The session's lifecycle: where it is, what it
+                                 changed and whether the tests passed. See
+                                 x-ai.run-timeline. --}}
+                            <x-ai.run-timeline :run="$run" />
 
                             <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
                                 @if ($run->repository)

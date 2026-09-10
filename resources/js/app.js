@@ -79,3 +79,11 @@ import './doc-toc'
  * ./comment-thread.
  */
 import './comment-thread'
+
+/*
+ * Spoken conversation with the assistant, as the `aiVoice` Alpine component.
+ * Records a turn, hands it to the server to transcribe, asks the ordinary
+ * assistant, and plays the answer back — see ./ai-voice for the state machine
+ * and for why no vendor credential ever reaches the browser.
+ */
+import './ai-voice'

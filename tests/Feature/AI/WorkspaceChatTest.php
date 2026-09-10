@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\AI;
 
 use App\Enums\AiActionType;
+use App\Enums\AiCapabilityMode;
 use App\Enums\AiChatRole;
 use App\Livewire\Ai\Chat;
 use App\Models\AiChatMessage;
@@ -107,6 +108,12 @@ class WorkspaceChatTest extends TestCase
 
     public function test_a_proposed_ticket_is_not_created_until_it_is_confirmed(): void
     {
+        // AI Operator: the mode whose whole meaning is "propose, and let a
+        // person confirm". Under AI Agent a reversible change somebody asked
+        // for is carried out instead — covered in AiUnattendedWriteTest — so
+        // the mode is pinned here rather than left to the deployment default.
+        $this->aiMode(AiCapabilityMode::Operator);
+
         $provider = $this->fakeAiProvider();
         $provider->willPropose(AiActionType::CreateTicket->toolName(), [
             'title' => 'Add VAT column to the export',
@@ -164,6 +171,9 @@ class WorkspaceChatTest extends TestCase
 
     public function test_a_discarded_proposal_writes_nothing(): void
     {
+        // There is something to discard only where there is a proposal.
+        $this->aiMode(AiCapabilityMode::Operator);
+
         $provider = $this->fakeAiProvider();
         $provider->willPropose(AiActionType::CreateTicket->toolName(), ['title' => 'Never created']);
 

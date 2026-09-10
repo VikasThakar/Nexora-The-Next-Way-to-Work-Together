@@ -10,6 +10,8 @@ use App\Enums\TicketEventType;
 use App\Models\AiRun;
 use App\Models\Comment;
 use App\Models\Ticket;
+use App\Services\AI\AiConfigurationResolver;
+use App\Services\AI\AiUsageRecorder;
 use App\Services\AI\CostCalculationService;
 use App\Services\BoardBroadcaster;
 use App\Services\Slack\SlackNotifier;
@@ -44,6 +46,8 @@ class ProcessAiResult
         private readonly TicketActivity $activity,
         private readonly BoardBroadcaster $broadcaster,
         private readonly SlackNotifier $slack,
+        private readonly AiUsageRecorder $usage,
+        private readonly AiConfigurationResolver $configuration,
     ) {}
 
     /**
@@ -130,6 +134,18 @@ class ProcessAiResult
         // ticket; the analysis stays in the note written above and does not
         // travel. See App\Notifications\Slack\AiRunFinished.
         $run->refresh();
+
+        /*
+         * Mirror the run into the usage ledger.
+         *
+         * After the refresh, so the ledger row carries the reconciled figures —
+         * the model the provider actually served, and the cost derived from it
+         * — rather than what was asked for. Written outside the transaction
+         * because it is a report of what happened rather than part of it: a
+         * ledger write that failed must not roll back the note the team is
+         * waiting for.
+         */
+        $this->usage->recordRun($run, $this->configuration->providerFor($ticket->board));
 
         $this->slack->aiRunFinished($run, $ticket);
 

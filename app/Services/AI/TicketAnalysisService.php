@@ -29,11 +29,21 @@ use App\Services\AI\Git\RepositoryCheckout;
  */
 class TicketAnalysisService
 {
+    /**
+     * The provider is resolved per board rather than injected.
+     *
+     * A run's board can name its own vendor and its own credential — a project
+     * billed to the customer's own account — so which adapter answers is a
+     * property of the run, not of this class. AiProviderRegistry makes that
+     * decision, and it still honours a provider substituted into the container,
+     * which is how tests keep this class off the network.
+     */
     public function __construct(
-        private readonly AiProviderInterface $provider,
+        private readonly AiProviderRegistry $providers,
         private readonly PromptLibrary $prompts,
         private readonly RepositoryCheckout $checkout,
         private readonly RepositoryContext $repositoryContext,
+        private readonly AiConfigurationResolver $configuration,
     ) {}
 
     /**
@@ -54,19 +64,21 @@ class TicketAnalysisService
             $unavailable = $attempt['reason'];
         }
 
+        $provider = $this->providers->forBoard($ticket->board);
+
         $prompt = new AiPrompt(
-            model: $run->model ?? (string) config('ai.model.default'),
+            model: $run->model ?? $this->configuration->modelFor($ticket->board) ?? (string) config('ai.model.default'),
             system: $this->prompts->ticketAnalysis($ticket->board),
             messages: [['role' => 'user', 'content' => $this->userMessage($ticket, $repository, $checkoutPath, $unavailable)]],
             maxOutputTokens: (int) config('ai.model.max_output_tokens', 16000),
         );
 
-        $completion = $this->provider->complete($prompt);
+        $completion = $provider->complete($prompt);
 
         return [
             'completion' => $completion,
             'diagnostics' => [
-                'provider' => $this->provider->name(),
+                'provider' => $provider->name(),
                 'repository_checked_out' => $checkoutPath !== null,
                 'repository_unavailable_reason' => $unavailable,
             ],

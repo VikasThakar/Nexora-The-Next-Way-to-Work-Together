@@ -20,6 +20,7 @@
         "league/html-to-markdown": "^5.1",
         "livewire/livewire": "^4.4",
         "predis/predis": "^3.6",
+        "smalot/pdfparser": "^2.12",
         "spatie/commonmark-highlighter": "^3.0",
         "spatie/laravel-activitylog": "^4.12"
     },

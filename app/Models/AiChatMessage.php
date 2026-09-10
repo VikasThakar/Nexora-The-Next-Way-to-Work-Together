@@ -78,6 +78,20 @@ class AiChatMessage extends Model
     // Relationships
     // ---------------------------------------------------------------------
 
+    /**
+     * The conversation this turn belongs to.
+     *
+     * Nullable in the schema, and null only on a turn whose author has since
+     * been deleted — such a row belongs to no living conversation and was
+     * already invisible to the transcript, which reads through ownedBy().
+     *
+     * @return BelongsTo<AiSession, $this>
+     */
+    public function session(): BelongsTo
+    {
+        return $this->belongsTo(AiSession::class, 'ai_session_id');
+    }
+
     /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
@@ -138,7 +152,7 @@ class AiChatMessage extends Model
     // ---------------------------------------------------------------------
 
     /**
-     * Staff only, then board membership — or ownership, for a workspace turn.
+     * Board membership, then ownership where ownership is required.
      *
      * A null `board_id` means the turn was asked in the assistant's "All
      * workspace" context and belongs to no single board. Such a row cannot be
@@ -159,19 +173,46 @@ class AiChatMessage extends Model
     {
         $access = app(BoardAccess::class);
 
-        if (! $access->canSeeInternalContent($user)) {
+        if (! $user instanceof User || ! $user->isActive()) {
             $query->whereRaw('1 = 0');
 
             return;
         }
 
-        $userId = $user?->getAuthIdentifier();
+        $userId = $user->getKey();
 
-        $query->where(function (Builder $outer) use ($access, $user, $userId): void {
-            $outer->where(function (Builder $scoped) use ($access, $user): void {
+        /*
+         * Customers see their own turns and nothing else.
+         *
+         * This scope used to refuse a customer outright, because at the time a
+         * customer had no assistant. They now have a read-only one, and the
+         * rule that keeps its transcript safe is not this scope — it is that a
+         * customer's context is assembled with them as the viewer and their
+         * tools exclude the staff-only ones, so there is nothing internal in
+         * their own turns to protect.
+         *
+         * What this clause protects is the other direction: a customer who is a
+         * member of a board must not read the delivery team's conversation
+         * about that board, which board reachability alone would allow. So for
+         * a customer, reachability is not enough — ownership is required as
+         * well.
+         *
+         * Staff keep the wider rule. A board-scoped turn is readable by any
+         * member of that board, and ownedBy() is what narrows a transcript to
+         * one person's thread; that separation is deliberate and unchanged, and
+         * every caller that renders a conversation composes both.
+         */
+        $ownershipRequired = ! $access->canSeeInternalContent($user);
+
+        $query->where(function (Builder $outer) use ($access, $user, $userId, $ownershipRequired): void {
+            $outer->where(function (Builder $scoped) use ($access, $user, $userId, $ownershipRequired): void {
                 $scoped->whereNotNull('ai_chat_messages.board_id');
 
                 $access->constrain($scoped, $user, 'ai_chat_messages.board_id');
+
+                if ($ownershipRequired) {
+                    $scoped->where('ai_chat_messages.user_id', $userId);
+                }
             });
 
             $outer->orWhere(function (Builder $own) use ($userId): void {

@@ -40,14 +40,23 @@
         'danger' => 'bg-danger-solid text-white shadow-sm hover:bg-danger-solid-hover focus-visible:outline-danger-solid',
     ];
 
+    /*
+     * Tighter than they were, by roughly one step each.
+     *
+     * A button's padding is the single loudest density signal in an admin
+     * interface — a toolbar of five of them at the old `md` size took a
+     * third more width than its labels needed. The vertical padding came
+     * down further than the horizontal, because a button that is short
+     * reads as crisp while one that is narrow reads as cramped.
+     */
     $sizes = [
-        'sm' => 'px-2.5 py-1.5 text-xs gap-1.5',
-        'md' => 'px-3.5 py-2 text-sm gap-2',
-        'lg' => 'px-4 py-2.5 text-sm gap-2',
+        'sm' => 'px-2 py-1 text-xs gap-1.5',
+        'md' => 'px-3 py-1.5 text-sm gap-1.5',
+        'lg' => 'px-3.5 py-2 text-sm gap-2',
     ];
 
     $classes = collect([
-        'inline-flex items-center justify-center rounded-lg font-medium transition',
+        'inline-flex items-center justify-center rounded-md font-medium transition',
         'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2',
         'disabled:cursor-not-allowed disabled:opacity-60',
         $variants[$variant] ?? $variants['primary'],

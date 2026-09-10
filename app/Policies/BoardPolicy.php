@@ -128,6 +128,43 @@ class BoardPolicy
     }
 
     /**
+     * May the user talk to the assistant about this board at all?
+     *
+     * Deliberately a different question from useAiChat above, and the
+     * difference is the whole customer-AI feature.
+     *
+     *   useAiChat     the full-page board chat, and the staff assistant. It
+     *                 quotes internal tickets, internal notes and internal
+     *                 documentation, so it can be no safer than the least safe
+     *                 thing in it: team only, denied as 404.
+     *   useAssistant  the assistant panel. A customer who is a member of this
+     *                 board may ask questions about it, and receives an answer
+     *                 built from what they can already read — their own
+     *                 tickets, the documentation published to them, the files
+     *                 they uploaded themselves.
+     *
+     * Two abilities rather than one loosened ability, because the two surfaces
+     * differ in what they are allowed to contain and a single relaxed check
+     * would have quietly opened the staff page as well.
+     *
+     * This ability grants no capability beyond "may hold a conversation". What a
+     * conversation may contain is decided elsewhere and separately:
+     * BoardContextBuilder assembles it with this person as the viewer,
+     * App\Services\AI\Tools\AiToolRegistry withholds the staff-only lookups,
+     * and AiCapabilityGuard::allowsProposals refuses a customer a write tool in
+     * every mode, AI Agent included.
+     *
+     * Denied as 404 for the same reason view() is: a board somebody cannot
+     * reach must not be distinguishable from one that does not exist.
+     */
+    public function useAssistant(User $user, Board $board): Response
+    {
+        return $this->access->canView($user, $board)
+            ? Response::allow()
+            : Response::denyAsNotFound();
+    }
+
+    /**
      * May the user change the board's AI settings and its repositories?
      *
      * Deliberately the same bar as columns and labels rather than the

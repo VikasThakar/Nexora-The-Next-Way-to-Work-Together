@@ -6,12 +6,12 @@ namespace App\Livewire\Ai;
 
 use App\Livewire\Ai\Concerns\TalksToWorkspaceAi;
 use App\Models\Board;
+use App\Models\User;
 use App\Services\AI\AiContextScope;
 use App\Services\AI\PageContextResolver;
 use App\Services\AI\WorkspaceChatService;
 use App\Services\BoardAccess;
 use App\Services\ContentRenderer;
-use App\Support\BoardAiSettings;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Isolate;
@@ -23,9 +23,9 @@ use Livewire\Component;
  *
  * Mounted once in the application layout and persisted across wire:navigate, so
  * it is reachable from the dashboard, a board, a ticket, the documentation, the
- * statistics screens and settings without leaving the page. Asking, streaming
- * and confirming come from TalksToWorkspaceAi and are shared with the full-page
- * board chat.
+ * statistics screens and settings without leaving the page. Asking, streaming,
+ * confirming, and choosing what the conversation is for come from
+ * TalksToWorkspaceAi and are shared with the full-page board chat.
  *
  * Three things make a layout component different from a page, and all three are
  * about failing safely rather than loudly.
@@ -41,10 +41,30 @@ use Livewire\Component;
  *
  * It is not rendered for people who cannot use it
  * -----------------------------------------------
- * The layout asks eligibleFor() before mounting the component at all, so a
- * customer's page contains no panel and no component id for a crafted Livewire
- * request to address. That is defence in depth, not the defence: the checks in
- * this class and AiChatMessage's SQL scope are.
+ * The layout asks eligibleFor() before mounting the component at all, so
+ * somebody with no reachable board has no panel and no component id for a
+ * crafted Livewire request to address. That is defence in depth, not the
+ * defence: the checks in this class and AiChatMessage's SQL scope are.
+ *
+ * It serves customers as well as staff
+ * ------------------------------------
+ * A customer who is a member of a board gets this panel, read-only. Nothing in
+ * this class implements that distinction, which is the point — the difference
+ * lives in the layers that decide what an answer is built from:
+ *
+ *   the context   BoardContextBuilder and WorkspaceContextBuilder read through
+ *                 TicketFinder and DocPageFinder with the asker as the viewer,
+ *                 so a customer's context is the customer-visible subset;
+ *   the tools     App\Services\AI\Tools\AiToolRegistry withholds the
+ *                 staff-only lookups — activity, repositories, code — from a
+ *                 customer entirely, so the model is never offered them;
+ *   the writes    AiCapabilityGuard::allowsProposals refuses a customer in
+ *                 every mode, AI Agent included, so no write tool is sent and
+ *                 no proposal can exist to confirm.
+ *
+ * All three are server-side and none of them is a branch in this component. The
+ * only thing the panel itself does differently is say so, in a line under the
+ * composer, so a customer knows what they are talking to.
  *
  * It costs nothing until it is opened
  * -----------------------------------
@@ -90,10 +110,20 @@ class Assistant extends Component
     /**
      * Is this person able to use the assistant anywhere at all?
      *
-     * Exactly equivalent to "there is at least one board where
-     * BoardPolicy::useAiChat would allow", because that policy is
-     * `canView && canSeeInternalContent` and BoardAccess::query() already
-     * encodes canView. One indexed EXISTS per page load.
+     * "There is at least one board they can reach" — equivalent to
+     * BoardPolicy::useAssistant allowing somewhere, because that policy is
+     * canView() and BoardAccess::query() already encodes canView. One indexed
+     * EXISTS per page load.
+     *
+     * Customers included. That is the change this phase makes here, and it is
+     * worth being precise about what it does and does not do: it decides
+     * whether the panel is *mounted*, not what the panel may contain. A
+     * customer who opens it gets a conversation built from what they can
+     * already read, with no write tools in any mode and no staff-only lookups —
+     * see BoardPolicy::useAssistant for where each of those is enforced.
+     *
+     * A person with no board membership still gets nothing, because a panel
+     * with no reachable context has nothing to answer from.
      *
      * Called by the layout to decide whether to mount the component, and by the
      * top bar to decide whether to show the trigger.
@@ -104,8 +134,24 @@ class Assistant extends Component
             return false;
         }
 
-        return app(BoardAccess::class)->canSeeInternalContent($user)
-            && app(BoardAccess::class)->query($user)->notArchived()->exists();
+        if ($user instanceof User && ! $user->isActive()) {
+            return false;
+        }
+
+        return app(BoardAccess::class)->query($user)->notArchived()->exists();
+    }
+
+    /**
+     * Is the person using it a customer?
+     *
+     * Read from the same place every other customer decision in the product is
+     * read from, so there is one definition. Used only to decide what the panel
+     * says about itself — the restrictions themselves are server-side and
+     * elsewhere.
+     */
+    public function isCustomer(): bool
+    {
+        return ! app(BoardAccess::class)->canSeeInternalContent(auth()->user());
     }
 
     /**
@@ -125,7 +171,7 @@ class Assistant extends Component
         if (! $this->revealed && $this->scopeValue === AiContextScope::MODE_WORKSPACE && $board !== null) {
             $resolved = app(PageContextResolver::class)->resolveBoard($board, auth()->user());
 
-            if ($resolved instanceof Board && Gate::allows('useAiChat', $resolved)) {
+            if ($resolved instanceof Board && Gate::allows('useAssistant', $resolved)) {
                 $this->scopeValue = $resolved->slug;
             }
         }
@@ -166,10 +212,25 @@ class Assistant extends Component
 
         $this->scopeValue = $resolved->value();
 
-        // A different subject means a different thread, so nothing in flight
-        // for the previous one should still be on screen.
+        /*
+         * A different subject means a different conversation.
+         *
+         * The remembered session uuid is dropped rather than carried over,
+         * because a session belongs to one scope: keeping it would make the
+         * next request resolve nothing and fall back anyway, and clearing it
+         * here is what makes that intentional rather than incidental.
+         *
+         * The mode is not cleared with it. It is what the person wants the
+         * assistant to be doing, which does not change because they changed the
+         * subject — and session() re-reads it from whichever session this scope
+         * resolves to anyway, so a carried-over value cannot survive a session
+         * that says otherwise.
+         */
+        $this->sessionUuid = null;
+
         $this->confirmingMessageId = null;
         $this->aiError = null;
+        $this->sessionExhausted = false;
         $this->streamingAnswer = '';
     }
 
@@ -228,7 +289,7 @@ class Assistant extends Component
             ->where('boards.slug', $value)
             ->first();
 
-        if (! $board instanceof Board || ! Gate::forUser($user)->allows('useAiChat', $board)) {
+        if (! $board instanceof Board || ! Gate::forUser($user)->allows('useAssistant', $board)) {
             return AiContextScope::workspace();
         }
 
@@ -251,8 +312,10 @@ class Assistant extends Component
             ->get(['id', 'name', 'slug', 'ticket_prefix']);
     }
 
-    public function render(WorkspaceChatService $chat, ContentRenderer $renderer)
-    {
+    public function render(
+        WorkspaceChatService $chat,
+        ContentRenderer $renderer,
+    ) {
         $user = auth()->user();
 
         // Closed down rather than aborted. A revoked membership empties the
@@ -262,15 +325,7 @@ class Assistant extends Component
             // if access is later granted back on a different board.
             $this->scopeValue = AiContextScope::MODE_WORKSPACE;
 
-            return view('livewire.ai.assistant', [
-                'eligible' => false,
-                'scope' => AiContextScope::workspace(),
-                'boards' => new Collection,
-                'messages' => new Collection,
-                'rendered' => [],
-                'confirming' => null,
-                'providerConfigured' => false,
-            ]);
+            return view('livewire.ai.assistant', $this->emptyState());
         }
 
         $scope = $this->contextScope();
@@ -279,44 +334,87 @@ class Assistant extends Component
         // not remembered across requests.
         $this->scopeValue = $scope->value();
 
+        $configuration = $this->configuration();
+
         if (! $this->revealed) {
-            // Nothing is read until the panel is actually opened.
-            return view('livewire.ai.assistant', [
+            // Nothing is read until the panel is actually opened — not even
+            // the current session, which would otherwise be created by the act
+            // of rendering a closed panel on every page in the application.
+            return view('livewire.ai.assistant', array_merge($this->emptyState(), [
                 'eligible' => true,
                 'scope' => $scope,
-                'boards' => new Collection,
-                'messages' => new Collection,
-                'rendered' => [],
-                'confirming' => null,
-                'providerConfigured' => BoardAiSettings::providerConfigured(),
-            ]);
+                'configuration' => $configuration,
+                'providerConfigured' => $configuration->isUsable(),
+            ]));
         }
 
-        $messages = $chat->transcript($scope, $user, 60);
+        $session = $this->session();
 
-        // Rendered per viewer, exactly as the board chat does: ContentRenderer
-        // links a ticket reference only for somebody who may open that ticket.
-        $rendered = [];
+        $messages = $chat->transcript($session, $user, 60);
 
-        foreach ($messages as $message) {
-            $rendered[$message->getKey()] = $renderer->render(
-                $message->content,
-                $user,
-                $scope->board,
-                mentionScope: false,
-            );
-        }
+        /*
+         * Rendered per viewer, exactly as the board chat does: ContentRenderer
+         * links a ticket reference only for somebody who may open that ticket.
+         * Answers carrying a table or a chart come back as blocks instead.
+         */
+        $transcript = $this->renderTranscript($messages, $renderer, $scope->board);
+
+        $attachments = $this->attachments();
 
         return view('livewire.ai.assistant', [
             'eligible' => true,
+            'customer' => $this->isCustomer(),
+            'voice' => $this->voiceStatus(),
             'scope' => $scope,
             'boards' => $this->selectableBoards(),
             'messages' => $messages,
-            'rendered' => $rendered,
+            'rendered' => $transcript['rendered'],
+            'blocks' => $transcript['blocks'],
+            'attachments' => $attachments,
+            'canAttach' => $this->canAttach(),
+            'attachmentsSettling' => $this->attachmentsSettling($attachments),
             'confirming' => $this->confirmingMessageId === null
                 ? null
                 : $messages->firstWhere('id', $this->confirmingMessageId),
-            'providerConfigured' => BoardAiSettings::providerConfigured(),
+            'providerConfigured' => $configuration->isUsable(),
+            'configuration' => $configuration,
+            'session' => $session,
+            // What this conversation may be set to, and why not, if not. The
+            // model is not offered separately — it follows from the mode.
+            'chatModes' => $this->chatModeOptions(),
+            'chatModeRefusal' => $this->chatModeRefusal(),
         ]);
+    }
+
+    /**
+     * The shape render() returns when there is nothing to show.
+     *
+     * One definition, because there are three of these — ineligible, closed,
+     * and closed-but-eligible — and a missing key in any of them is a Blade
+     * error on somebody's dashboard.
+     *
+     * @return array<string, mixed>
+     */
+    private function emptyState(): array
+    {
+        return [
+            'eligible' => false,
+            'customer' => $this->isCustomer(),
+            'voice' => $this->voiceStatus(),
+            'scope' => AiContextScope::workspace(),
+            'boards' => new Collection,
+            'messages' => new Collection,
+            'rendered' => [],
+            'blocks' => [],
+            'attachments' => new Collection,
+            'canAttach' => false,
+            'attachmentsSettling' => false,
+            'confirming' => null,
+            'providerConfigured' => false,
+            'configuration' => $this->configuration(),
+            'session' => null,
+            'chatModes' => $this->chatModeOptions(),
+            'chatModeRefusal' => $this->chatModeRefusal(),
+        ];
     }
 }

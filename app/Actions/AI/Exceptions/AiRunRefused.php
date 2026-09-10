@@ -32,6 +32,15 @@ class AiRunRefused extends RuntimeException
 
     public const REASON_MODE_OFF = 'mode_off';
 
+    /**
+     * The workspace's AI capability mode does not permit this kind of run.
+     *
+     * Distinct from REASON_MODE_OFF, which is a board saying "do not react to
+     * tickets". This is the workspace saying "the AI does not do that here" —
+     * different decision, different screen, different person to talk to.
+     */
+    public const REASON_CAPABILITY_MODE = 'capability_mode';
+
     private function __construct(
         public readonly string $reason,
         string $message,
@@ -87,5 +96,21 @@ class AiRunRefused extends RuntimeException
     public static function modeOff(): self
     {
         return new self(self::REASON_MODE_OFF, 'Automatic AI runs are switched off for this board.');
+    }
+
+    /**
+     * Refused by the workspace's AI capability mode.
+     *
+     * Distinct from modeOff(), which is a board declining to react to its own
+     * tickets. This is the workspace saying the AI does not do that here — a
+     * different decision, on a different screen, changed by a different person.
+     *
+     * The prose comes from App\Services\AI\AiCapabilityGuard, the only class
+     * that knows which capability was missing and which mode would supply it,
+     * so there is one wording for a mode refusal wherever it surfaces.
+     */
+    public static function capabilityMode(string $message): self
+    {
+        return new self(self::REASON_CAPABILITY_MODE, $message);
     }
 }

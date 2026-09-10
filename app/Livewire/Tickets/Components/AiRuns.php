@@ -12,9 +12,9 @@ use App\Enums\AiRunTrigger;
 use App\Livewire\Concerns\ListensForBoardUpdates;
 use App\Models\AiRun;
 use App\Models\Ticket;
+use App\Services\AI\AiConfigurationResolver;
 use App\Services\AI\AiRunCap;
 use App\Services\AI\AiRunReader;
-use App\Support\BoardAiSettings;
 use Illuminate\Validation\Rule;
 use Livewire\Component;
 
@@ -164,7 +164,7 @@ class AiRuns extends Component
 
     // -----------------------------------------------------------------
 
-    public function render(AiRunReader $runs, CreateAiRun $createAiRun, AiRunCap $cap)
+    public function render(AiRunReader $runs, CreateAiRun $createAiRun, AiRunCap $cap, AiConfigurationResolver $configuration)
     {
         // Re-authorized on every render: this is not the same request that ran
         // mount(), and the user's role or membership may have changed since.
@@ -183,8 +183,14 @@ class AiRuns extends Component
             'hasActive' => $hasActive,
             'modes' => AiRunMode::runnable(),
             'refusal' => $createAiRun->refusalFor($this->ticket, $selected, $user),
-            'providerConfigured' => BoardAiSettings::providerConfigured(),
+            // Board-scoped rather than deployment-wide: a board may point at a
+            // different provider, or hold its own key, and the panel should say
+            // what is true for *this* ticket's board.
+            'providerConfigured' => $configuration->isUsable($this->ticket->board),
             'settings' => $this->ticket->board->aiSettings(),
+            // What the AI is permitted to do here, so the panel can say why a
+            // mode is unavailable rather than only that it is.
+            'capabilityMode' => $configuration->modeFor($this->ticket->board),
             'manualUsedToday' => $cap->usedToday($this->ticket->board, AiRunTrigger::Manual),
             'manualLimit' => $cap->manualLimit(),
             'autoUsedToday' => $cap->usedToday($this->ticket->board, AiRunTrigger::Automatic),

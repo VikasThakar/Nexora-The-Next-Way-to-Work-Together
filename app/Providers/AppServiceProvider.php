@@ -8,6 +8,7 @@ use App\Events\BoardCreated;
 use App\Events\BoardMemberAdded;
 use App\Events\BoardMemberRemoved;
 use App\Models\AiRun;
+use App\Models\AiSession;
 use App\Models\Attachment;
 use App\Models\Board;
 use App\Models\BoardColumn;
@@ -19,6 +20,7 @@ use App\Notifications\Channels\SlackWebhookChannel;
 use App\Observers\CommentObserver;
 use App\Observers\TicketObserver;
 use App\Policies\AiRunPolicy;
+use App\Policies\AiSessionPolicy;
 use App\Policies\AttachmentPolicy;
 use App\Policies\BoardPolicy;
 use App\Policies\CommentPolicy;
@@ -26,11 +28,39 @@ use App\Policies\DocPagePolicy;
 use App\Policies\TicketPolicy;
 use App\Policies\UserPolicy;
 use App\Services\ActivityLogger;
+use App\Services\AI\AiConfigurationResolver;
+use App\Services\AI\AiCredentialVault;
 use App\Services\AI\AiProviderInterface;
+use App\Services\AI\Attachments\AiAttachmentClassifier;
+use App\Services\AI\Attachments\AiAttachmentPipeline;
+use App\Services\AI\Attachments\AiAttachmentProcessor;
+use App\Services\AI\Attachments\AudioProcessor;
+use App\Services\AI\Attachments\CsvProcessor;
+use App\Services\AI\Attachments\ImageProcessor;
+use App\Services\AI\Attachments\MarkdownProcessor;
+use App\Services\AI\Attachments\OfficeProcessor;
+use App\Services\AI\Attachments\PdfProcessor;
+use App\Services\AI\Attachments\TextProcessor;
+use App\Services\AI\Audit\AiAuditLogger;
 use App\Services\AI\ClaudeService;
 use App\Services\AI\CodeGeneration\ClaudeCodeGenerator;
 use App\Services\AI\CodeGeneration\CodeChangeGeneratorInterface;
 use App\Services\AI\CodeGeneration\UnavailableCodeChangeGenerator;
+use App\Services\AI\Tools\AiToolContract;
+use App\Services\AI\Tools\AiToolRegistry;
+use App\Services\AI\Tools\GetActivityTool;
+use App\Services\AI\Tools\GetBoardTool;
+use App\Services\AI\Tools\GetCodeActivityTool;
+use App\Services\AI\Tools\GetDocumentationPageTool;
+use App\Services\AI\Tools\GetRepositoryTool;
+use App\Services\AI\Tools\GetStatisticsTool;
+use App\Services\AI\Tools\GetTicketTool;
+use App\Services\AI\Tools\SearchDocumentationTool;
+use App\Services\AI\Tools\SearchTicketsTool;
+use App\Services\AI\Voice\OpenAiVoiceProvider;
+use App\Services\AI\Voice\UnavailableVoiceProvider;
+use App\Services\AI\Voice\VoiceProviderInterface;
+use App\Services\AttachmentStorage;
 use App\Services\BoardAccess;
 use App\Services\SMS\ElksSmsProvider;
 use App\Services\SMS\LogSmsProvider;
@@ -108,6 +138,116 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(AiProviderInterface::class, ClaudeService::class);
 
+        /*
+         * The configuration chain and the credential vault, memoised per
+         * request.
+         *
+         * Both are read several times per render — the panel header, the model
+         * picker, the usage footer, every "is AI configured?" check in the
+         * navigation — and each read otherwise costs a settings lookup plus a
+         * board settings decode. Singletons here mean once per request.
+         *
+         * Per request and not per process: a worker holding an hour-old copy
+         * would keep running after an administrator switched the AI off, and
+         * the resolver's own flush() exists for the request that changes it.
+         */
+        $this->app->singleton(AiCredentialVault::class);
+        $this->app->singleton(AiConfigurationResolver::class);
+
+        /*
+         * The registry is NOT a singleton, deliberately.
+         *
+         * It hands out adapters holding a credential, and one cached adapter
+         * would eventually send one board's key on another board's request.
+         * See AiProviderRegistry.
+         */
+
+        /*
+         * The attachment processors, as a tag.
+         *
+         * Tagged rather than listed inside the pipeline so that supporting a
+         * new file format is a class and one line here — the pipeline receives
+         * whatever is tagged and asks each implementation which kind it reads.
+         * That is the extension point the attachment feature is built around;
+         * see App\Services\AI\Attachments\AiAttachmentProcessor.
+         *
+         * The order is not significant. Each processor claims exactly one kind,
+         * so the lookup is a match rather than a first-wins search.
+         */
+        $this->app->tag([
+            TextProcessor::class,
+            MarkdownProcessor::class,
+            CsvProcessor::class,
+            PdfProcessor::class,
+            ImageProcessor::class,
+            AudioProcessor::class,
+            OfficeProcessor::class,
+        ], AiAttachmentProcessor::class);
+
+        $this->app->singleton(AiAttachmentPipeline::class, function ($app): AiAttachmentPipeline {
+            return new AiAttachmentPipeline(
+                $app->make(AttachmentStorage::class),
+                $app->make(AiAttachmentClassifier::class),
+                $app->tagged(AiAttachmentProcessor::class),
+            );
+        });
+
+        /*
+         * The assistant's read tools.
+         *
+         * Tagged rather than listed inside the registry so that adding a
+         * capability is one class and one line here — the registry, the loop,
+         * the prompt and the audit trail all pick it up without being touched.
+         *
+         * Order is not significant: the registry keys them by name, and which
+         * of them a given person is offered is decided per request by
+         * availableTo().
+         */
+        $this->app->tag([
+            GetTicketTool::class,
+            SearchTicketsTool::class,
+            GetBoardTool::class,
+            GetStatisticsTool::class,
+            GetActivityTool::class,
+            SearchDocumentationTool::class,
+            GetDocumentationPageTool::class,
+            GetRepositoryTool::class,
+            GetCodeActivityTool::class,
+        ], AiToolContract::class);
+
+        $this->app->singleton(AiToolRegistry::class, function ($app): AiToolRegistry {
+            return new AiToolRegistry(
+                $app->tagged(AiToolContract::class),
+                $app->make(AiAuditLogger::class),
+            );
+        });
+
+        /*
+         * Voice.
+         *
+         * The same shape as the code-generation driver below, and for the same
+         * reason: an unconfigured deployment resolves to an implementation that
+         * refuses and explains, rather than to one that throws or — worse —
+         * pretends. A typo in the driver name must not silently disable the
+         * refusal.
+         */
+        $this->app->singleton(VoiceProviderInterface::class, function ($app): VoiceProviderInterface {
+            if (! (bool) config('ai.voice.enabled', true)) {
+                return new UnavailableVoiceProvider(
+                    'Voice conversation is switched off for this deployment. An administrator can '
+                    .'enable it by setting AI_VOICE_ENABLED=true.'
+                );
+            }
+
+            return match ((string) config('ai.voice.driver', 'openai')) {
+                'openai' => $app->make(OpenAiVoiceProvider::class),
+                default => new UnavailableVoiceProvider(
+                    'No voice provider is configured. Set AI_VOICE_DRIVER=openai and supply an '
+                    .'OpenAI API key to enable spoken conversation.'
+                ),
+            };
+        });
+
         $this->app->singleton(CodeChangeGeneratorInterface::class, function (): CodeChangeGeneratorInterface {
             return match ((string) config('ai.code_generation.driver')) {
                 'claude_code' => new ClaudeCodeGenerator,
@@ -181,6 +321,13 @@ class AppServiceProvider extends ServiceProvider
             'ticket' => Ticket::class,
             'comment' => Comment::class,
             'doc_page' => DocPage::class,
+
+            /*
+             * A conversation with the assistant, which owns the files
+             * uploaded into it. The alias is what makes AttachmentPolicy able
+             * to resolve the owner and ask AiSessionPolicy who may read it.
+             */
+            'ai_session' => AiSession::class,
 
             // `notifications.notifiable_type`. Enforcement is all-or-nothing,
             // so every model that appears in a morph column has to be named,
@@ -306,11 +453,29 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(DocPage::class, DocPagePolicy::class);
         Gate::policy(Attachment::class, AttachmentPolicy::class);
         Gate::policy(AiRun::class, AiRunPolicy::class);
+        /*
+         * A conversation, so that AttachmentPolicy can ask it who may
+         * read the files uploaded into it.
+         */
+        Gate::policy(AiSession::class, AiSessionPolicy::class);
 
         // Coarse gates used by navigation and route groups. Record-level
         // decisions always go through a policy, never through these.
         Gate::define('administer-workspace', fn (User $user): bool => $user->canAdministerWorkspace());
         Gate::define('view-internal-content', fn (User $user): bool => $user->canSeeInternalContent());
+
+        /*
+         * The global AI control area.
+         *
+         * Defined as its own gate rather than reusing `administer-workspace`,
+         * even though the two currently answer identically. They are different
+         * questions — "may this person manage the workspace?" and "may this
+         * person hold the provider credentials and set how far the AI is
+         * trusted?" — and the second is the one a deployment is most likely to
+         * want to narrow later. One line to change when that happens, instead
+         * of an audit of every caller of the other gate.
+         */
+        Gate::define('administer-ai', fn (User $user): bool => $user->canAdministerWorkspace());
     }
 
     private function configurePasswords(): void
@@ -344,20 +509,33 @@ class AppServiceProvider extends ServiceProvider
     /**
      * Named rate limiters.
      *
-     * Only the webhook endpoint needs one today, and it needs one badly: it is
-     * the single unauthenticated route that can enqueue work, so without a
-     * limit an unsigned flood would fill the queue table before a single
-     * signature was checked. Keyed on the caller's IP rather than globally, so
-     * one noisy sender cannot starve a legitimate one.
+     * Two of them, protecting quite different things.
      *
-     * The limit is deliberately generous — a monorepo merge really does deliver
-     * in bursts — and is a ceiling against abuse, not a shaping mechanism.
+     * `github-webhooks` is the single unauthenticated route that can enqueue
+     * work, so without a limit an unsigned flood would fill the queue table
+     * before a single signature was checked. Keyed on the caller's IP rather
+     * than globally, so one noisy sender cannot starve a legitimate one. The
+     * limit is deliberately generous — a monorepo merge really does deliver in
+     * bursts — and is a ceiling against abuse, not a shaping mechanism.
+     *
+     * `ai-voice` protects money rather than the queue. Transcription and speech
+     * synthesis are billed per call and are the only AI surface in this product
+     * a browser can trigger in a loop without a person typing anything: a stuck
+     * script that re-requests audio would run up a vendor bill silently. Keyed
+     * on the signed-in person, because that is who the spend is attributable
+     * to, and per minute because a spoken conversation is a handful of turns a
+     * minute at most.
      */
     private function configureRateLimiting(): void
     {
         RateLimiter::for('github-webhooks', function (Request $request): Limit {
             return Limit::perMinute((int) config('github.webhook.rate_limit', 300))
                 ->by($request->ip() ?? 'unknown');
+        });
+
+        RateLimiter::for('ai-voice', function (Request $request): Limit {
+            return Limit::perMinute((int) config('ai.voice.rate_limit', 30))
+                ->by((string) ($request->user()?->getAuthIdentifier() ?? $request->ip() ?? 'unknown'));
         });
     }
 

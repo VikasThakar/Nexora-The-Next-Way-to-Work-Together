@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Security;
 
 use App\Enums\AiActionType;
+use App\Enums\AiCapabilityMode;
 use App\Enums\AiChatRole;
 use App\Enums\CommentStream;
 use App\Livewire\Ai\Chat;
@@ -223,6 +224,13 @@ class AiChatSecurityTest extends TestCase
 
     public function test_a_proposed_action_writes_nothing_without_confirmation(): void
     {
+        // AI Operator is the mode that means "propose for a person to confirm",
+        // and this is the property that defines it: between proposing and
+        // confirming, nothing is written. Under AI Agent a reversible change
+        // somebody asked for is carried out instead — see AiUnattendedWriteTest,
+        // which asserts that a deletion still is not.
+        $this->aiMode(AiCapabilityMode::Operator);
+
         $provider = $this->fakeAiProvider();
         $provider->willPropose(AiActionType::CreateTicket->toolName(), [
             'title' => 'Should not exist yet',
@@ -246,6 +254,10 @@ class AiChatSecurityTest extends TestCase
 
     public function test_confirming_a_proposal_on_another_boards_message_is_refused(): void
     {
+        // Operator, so board one's proposal is still standing to be aimed at
+        // board two. The refusal under test is the scope check, not the mode.
+        $this->aiMode(AiCapabilityMode::Operator);
+
         $provider = $this->fakeAiProvider();
         $provider->willPropose(AiActionType::CreateTicket->toolName(), ['title' => 'Cross-board']);
 

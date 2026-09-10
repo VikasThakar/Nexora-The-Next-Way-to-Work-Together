@@ -14,16 +14,18 @@
     'trail' => [],
 ])
 
-<div {{ $attributes->class('mb-6 flex flex-wrap items-end justify-between gap-4') }}>
+{{-- mb-4 rather than mb-6: a page title separated from its content by a
+     centimetre of nothing is the most visible waste on every screen. --}}
+<div {{ $attributes->class('mb-4 flex flex-wrap items-end justify-between gap-3') }}>
     <div class="min-w-0">
         @if (! empty($trail))
             <x-ui.breadcrumbs :trail="$trail" />
         @endif
 
-        <h1 class="truncate text-xl font-semibold tracking-tight text-slate-900">{{ $title }}</h1>
+        <h1 class="truncate text-lg font-semibold tracking-tight text-slate-900">{{ $title }}</h1>
 
         @if ($description)
-            <p class="mt-1 max-w-2xl text-sm text-slate-500">{{ $description }}</p>
+            <p class="mt-0.5 max-w-2xl text-xs text-slate-500">{{ $description }}</p>
         @endif
     </div>
 

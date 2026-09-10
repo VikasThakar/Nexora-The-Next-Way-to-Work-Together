@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Unit;
 
+use App\Enums\AiProvider;
 use App\Services\AI\CostCalculationService;
+use App\Support\AiModelCatalogue;
 use Tests\TestCase;
 
 /**
@@ -110,14 +112,53 @@ class CostCalculationTest extends TestCase
         $this->assertSame(180, $summary['output_tokens']);
     }
 
-    public function test_every_model_offered_in_the_settings_screen_is_priced(): void
+    /**
+     * Every model this deployment has a first-party rate for is priced.
+     *
+     * This used to assert it of the whole selectable list, on the grounds that
+     * a board pointed at an unpriced model would silently stop reporting cost.
+     * The catalogue now spans two providers and the second one's model ids are
+     * deployment-supplied (AI_OPENAI_MODELS), so that is no longer achievable
+     * without inventing rates — which is the one thing this class exists not to
+     * do.
+     *
+     * So the guarantee is narrower and the next test carries the other half:
+     * the models whose rates are published are priced, and an unpriced model is
+     * *visibly* unpriced rather than quietly free.
+     */
+    public function test_every_anthropic_model_offered_is_priced(): void
     {
-        // A board that can be pointed at a model nobody priced would silently
-        // stop reporting cost.
-        foreach (array_keys((array) config('ai.model.allowed')) as $model) {
+        $models = AiModelCatalogue::forProvider(AiProvider::Anthropic);
+
+        $this->assertNotSame([], $models);
+
+        foreach (array_keys($models) as $model) {
             $this->assertTrue(
                 $this->costs->isPriced($model),
                 "The selectable model {$model} has no entry in config('ai.pricing')."
+            );
+        }
+    }
+
+    /**
+     * An unpriced model reports nothing, not nought.
+     *
+     * The replacement for the old whole-catalogue guarantee. A model with no
+     * configured rate is allowed to be selectable — a deployment may
+     * legitimately point at something this file has no rates for — but its cost
+     * has to arrive as null, all the way to the screen, so that a total is
+     * never quietly understated by the runs it had to skip.
+     */
+    public function test_an_unpriced_model_reports_no_cost_rather_than_zero(): void
+    {
+        foreach (AiModelCatalogue::all() as $id => $model) {
+            if ($this->costs->isPriced($id)) {
+                continue;
+            }
+
+            $this->assertNull(
+                $this->costs->estimate($id, 1000, 1000),
+                "The unpriced model {$id} produced a cost figure."
             );
         }
     }

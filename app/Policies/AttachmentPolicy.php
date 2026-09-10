@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Policies;
 
+use App\Models\AiSession;
 use App\Models\Attachment;
 use App\Models\Comment;
 use App\Models\DocPage;
@@ -25,6 +26,12 @@ use Illuminate\Database\Eloquent\Model;
  * Owners are resolved from an explicit allow-list. An attachable type nobody
  * has thought about is denied rather than served: a polymorphic key is a string
  * in a column, and "unknown owner" must not mean "no restrictions".
+ *
+ * AiSession is the fourth owner, and the delegation earns its keep there: a
+ * file uploaded to an assistant conversation is private to the one person whose
+ * conversation it is, an administrator included, because that is what
+ * AiSessionPolicy::view says — and this class did not have to learn anything
+ * about conversations to enforce it.
  */
 class AttachmentPolicy
 {
@@ -37,6 +44,7 @@ class AttachmentPolicy
         Ticket::class,
         Comment::class,
         DocPage::class,
+        AiSession::class,
     ];
 
     public function view(User $user, Attachment $attachment): Response

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\AiBlockExportController;
+use App\Http\Controllers\AiVoiceController;
 use App\Http\Controllers\AttachmentController;
 use App\Http\Controllers\Auth\LogoutController;
 use App\Http\Controllers\CustomerStatisticsExportController;
@@ -11,6 +13,7 @@ use App\Http\Controllers\StatisticsExportController;
 use App\Http\Controllers\ThemePreferenceController;
 use App\Livewire\Activity\Index as ActivityIndex;
 use App\Livewire\Ai\Chat as AiChat;
+use App\Livewire\Ai\GlobalSettings as AiGlobalSettings;
 use App\Livewire\Auth\ConfirmPassword;
 use App\Livewire\Auth\ForgotPassword;
 use App\Livewire\Auth\Login;
@@ -107,6 +110,22 @@ Route::middleware('auth')->group(function (): void {
      * readability — the two URIs are distinct literals and cannot collide.
      */
     Route::get('/settings', SettingsIndex::class)->name('settings');
+
+    /*
+     * Global AI settings.
+     *
+     * Deliberately NOT under /boards: the whole point of the screen is that
+     * configuring the workspace's AI does not require choosing a board first.
+     *
+     * Guarded the same way workspace user administration is, and for the same
+     * reason — it holds credentials and it decides how far the AI is trusted:
+     * the role middleware blocks the request, password.confirm forces
+     * re-authentication, and the component authorizes `administer-ai` on mount,
+     * on every action and on every render.
+     */
+    Route::get('/admin/ai', AiGlobalSettings::class)
+        ->middleware(['role:admin', 'password.confirm'])
+        ->name('admin.ai');
 
     Route::get('/settings/profile', UpdateProfile::class)->name('profile.edit');
 
@@ -273,6 +292,57 @@ Route::middleware('auth')->group(function (): void {
     // Authorized download; see AttachmentController for why this is not a
     // direct link to storage.
     Route::get('/attachments/{attachment}', AttachmentController::class)->name('attachments.show');
+
+    /*
+     * Exporting a table or a chart out of an assistant answer.
+     *
+     * Behind `role:admin,team` because the whole assistant is, and then
+     * authorized per message: the controller resolves the turn through
+     * `visibleTo` and `ownedBy`, so this cannot reach anybody else's
+     * conversation — an administrator's included.
+     *
+     * The block is addressed by index rather than posted as data. That is what
+     * makes the export the *rendered* data: the controller re-parses the stored
+     * answer with the same parser the screen used, so the CSV and the table on
+     * screen cannot disagree. See AiBlockExportController.
+     *
+     * Both parameters are constrained to digits, so a malformed URL is a 404
+     * from the router rather than a cast to zero inside the controller.
+     */
+    Route::middleware('role:admin,team')
+        ->get('/ai/messages/{message}/blocks/{block}/export.csv', AiBlockExportController::class)
+        ->whereNumber(['message', 'block'])
+        ->name('ai.blocks.export');
+
+    /*
+     * Spoken conversation.
+     *
+     * NOT behind `role:admin,team`, unlike every other AI route in this file,
+     * and that is the deliberate part: a customer's assistant is read-only, not
+     * silent. Both endpoints check App\Livewire\Ai\Assistant::eligibleFor()
+     * themselves — the same question the layout asks before it mounts the panel
+     * — and `speak` additionally resolves the turn through `visibleTo` and
+     * `ownedBy`, so it cannot reach anybody else's conversation.
+     *
+     * Rate limited because these are the only AI calls a browser can make in a
+     * loop without a person typing: both are billed per request, so a stuck
+     * script would otherwise run up a vendor bill in silence. See the `ai-voice`
+     * limiter in AppServiceProvider.
+     *
+     * `speak` is a GET so an <audio> element can play it directly, and it is
+     * addressed by message id rather than by posting text — the same reasoning
+     * as the block export above: what is read aloud is what is stored, and a
+     * browser that could post the words would be a browser that could have the
+     * assistant say something it never said.
+     */
+    Route::middleware('throttle:ai-voice')->group(function (): void {
+        Route::post('/ai/voice/listen', [AiVoiceController::class, 'listen'])
+            ->name('ai.voice.listen');
+
+        Route::get('/ai/messages/{message}/speech', [AiVoiceController::class, 'speak'])
+            ->whereNumber('message')
+            ->name('ai.voice.speak');
+    });
 
     /*
      * Workspace administration.

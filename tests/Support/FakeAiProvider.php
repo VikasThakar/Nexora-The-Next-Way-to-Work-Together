@@ -47,6 +47,33 @@ class FakeAiProvider implements AiProviderInterface
 
     public int $calls = 0;
 
+    /**
+     * Answers to give in order, one per provider call.
+     *
+     * Needed because the assistant is now a loop: a question can take several
+     * provider calls, and a fake that answers identically every time cannot
+     * express "ask for a lookup, then answer with what came back" — which is
+     * the behaviour the retrieval layer exists for.
+     *
+     * Each entry is a text and a list of tool calls. When the script runs out
+     * the fake falls back to its configured text, so every existing test that
+     * never touches this is unaffected.
+     *
+     * @var list<array{text: string, toolCalls: list<AiToolCall>}>
+     */
+    public array $script = [];
+
+    /**
+     * Tool results the loop handed back, in order.
+     *
+     * This is what a test asserts on to prove a lookup really happened and
+     * that its material reached the model — the strongest available check that
+     * the loop is wired up, since it is the model's own view of the answer.
+     *
+     * @var list<string>
+     */
+    public array $toolResults = [];
+
     public function name(): string
     {
         return 'fake';
@@ -76,13 +103,15 @@ class FakeAiProvider implements AiProviderInterface
             throw $this->throws;
         }
 
+        [$text, $toolCalls] = $this->next();
+
         return new AiCompletion(
-            text: $this->text,
+            text: $text,
             inputTokens: $this->inputTokens,
             outputTokens: $this->outputTokens,
             model: $this->model,
             stopReason: $this->stopReason,
-            toolCalls: $this->toolCalls,
+            toolCalls: $toolCalls,
             metadata: ['provider' => 'fake'],
         );
     }
@@ -109,20 +138,51 @@ class FakeAiProvider implements AiProviderInterface
         $onText('');
         $this->streamedChunks[] = '';
 
-        foreach ($this->chunks($this->text) as $chunk) {
+        [$text, $toolCalls] = $this->next();
+
+        foreach ($this->chunks($text) as $chunk) {
             $onText($chunk);
             $this->streamedChunks[] = $chunk;
         }
 
         return new AiCompletion(
-            text: $this->text,
+            text: $text,
             inputTokens: $this->inputTokens,
             outputTokens: $this->outputTokens,
             model: $this->model,
             stopReason: $this->stopReason,
-            toolCalls: $this->toolCalls,
+            toolCalls: $toolCalls,
             metadata: ['provider' => 'fake', 'streamed' => true],
         );
+    }
+
+    /**
+     * The next scripted answer, or the configured one.
+     *
+     * Every call also records whatever tool results arrived on the prompt, so a
+     * test can see exactly what the model was shown.
+     *
+     * @return array{0: string, 1: list<AiToolCall>}
+     */
+    private function next(): array
+    {
+        $prompt = $this->lastPrompt();
+
+        if ($prompt !== null) {
+            foreach ($prompt->toolExchanges as $exchange) {
+                foreach ($exchange->results as $result) {
+                    $this->toolResults[] = $result->content;
+                }
+            }
+        }
+
+        if ($this->script !== []) {
+            $step = array_shift($this->script);
+
+            return [$step['text'], $step['toolCalls']];
+        }
+
+        return [$this->text, $this->toolCalls];
     }
 
     /**
@@ -169,6 +229,37 @@ class FakeAiProvider implements AiProviderInterface
         $this->toolCalls = [new AiToolCall(name: $toolName, input: $input, id: 'toolu_fake')];
 
         return $this;
+    }
+
+    /**
+     * Ask for one lookup, then answer.
+     *
+     * The two-step script the retrieval loop is built for: the first provider
+     * call asks for a tool, the second — which is the one that receives the
+     * tool result — produces the answer.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function willLookUp(string $toolName, array $input, string $answer = 'Answered from the lookup.'): self
+    {
+        $this->script = [
+            ['text' => '', 'toolCalls' => [new AiToolCall(name: $toolName, input: $input, id: 'toolu_lookup')]],
+            ['text' => $answer, 'toolCalls' => []],
+        ];
+
+        return $this;
+    }
+
+    /**
+     * Everything the loop handed back to the model, as one string.
+     *
+     * Asserting on this is how a test proves the material a tool returned
+     * actually reached the model — and, just as importantly, that material it
+     * must never see did not.
+     */
+    public function toolResultText(): string
+    {
+        return implode("\n", $this->toolResults);
     }
 
     /**

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Security;
 
 use App\Enums\AiActionType;
+use App\Enums\AiCapabilityMode;
 use App\Enums\AiChatRole;
 use App\Livewire\Ai\Assistant;
 use App\Models\AiChatMessage;
@@ -45,36 +46,108 @@ class AiAssistantSecurityTest extends TestCase
     // Customers
     // -----------------------------------------------------------------
 
-    public function test_a_customers_page_contains_no_assistant_at_all(): void
+    /**
+     * A customer with no board membership gets no panel at all.
+     *
+     * The panel needs a reachable board to have anything to answer from, so
+     * this is both the sensible product behaviour and the case where a crafted
+     * Livewire request has no component id to address.
+     */
+    public function test_a_person_with_no_board_gets_no_assistant(): void
+    {
+        $customer = $this->customer();
+
+        $response = $this->actingAs($customer)->get(route('dashboard'))->assertOk();
+
+        $response->assertDontSee('Workspace AI', escape: false);
+        $this->assertStringNotContainsString('x-persist="ai-panel"', $response->getContent());
+    }
+
+    /**
+     * A customer on a board does get the assistant — read-only.
+     *
+     * The rest of this class is about what that assistant may contain; this one
+     * only establishes that it is there, because every assertion below would
+     * pass trivially against a panel that never rendered.
+     */
+    public function test_a_customer_on_a_board_gets_the_read_only_assistant(): void
     {
         $customer = $this->customer();
         $this->boardWithColumns([$customer]);
 
         $response = $this->actingAs($customer)->get(route('dashboard'))->assertOk();
 
-        // No trigger, and no component id for a crafted request to address.
-        $response->assertDontSee('Workspace AI', escape: false);
-        $this->assertStringNotContainsString('x-persist="ai-panel"', $response->getContent());
+        $this->assertStringContainsString('x-persist="ai-panel"', $response->getContent());
     }
 
-    public function test_a_customer_driving_the_panel_directly_reads_nothing(): void
+    /**
+     * The whole customer boundary, on one request.
+     *
+     * A customer asks about a board they are a member of, where there is an
+     * internal ticket, an internal note and an internal documentation page. The
+     * assertions are on what was SENT to the provider, which is the only place
+     * a leak could actually happen — the answer is downstream of it.
+     */
+    public function test_a_customer_asking_the_panel_receives_no_internal_material(): void
     {
-        $this->fakeAiProvider();
+        $provider = $this->fakeAiProvider();
 
         $customer = $this->customer();
-        $board = $this->boardWithColumns([$customer]);
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$customer, $team]);
+
+        $internal = $this->ticketOn($board, $team, [
+            'title' => 'Internal only rewrite of the billing engine',
+        ]);
+
+        $this->commentOn($internal, $team, 'Internal note: the customer must not read this.');
+
+        // Raised by the customer, so it is customer-visible by construction —
+        // which is how their own tickets actually come into being.
+        $this->ticketOn($board, $customer, ['title' => 'Visible export bug']);
+
+        $this->docPageOn($board, $team, [
+            'title' => 'Internal runbook',
+            'body_md' => 'Internal documentation body.',
+        ]);
 
         Livewire::actingAs($customer)
             ->test(Assistant::class)
-            // Not a 404 — the panel never aborts — but an empty one.
-            ->assertOk()
             ->call('reveal', $board->slug)
-            ->assertSet('scopeValue', 'workspace')
-            ->set('draft', 'Tell me about the internal notes')
-            ->call('send');
+            ->call('selectScope', $board->slug)
+            ->set('draft', 'What is happening with my export bug?')
+            ->call('send')
+            ->assertHasNoErrors();
 
-        // The question never reached a provider and nothing was written.
-        $this->assertSame(0, AiChatMessage::query()->count());
+        // The question did reach the provider: a customer's assistant works.
+        $payload = $provider->lastPayload();
+
+        $this->assertNotSame('', $payload);
+        $this->assertStringContainsString('Visible export bug', $payload);
+
+        // And it carried nothing internal.
+        $this->assertStringNotContainsString('Internal only rewrite', $payload);
+        $this->assertStringNotContainsString('must not read this', $payload);
+        $this->assertStringNotContainsString('Internal runbook', $payload);
+        $this->assertStringNotContainsString('Internal documentation body', $payload);
+
+        // No write tool, and none of the staff-only lookups.
+        $names = array_map(static fn ($tool): string => $tool->name, $provider->lastPrompt()->tools);
+
+        foreach ($names as $name) {
+            $this->assertStringStartsNotWith('propose_', $name);
+        }
+
+        $this->assertNotContains('get_activity', $names);
+        $this->assertNotContains('get_github_repository', $names);
+        $this->assertNotContains('get_code_activity', $names);
+
+        // The turns are theirs, and the delivery team cannot read them.
+        $this->assertSame(2, AiChatMessage::query()->count());
+        $this->assertSame(
+            [],
+            AiChatMessage::query()->visibleTo($team)->ownedBy($team)->pluck('id')->all(),
+        );
     }
 
     // -----------------------------------------------------------------
@@ -241,6 +314,11 @@ class AiAssistantSecurityTest extends TestCase
 
     public function test_a_proposal_cannot_be_confirmed_from_a_different_scope(): void
     {
+        // Operator, so there is a proposal left standing to try to confirm from
+        // the wrong scope. Under Agent board one's change is simply carried out
+        // in board one, which is not the case under test here.
+        $this->aiMode(AiCapabilityMode::Operator);
+
         $provider = $this->fakeAiProvider();
         $provider->willPropose(AiActionType::CreateTicket->toolName(), ['title' => 'Cross-scope']);
 

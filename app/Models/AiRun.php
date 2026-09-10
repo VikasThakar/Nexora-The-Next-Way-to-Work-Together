@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\AiRunMode;
+use App\Enums\AiRunStage;
 use App\Enums\AiRunStatus;
 use App\Enums\AiRunTrigger;
 use App\Models\Concerns\BelongsToBoard;
@@ -120,6 +121,103 @@ class AiRun extends Model
     public function isFinished(): bool
     {
         return $this->status->isFinished();
+    }
+
+    /**
+     * What the run is doing, or did last.
+     *
+     * The status wins wherever the two could disagree, and that ordering
+     * is the whole safety property: a worker killed mid-clone leaves
+     * `stage: preparing` in the metadata for ever, and a run whose status
+     * says failed must not go on claiming it is preparing. Progress can be
+     * stale; the lifecycle cannot.
+     */
+    public function stage(): AiRunStage
+    {
+        if ($this->status === AiRunStatus::Queued) {
+            return AiRunStage::Queued;
+        }
+
+        if ($this->status === AiRunStatus::Completed) {
+            return AiRunStage::Finished;
+        }
+
+        if ($this->status === AiRunStatus::Failed || $this->status === AiRunStatus::Cancelled) {
+            return AiRunStage::Failed;
+        }
+
+        $recorded = AiRunStage::tryFrom((string) ($this->metadata['stage'] ?? ''));
+
+        // Running, with nothing recorded yet: it has been claimed but has
+        // not reached its first step. Analysing is the honest answer for a
+        // suggest run and for the first moment of an apply run alike.
+        return $recorded ?? AiRunStage::Analysing;
+    }
+
+    /**
+     * The step this run died on, if it died.
+     *
+     * Read from the metadata rather than from stage(), which reports
+     * Failed — the useful fact for somebody reading a failure is *where*
+     * it stopped, and that is the last stage recorded before the status
+     * changed.
+     */
+    public function stoppedAt(): ?AiRunStage
+    {
+        if (! in_array($this->status, [AiRunStatus::Failed, AiRunStatus::Cancelled], true)) {
+            return null;
+        }
+
+        return AiRunStage::tryFrom((string) ($this->metadata['stage'] ?? ''));
+    }
+
+    /**
+     * Files the run changed, as recorded when it finished.
+     *
+     * Re-derived from `git status` by ApplyModeRunner rather than taken
+     * from what the coding runtime claimed, which is why this list can be
+     * trusted and the runtime's summary cannot.
+     *
+     * @return list<string>
+     */
+    public function changedFiles(): array
+    {
+        $files = $this->metadata['changed_files'] ?? [];
+
+        if (! is_array($files)) {
+            return [];
+        }
+
+        return array_values(array_filter($files, 'is_string'));
+    }
+
+    /**
+     * The validation commands that ran, and whether each passed.
+     *
+     * @return list<array{command: string, passed: bool}>
+     */
+    public function validation(): array
+    {
+        $rows = $this->metadata['validation'] ?? [];
+
+        if (! is_array($rows)) {
+            return [];
+        }
+
+        $clean = [];
+
+        foreach ($rows as $row) {
+            if (! is_array($row) || ! isset($row['command'])) {
+                continue;
+            }
+
+            $clean[] = [
+                'command' => (string) $row['command'],
+                'passed' => (bool) ($row['passed'] ?? false),
+            ];
+        }
+
+        return $clean;
     }
 
     public function duration(): ?string

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\AI;
 
+use App\Enums\AiRunStage;
 use App\Models\AiRun;
 use App\Models\BoardRepository;
 use App\Models\Ticket;
@@ -61,6 +62,8 @@ class ApplyModeRunner
         private readonly CodeChangeGeneratorInterface $generator,
         private readonly PullRequestClient $pullRequests,
         private readonly PromptLibrary $prompts,
+        private readonly AiCapabilityGuard $guard,
+        private readonly AiRunStageRecorder $stages,
     ) {}
 
     /**
@@ -77,6 +80,26 @@ class ApplyModeRunner
     public function run(AiRun $run, Ticket $ticket, BoardRepository $repository): array
     {
         $ticket->loadMissing('board');
+
+        /*
+         * 0. The workspace's capability mode, before anything at all.
+         *
+         * App\Actions\AI\CreateAiRun already refuses an apply run unless the
+         * mode is AI Agent, so under normal conditions no run reaches here in a
+         * lesser mode. This is the second line, and it earns its place because
+         * the gap between the two is a queue: a run created while the workspace
+         * was AI Agent can be executed minutes later, by which time an
+         * administrator may have narrowed it. Refusing here means no clone, no
+         * code runtime and no GitHub credential is used under a mode that no
+         * longer permits it — the cheapest place to stop is also the place
+         * where nothing has happened yet.
+         */
+        if (! $this->guard->allowsCodeChanges($ticket->board)) {
+            throw CodeGenerationException::notConfigured(
+                'The AI is no longer permitted to change code on this board: its mode is '
+                .$this->guard->mode($ticket->board)->label().'. Nothing was cloned or changed.'
+            );
+        }
 
         // 1. Fail before doing any work if the runtime that edits files is not
         //    here. Cloning a repository first would waste a minute and produce a
@@ -96,6 +119,18 @@ class ApplyModeRunner
 
         $base = $repository->default_branch ?: 'main';
 
+        /*
+         * Progress, from here on.
+         *
+         * Recorded at each step so the ticket panel can say what is
+         * happening rather than "Running" for four minutes — the difference
+         * between a stuck clone and a long test suite is exactly what
+         * somebody watching needs. None of it is load-bearing: see
+         * App\Services\AI\AiRunStageRecorder, which swallows its own
+         * failures so progress reporting can never break the work.
+         */
+        $this->stages->record($run, AiRunStage::Preparing);
+
         // 2. Isolated clone. RepositoryCheckout refuses if git, the URL or the
         //    credential is missing, with a message naming what to configure.
         $path = $this->checkout->require($run, $repository);
@@ -113,6 +148,11 @@ class ApplyModeRunner
         );
 
         $this->git->createBranch($path, $branch);
+
+        // The branch is recorded with the stage: it is the first fact about
+        // an apply run somebody actually wants, and it exists before the
+        // run finishes.
+        $this->stages->record($run, AiRunStage::Coding, ['branch' => $branch, 'base' => $base]);
 
         // 5. The one step this application does not own.
         $result = $this->generator->generate(
@@ -132,9 +172,15 @@ class ApplyModeRunner
         $changedFiles = $this->git->changedFiles($path);
         $diffstat = $this->git->diff($path);
 
+        $this->stages->record($run, AiRunStage::Testing, [
+            'changed_files' => array_slice($changedFiles, 0, 200),
+        ]);
+
         // 7. Validation before the push, so a change that does not build never
         //    reaches the remote.
         $validation = $this->validate($path);
+
+        $this->stages->record($run, AiRunStage::PullRequest, ['validation' => $validation]);
 
         // 8.
         $this->git->commitAll($path, $this->commitMessage($ticket, $result));

@@ -9,7 +9,6 @@ use App\Models\Board;
 use App\Services\AI\AiContextScope;
 use App\Services\AI\WorkspaceChatService;
 use App\Services\ContentRenderer;
-use App\Support\BoardAiSettings;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -20,8 +19,8 @@ use Livewire\Component;
  * in — App\Livewire\Ai\Assistant is. It is kept because it is still the right
  * surface for a long session on one board: a whole-window transcript, a
  * bookmarkable URL, and a link from the board's AI settings screen. The asking,
- * streaming and confirming are shared with the panel through
- * TalksToWorkspaceAi, so the two cannot drift apart.
+ * streaming, session management and the reading/writing choice are shared with
+ * the panel through TalksToWorkspaceAi, so the two cannot drift apart.
  *
  * Customers are excluded twice over and neither check is the UI: the route group
  * carries `role:admin,team`, and BoardPolicy::useAiChat denies as 404 on mount
@@ -36,9 +35,10 @@ use Livewire\Component;
  * --------------------
  * A proposal is a *message*, not a queued write. `send()` may store one on the
  * assistant's turn; `confirm()` is a separate request, separately authorized,
- * that hands it to ExecuteChatAction. Nothing between those two points touches
- * the database on the proposal's behalf, so a user who closes the tab has
- * changed nothing.
+ * that hands it to ExecuteChatAction — which re-checks the capability mode
+ * before it authorizes the write. Nothing between those two points touches the
+ * database on the proposal's behalf, so a user who closes the tab has changed
+ * nothing.
  */
 #[Layout('layouts.app')]
 class Chat extends Component
@@ -83,38 +83,53 @@ class Chat extends Component
         return ['board' => $this->board->slug];
     }
 
-    public function render(WorkspaceChatService $chat, ContentRenderer $renderer)
-    {
+    public function render(
+        WorkspaceChatService $chat,
+        ContentRenderer $renderer,
+    ) {
         $this->authorize('useAiChat', $this->board);
 
         $user = auth()->user();
 
-        $messages = $chat->transcript($this->contextScope(), $user, 100);
+        $configuration = $this->configuration();
+        $session = $this->session();
 
-        // Rendered per viewer, because ContentRenderer resolves ticket
-        // references and mentions against what *this* reader may open. The same
-        // stored answer therefore links AQD-42 for somebody who can see it and
-        // leaves it as plain text for anybody who cannot.
-        $rendered = [];
+        $messages = $chat->transcript($session, $user, 100);
 
-        foreach ($messages as $message) {
-            $rendered[$message->getKey()] = $renderer->render(
-                $message->content,
-                $user,
-                $this->board,
-                mentionScope: false,
-            );
-        }
+        /*
+         * Rendered per viewer, because ContentRenderer resolves ticket
+         * references and mentions against what *this* reader may open. The same
+         * stored answer therefore links AQD-42 for somebody who can see it and
+         * leaves it as plain text for anybody who cannot.
+         *
+         * An assistant answer that contains a table or a chart comes back as
+         * blocks instead of one string — see renderTranscript() — so the
+         * transcript renders prose, tables and charts in the order they were
+         * written.
+         */
+        $transcript = $this->renderTranscript($messages, $renderer, $this->board);
+
+        $attachments = $this->attachments();
 
         return view('livewire.ai.chat', [
             'messages' => $messages,
-            'rendered' => $rendered,
+            'rendered' => $transcript['rendered'],
+            'blocks' => $transcript['blocks'],
+            'attachments' => $attachments,
+            'canAttach' => $this->canAttach(),
+            'attachmentsSettling' => $this->attachmentsSettling($attachments),
             'confirming' => $this->confirmingMessageId === null
                 ? null
                 : $messages->firstWhere('id', $this->confirmingMessageId),
-            'providerConfigured' => BoardAiSettings::providerConfigured(),
+            'providerConfigured' => $configuration->isUsable(),
             'canConfigure' => $user->can('manageAiSettings', $this->board),
-            'model' => $this->board->aiSettings()->model,
+            'configuration' => $configuration,
+            'session' => $session,
+            // What this conversation may be set to, and why not, if not. The
+            // model is not offered separately — it follows from the mode.
+            'chatModes' => $this->chatModeOptions(),
+            'chatModeRefusal' => $this->chatModeRefusal(),
+            'voice' => $this->voiceStatus(),
         ])->title('AI chat · '.$this->board->name);
     }
 }

@@ -6,10 +6,12 @@ namespace App\Jobs;
 
 use App\Actions\AI\HandleAiRunFailure;
 use App\Actions\AI\ProcessAiResult;
+use App\Enums\AiRunStage;
 use App\Enums\AiRunStatus;
 use App\Models\AiRun;
 use App\Models\BoardRepository;
 use App\Models\Ticket;
+use App\Services\AI\AiRunStageRecorder;
 use App\Services\AI\AiRunWorkspace;
 use App\Services\AI\ApplyModeRunner;
 use App\Services\AI\CodeGeneration\CodeChangeResult;
@@ -228,6 +230,10 @@ class ExecuteAiRunJob implements ShouldQueue
         ProcessAiResult $processResult,
         float $startedAt,
     ): void {
+        // Progress, for the panel watching this run. Never load-bearing —
+        // see App\Services\AI\AiRunStageRecorder.
+        app(AiRunStageRecorder::class)->record($run, AiRunStage::Analysing);
+
         $outcome = $analysis->analyse($run, $ticket, $repository);
         $completion = $outcome['completion'];
 

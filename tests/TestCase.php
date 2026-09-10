@@ -6,16 +6,21 @@ namespace Tests;
 
 use App\Actions\AI\ManageBoardRepositories;
 use App\Actions\AI\UpdateBoardAiSettings;
+use App\Actions\AI\UpdateGlobalAiSettings;
 use App\Actions\Boards\CreateDefaultColumns;
 use App\Actions\Comments\PostComment;
 use App\Actions\Docs\CreatePage;
 use App\Actions\Docs\SetPageVisibility;
 use App\Actions\Notifications\UpdateBoardIntegrations;
 use App\Actions\Tickets\CreateTicket;
+use App\Enums\AiCapabilityMode;
+use App\Enums\AiProvider;
 use App\Enums\AiRunMode;
 use App\Enums\CommentStream;
 use App\Enums\NotificationEvent;
 use App\Enums\UserRole;
+use App\Models\AiCredential;
+use App\Models\AiGlobalSettings;
 use App\Models\Board;
 use App\Models\BoardColumn;
 use App\Models\BoardRepository;
@@ -23,6 +28,8 @@ use App\Models\Comment;
 use App\Models\DocPage;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Services\AI\AiConfigurationResolver;
+use App\Services\AI\AiCredentialVault;
 use App\Services\AI\AiProviderInterface;
 use App\Services\GitHub\WebhookSignature;
 use App\Services\SMS\SmsProviderInterface;
@@ -284,6 +291,61 @@ abstract class TestCase extends BaseTestCase
         $this->app->instance(AiProviderInterface::class, $fake);
 
         return $fake;
+    }
+
+    /**
+     * Set the workspace's AI capability mode.
+     *
+     * The shipped default is AI Agent — every capability the product had before
+     * modes existed — so a test that wants a *restriction* has to ask for one.
+     * That is deliberate: it means the tests that exercise apply mode and
+     * automatic runs read exactly as they did, and the mode tests say out loud
+     * which mode they are about.
+     */
+    protected function aiMode(AiCapabilityMode $mode): AiGlobalSettings
+    {
+        $settings = app(UpdateGlobalAiSettings::class)->handle([
+            'capability_mode' => $mode->value,
+        ]);
+
+        // The resolver memoises the settings row per request, and a test is one
+        // "request" from its point of view.
+        app(AiConfigurationResolver::class)->flush();
+
+        return $settings;
+    }
+
+    /**
+     * Set one board's own capability mode, overriding the workspace's.
+     */
+    protected function boardAiMode(Board $board, ?AiCapabilityMode $mode): Board
+    {
+        app(UpdateBoardAiSettings::class)->handle($board, [
+            'capability_mode' => $mode?->value ?? '',
+        ]);
+
+        app(AiConfigurationResolver::class)->flush();
+
+        return $board->refresh();
+    }
+
+    /**
+     * Store a workspace provider key through the real vault, encrypted.
+     *
+     * Distinct from fakeAiProvider(), which puts a value in config: this
+     * exercises the database path, which is the one the settings screen writes
+     * and the one that has to be encrypted at rest.
+     */
+    protected function storeAiKey(
+        string $key = 'sk-ant-test-key-not-real-0000abcd',
+        AiProvider $provider = AiProvider::Anthropic,
+        ?User $actor = null,
+    ): AiCredential {
+        $credential = app(AiCredentialVault::class)->store($provider, $key, null, $actor);
+
+        app(AiConfigurationResolver::class)->flush();
+
+        return $credential;
     }
 
     /**

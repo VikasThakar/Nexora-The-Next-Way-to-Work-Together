@@ -178,6 +178,50 @@
             </x-ui.card>
         @endif
 
+
+        {{-- Global AI ---------------------------------------------------- --}}
+        @if ($canAdministerAi)
+            <x-ui.card
+                title="Nexora AI"
+                description="The workspace-wide configuration every board inherits: provider, model, API keys, how far the AI is trusted, and what it may spend."
+            >
+                <dl class="grid gap-3 text-sm sm:grid-cols-3">
+                    <div>
+                        <dt class="text-xs text-slate-500">Provider and model</dt>
+                        <dd class="mt-0.5 text-slate-800">
+                            {{ $globalAi->provider->label() }} · {{ $globalAi->modelLabel() }}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs text-slate-500">AI mode</dt>
+                        <dd class="mt-1">
+                            <x-ai.mode-badge :mode="$globalAi->mode" />
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs text-slate-500">API key</dt>
+                        <dd class="mt-0.5 text-slate-800">
+                            @if ($globalAi->isUsable())
+                                <x-ui.badge variant="emerald">Configured</x-ui.badge>
+                            @else
+                                <x-ui.badge variant="amber">Missing</x-ui.badge>
+                            @endif
+                        </dd>
+                    </div>
+                </dl>
+
+                <p class="mt-4 text-xs text-slate-500">
+                    Keys are encrypted and never shown again — the screen reports that one exists and
+                    its last four characters, and nothing more.
+                </p>
+
+                <div class="mt-4">
+                    <x-ui.button :href="route('admin.ai')" variant="secondary" size="sm">
+                        Open AI settings
+                    </x-ui.button>
+                </div>
+            </x-ui.card>
+        @endif
         {{-- Notifications ------------------------------------------------ --}}
         <x-ui.card title="Notifications" description="What reaches you, and where.">
             <div class="space-y-4 text-sm text-slate-600">

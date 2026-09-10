@@ -85,10 +85,24 @@
                         />
                     </x-ui.field>
 
-                    <x-ui.field label="Model" for="ai-model" :error="$errors->first('model')" required>
+                    <x-ui.field
+                        label="Model"
+                        for="ai-model"
+                        :error="$errors->first('model')"
+                        :hint="$effective->isInherited('model')
+                            ? 'Inherited from global AI settings: '.$effective->modelLabel()
+                            : 'This board overrides the workspace default.'"
+                    >
                         <x-ui.select id="ai-model" wire:model="model" :invalid="$errors->has('model')">
-                            @foreach ($models as $id => $label)
-                                <option value="{{ $id }}">{{ $label }}</option>
+                            {{-- The inherit option comes first and is the
+                                 default, because inheriting is what almost
+                                 every board should do. --}}
+                            <option value="">Inherited from global ({{ $global->modelLabel() }})</option>
+
+                            @foreach ($catalogue as $option)
+                                <option value="{{ $option->id }}">
+                                    {{ $option->label }} · {{ $option->descriptor() }}
+                                </option>
                             @endforeach
                         </x-ui.select>
                     </x-ui.field>
@@ -140,6 +154,208 @@
                         <span wire:loading wire:target="save" class="text-xs text-slate-500">Saving…</span>
                     </div>
                 </form>
+            </x-ui.card>
+
+            {{-- ------------------------------------------------------------- --}}
+            {{-- Overrides of the workspace configuration                        --}}
+            {{-- ------------------------------------------------------------- --}}
+            <x-ui.card
+                title="Overrides"
+                description="This board inherits the workspace AI settings. Depart from them only where this project needs something different."
+            >
+                <form wire:submit="save" class="space-y-5">
+                    {{--
+                        The chain, stated before the controls that change it.
+
+                        Global → this board → in effect. Somebody arriving on
+                        this screen wants to know what happens on this board,
+                        and a form full of "inherited" labels answers that only
+                        by implication.
+                    --}}
+                    <dl class="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs sm:grid-cols-3">
+                        <div>
+                            <dt class="text-slate-500">Global default</dt>
+                            <dd class="mt-0.5 text-slate-700">
+                                {{ $global->provider->label() }} · {{ $global->modelLabel() }}
+                            </dd>
+                            <dd class="mt-1">
+                                <x-ai.mode-badge :mode="$global->mode" />
+                            </dd>
+                        </div>
+
+                        <div>
+                            <dt class="text-slate-500">This board</dt>
+                            <dd class="mt-0.5 text-slate-700">
+                                @if ($effective->hasBoardOverrides())
+                                    Overrides
+                                    {{ collect([
+                                        $effective->sourceOf('provider') === \App\Support\AiConfiguration::SOURCE_BOARD ? 'provider' : null,
+                                        $effective->sourceOf('model') === \App\Support\AiConfiguration::SOURCE_BOARD ? 'model' : null,
+                                        $effective->sourceOf('mode') === \App\Support\AiConfiguration::SOURCE_BOARD ? 'mode' : null,
+                                        $effective->sourceOf('session_token_limit') === \App\Support\AiConfiguration::SOURCE_BOARD ? 'session limit' : null,
+                                        $effective->sourceOf('credential') === \App\Support\AiConfiguration::SOURCE_BOARD ? 'API key' : null,
+                                    ])->filter()->join(', ', ' and ') }}
+                                @else
+                                    Inherits everything
+                                @endif
+                            </dd>
+                        </div>
+
+                        <div>
+                            <dt class="text-slate-500">In effect here</dt>
+                            <dd class="mt-0.5 font-medium text-slate-800">
+                                {{ $effective->provider->label() }} · {{ $effective->modelLabel() }}
+                            </dd>
+                            <dd class="mt-1">
+                                <x-ai.mode-badge
+                                    :mode="$effective->mode"
+                                    :inherited="$effective->isInherited('mode')"
+                                />
+                            </dd>
+                        </div>
+                    </dl>
+
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <x-ui.field
+                            label="Provider"
+                            for="ai-provider-override"
+                            :error="$errors->first('providerOverride')"
+                            hint="Only for a project that must be billed to, or served by, a different vendor."
+                        >
+                            <x-ui.select
+                                id="ai-provider-override"
+                                wire:model="providerOverride"
+                                :invalid="$errors->has('providerOverride')"
+                            >
+                                <option value="">Inherited from global ({{ $global->provider->label() }})</option>
+
+                                @foreach ($providers as $option)
+                                    <option value="{{ $option->value }}">{{ $option->label() }}</option>
+                                @endforeach
+                            </x-ui.select>
+                        </x-ui.field>
+
+                        <x-ui.field
+                            label="Tokens per session"
+                            for="ai-session-limit-override"
+                            :error="$errors->first('sessionTokenLimitOverride')"
+                            hint="Blank inherits the workspace limit. 0 means no limit on this board."
+                        >
+                            <x-ui.input
+                                id="ai-session-limit-override"
+                                type="number"
+                                min="0"
+                                wire:model="sessionTokenLimitOverride"
+                                :placeholder="$global->sessionTokenLimit === 0 ? 'No limit' : number_format($global->sessionTokenLimit)"
+                                :invalid="$errors->has('sessionTokenLimitOverride')"
+                            />
+                        </x-ui.field>
+                    </div>
+
+                    <x-ui.field
+                        label="AI mode on this board"
+                        for="ai-mode-override"
+                        :error="$errors->first('capabilityModeOverride')"
+                    >
+                        <x-ui.select
+                            id="ai-mode-override"
+                            wire:model="capabilityModeOverride"
+                            :invalid="$errors->has('capabilityModeOverride')"
+                        >
+                            <option value="">Inherited from global ({{ $global->mode->label() }})</option>
+
+                            @foreach ($capabilityModes as $option)
+                                <option value="{{ $option->value }}">
+                                    {{ $option->label() }} — {{ $option->summary() }}
+                                </option>
+                            @endforeach
+                        </x-ui.select>
+                    </x-ui.field>
+
+                    <p class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                        <span class="font-medium text-slate-800">{{ $effective->mode->label() }} applies here.</span>
+                        {{ $effective->mode->description() }}
+                        Whatever the mode, every change is still authorized against the person who
+                        confirms it, and customers never see internal content.
+                    </p>
+
+                    <div class="flex items-center gap-3">
+                        <x-ui.button type="submit">Save overrides</x-ui.button>
+                        <span wire:loading wire:target="save" class="text-xs text-slate-500">Saving…</span>
+                    </div>
+                </form>
+            </x-ui.card>
+
+            {{-- ------------------------------------------------------------- --}}
+            {{-- This board's own API key                                        --}}
+            {{-- ------------------------------------------------------------- --}}
+            <x-ui.card
+                title="{{ $boardKeyProvider->label() }} API key for this board"
+                description="Most boards should not have one. A board that only needs a different model inherits the workspace key."
+            >
+                <div class="space-y-4">
+                    <p class="flex flex-wrap items-center gap-2 text-sm text-slate-700">
+                        @if ($credentialSource === 'board')
+                            <x-ui.badge variant="emerald">This board's own key</x-ui.badge>
+                            <span class="font-mono text-xs text-slate-600">
+                                {{ str_repeat('•', 12) }}{{ $boardKeyLastFour }}
+                            </span>
+                        @elseif ($credentialSource === 'none')
+                            <x-ui.badge variant="slate">No key reachable</x-ui.badge>
+                            <span class="text-xs text-slate-500">
+                                Neither this board nor the workspace has a
+                                {{ $boardKeyProvider->label() }} key, so nothing can answer here.
+                            </span>
+                        @else
+                            <x-ui.badge variant="slate">Inherited</x-ui.badge>
+                            <span class="text-xs text-slate-500">
+                                Using the workspace
+                                {{ $credentialSource === 'config' ? 'deployment' : 'global' }}
+                                {{ $boardKeyProvider->label() }} key. Nothing is duplicated.
+                            </span>
+                        @endif
+                    </p>
+
+                    @if ($boardHasOwnKey)
+                        <x-ui.button
+                            type="button"
+                            size="sm"
+                            variant="danger"
+                            wire:click="removeBoardKey('{{ $boardKeyProvider->value }}')"
+                            :confirm="[
+                                'title' => 'Remove this board\'s own API key?',
+                                'body' => 'The board will use the workspace key again. Nothing else changes.',
+                                'confirmText' => 'Remove key',
+                                'tone' => 'danger',
+                            ]"
+                        >
+                            Remove and inherit again
+                        </x-ui.button>
+                    @endif
+
+                    <form wire:submit="storeBoardKey" class="space-y-3 border-t border-slate-200 pt-4">
+                        <x-ui.field
+                            label="{{ $boardKeyProvider->label() }} API key"
+                            for="board-key"
+                            :error="$errors->first('newBoardKey')"
+                            hint="Stored encrypted against this board. Write-only: blank on every load, and it cannot be read back."
+                        >
+                            <x-ui.input
+                                id="board-key"
+                                type="password"
+                                wire:model="newBoardKey"
+                                autocomplete="off"
+                                spellcheck="false"
+                                placeholder="{{ $boardKeyProvider->keyPrefixHint() }}…"
+                                :invalid="$errors->has('newBoardKey')"
+                            />
+                        </x-ui.field>
+
+                        <x-ui.button type="submit" size="sm" variant="secondary">
+                            {{ $boardHasOwnKey ? 'Replace key' : 'Use a separate key for this board' }}
+                        </x-ui.button>
+                    </form>
+                </div>
             </x-ui.card>
 
             {{-- ------------------------------------------------------------- --}}

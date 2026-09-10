@@ -18,6 +18,28 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
+ * The base scale.
+ *
+ * Tailwind sizes both type and spacing in rem, so the root font size is
+ * the one control that makes the whole product slightly smaller and
+ * slightly tighter at once, in proportion, without touching a single
+ * screen. 15px against the browser default of 16 is a shade under six per
+ * cent — enough to read as sharper and denser, not enough to read as a
+ * different product.
+ *
+ * Set on `html` rather than on `body` because rem resolves against the
+ * root element, and because `body` is inside every Livewire morph region
+ * while `html` is outside all of them.
+ *
+ * It is a *base*, not a lock: a person who has raised their browser's
+ * minimum font size still gets it, because this is a percentage of that
+ * preference rather than a pixel value.
+ */
+html {
+    font-size: 93.75%; /* 15px where the browser default is 16px */
+}
+
+/*
  * Design tokens.
  *
  * Kept as Tailwind theme extensions rather than as ad-hoc classes so that
@@ -348,8 +370,14 @@ html.dark {
      * Shared focus ring. Applied by the input/select/textarea Blade
      * components so every form control in the product focuses identically.
      */
+    /*
+     * rounded-md and one step less padding, so a field and the button
+     * next to it are the same height and the same shape. They were not
+     * before: a `lg` radius on a field beside a `lg` radius on a taller
+     * button is two different curves at two different scales.
+     */
     .field-control {
-        @apply block w-full rounded-lg border border-slate-300 bg-surface px-3 py-2 text-sm text-slate-900
+        @apply block w-full rounded-md border border-slate-300 bg-surface px-2.5 py-1.5 text-sm text-slate-900
             shadow-xs transition placeholder:text-slate-400
             focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 focus:outline-none
             disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500;
@@ -704,5 +732,173 @@ html.dark {
 
     .editor-surface img.ProseMirror-selectednode {
         @apply ring-2 ring-brand-500;
+    }
+}
+
+/*
+ * ======================================================================
+ * The assistant's presence
+ * ======================================================================
+ *
+ * ONE animation, used in three places, and it is the same animation each time:
+ * a slow warm sweep across a surface, meaning "the assistant is doing
+ * something". The panel wears it while it opens, the answer wears it while the
+ * model is thinking, and the microphone button wears its ring form while it is
+ * listening.
+ *
+ * Deliberately one idea rather than three effects. A dashboard with a different
+ * motion per state is a dashboard that feels busy; a single recognisable motion
+ * that appears wherever the assistant is working reads as a product with a
+ * personality, which is what was asked for.
+ *
+ * Why a sweep rather than a spinner
+ * ---------------------------------
+ * A spinner claims progress it does not know about. A sweep claims only
+ * activity, which is the honest claim while a language model is thinking: there
+ * is no percentage to report, and a bar that fills to 90% and waits is worse
+ * than one that never pretended.
+ *
+ * Cost
+ * ----
+ * `transform` and `opacity` only, so every frame is composited on the GPU and
+ * nothing here triggers layout or paint of the page beneath. There is no
+ * JavaScript timer: the browser owns the clock, so a backgrounded tab stops
+ * animating on its own.
+ *
+ * prefers-reduced-motion
+ * ----------------------
+ * Every rule below is switched off in the block at the end — and switched off
+ * to a *visible resting state*, not to nothing. Somebody who has asked for less
+ * motion still needs to know the assistant is working, so the sweep becomes a
+ * static tint and the ring becomes a static ring.
+ */
+
+@keyframes nx-sweep {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+@keyframes nx-breathe {
+    0%,
+    100% {
+        opacity: 0.35;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.06);
+    }
+}
+
+@keyframes nx-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes nx-rise {
+    from {
+        opacity: 0;
+        transform: translateY(0.375rem);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/*
+ * The thinking indicator: a line of text with a sheen passing over it.
+ *
+ * Streamed into the answer slot by App\Livewire\Ai\Concerns\TalksToWorkspaceAi
+ * while the model has produced no prose yet, and replaced by the answer the
+ * moment the first fragment arrives.
+ */
+.nx-thinking {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    overflow: hidden;
+    border-radius: 0.375rem;
+    padding: 0.125rem 0.5rem 0.125rem 0.25rem;
+    color: var(--color-slate-500);
+    font-size: 0.8125rem;
+}
+
+.nx-thinking::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        color-mix(in oklab, var(--color-brand-500) 18%, transparent) 45%,
+        color-mix(in oklab, var(--color-brand-400) 26%, transparent) 55%,
+        transparent 100%
+    );
+    animation: nx-sweep 1.8s ease-in-out infinite;
+}
+
+/* The dot that leads the indicator: the same breath as the microphone ring. */
+.nx-thinking-dot {
+    position: relative;
+    z-index: 1;
+    display: inline-block;
+    width: 0.4375rem;
+    height: 0.4375rem;
+    border-radius: 9999px;
+    background: var(--color-brand-500);
+    animation: nx-breathe 1.6s ease-in-out infinite;
+}
+
+.nx-thinking-label {
+    position: relative;
+    z-index: 1;
+}
+
+/* The microphone's listening ring. */
+.nx-listening {
+    animation: nx-breathe 1.6s ease-in-out infinite;
+}
+
+/* The one place a rotation is right: a request in flight to a vendor. */
+.nx-spin {
+    animation: nx-spin 0.9s linear infinite;
+}
+
+/*
+ * The panel's arrival.
+ *
+ * A 6px rise with the fade, which is enough to read as "this came from
+ * somewhere" and short enough that it never delays typing — the composer is
+ * focusable throughout.
+ */
+.nx-reveal {
+    animation: nx-rise 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nx-thinking::after {
+        animation: none;
+        background: color-mix(in oklab, var(--color-brand-500) 10%, transparent);
+    }
+
+    .nx-thinking-dot,
+    .nx-listening {
+        animation: none;
+        opacity: 1;
+    }
+
+    .nx-spin {
+        animation: none;
+    }
+
+    .nx-reveal {
+        animation: none;
     }
 }

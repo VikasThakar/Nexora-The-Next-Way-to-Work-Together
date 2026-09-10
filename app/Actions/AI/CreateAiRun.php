@@ -14,11 +14,12 @@ use App\Models\AiRun;
 use App\Models\BoardRepository;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Services\AI\AiCapabilityGuard;
+use App\Services\AI\AiConfigurationResolver;
 use App\Services\AI\AiRunCap;
 use App\Services\AI\AiRunReader;
 use App\Services\AI\RepositorySelector;
 use App\Services\TicketActivity;
-use App\Support\BoardAiSettings;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -55,6 +56,8 @@ class CreateAiRun
         private readonly AiRunReader $runs,
         private readonly RepositorySelector $selector,
         private readonly TicketActivity $activity,
+        private readonly AiConfigurationResolver $configuration,
+        private readonly AiCapabilityGuard $guard,
     ) {}
 
     /**
@@ -77,8 +80,30 @@ class CreateAiRun
             throw AiRunRefused::disabled();
         }
 
-        if (! BoardAiSettings::providerConfigured()) {
+        if (! $this->configuration->isUsable($board)) {
             throw AiRunRefused::notConfigured();
+        }
+
+        /*
+         * The workspace's capability mode.
+         *
+         * Checked here, with the cap and the credential, because this is the
+         * one place every run is created and because a mode refusal is a
+         * refusal rather than a fault — the same category as the daily cap. The
+         * guard writes the prose, since it is the only thing that knows which
+         * capability was missing.
+         */
+        $modeRefusal = $this->guard->ticketRunRefusal($board, $mode, $trigger);
+
+        if ($modeRefusal !== null) {
+            $this->activity->record($ticket, TicketEventType::AiRunSkipped, [
+                'mode' => $mode->value,
+                'trigger' => $trigger->value,
+                'reason' => AiRunRefused::REASON_CAPABILITY_MODE,
+                'capability_mode' => $this->guard->mode($board)->value,
+            ], $actor);
+
+            throw AiRunRefused::capabilityMode($modeRefusal);
         }
 
         $decision = $this->cap->check($board, $trigger, $actor);
@@ -125,7 +150,7 @@ class CreateAiRun
             $run->triggered_by_id = $actor?->getKey();
             $run->mode = $mode;
             $run->status = AiRunStatus::Queued;
-            $run->model = $board->aiSettings()->model;
+            $run->model = $this->configuration->modelFor($board);
             $run->board_repository_id = $repository?->getKey();
             $run->repository = $repository?->repository_name;
             $run->repository_strategy = $selection['strategy'];
@@ -173,8 +198,14 @@ class CreateAiRun
             return AiRunRefused::disabled();
         }
 
-        if (! BoardAiSettings::providerConfigured()) {
+        if (! $this->configuration->isUsable($ticket->board)) {
             return AiRunRefused::notConfigured();
+        }
+
+        $modeRefusal = $this->guard->ticketRunRefusal($ticket->board, $mode, AiRunTrigger::Manual);
+
+        if ($modeRefusal !== null) {
+            return AiRunRefused::capabilityMode($modeRefusal);
         }
 
         if ($this->runs->hasActiveRun($ticket, $actor)) {

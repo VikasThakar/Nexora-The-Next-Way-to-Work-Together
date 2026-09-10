@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire\Settings;
 
 use App\Models\Board;
+use App\Services\AI\AiConfigurationResolver;
 use App\Services\BoardAccess;
 use App\Support\BoardAiSettings;
 use App\Support\BoardSlackSettings;
@@ -48,7 +49,7 @@ class Index extends Component
     #[Url(as: 'board', except: '')]
     public string $boardSlug = '';
 
-    public function render(BoardAccess $access)
+    public function render(BoardAccess $access, AiConfigurationResolver $configuration)
     {
         $user = auth()->user();
 
@@ -83,7 +84,16 @@ class Index extends Component
             'sms' => $board === null ? null : BoardSmsSettings::forBoard($board),
             'ai' => $board === null ? null : BoardAiSettings::forBoard($board),
 
-            'aiProviderConfigured' => BoardAiSettings::providerConfigured(),
+            'aiProviderConfigured' => $configuration->isUsable($board),
+
+            /*
+             * The workspace-wide AI configuration, for the card that links to
+             * the global screen. Rendered for administrators only — not
+             * because the values are secret (they are not; no key is among
+             * them) but because a link nobody can follow is noise.
+             */
+            'canAdministerAi' => $user->can('administer-ai'),
+            'globalAi' => $configuration->global(),
             'gitHubConfigured' => filled(config('github.webhook.secret')),
             'slackAvailable' => (bool) config('slack.enabled'),
             'smsAvailable' => (bool) config('sms.enabled'),
