@@ -23,11 +23,17 @@
     Recursive: each node renders this component again for its children, so the
     nesting in the markup matches the nesting in the data.
 
-    Drag and drop uses wire:sort, the same Alpine Sort plugin the Kanban board
+    Drag and drop uses x-sort, the same Alpine Sort plugin the Kanban board
     uses. Every level shares one group name, so a page can be dragged between
     levels as well as within one, and each list bakes its own parent id into the
     handler — so the server is always told where the page landed rather than
     having to guess.
+
+    x-sort and not Livewire's wire:sort wrapper: wire:sort runs the expression
+    through Livewire's evaluator, which rewrites the plugin's own $item and
+    $position into $wire.$item and $wire.$position and so delivers a move as
+    movePage(null, null, 3). See resources/views/livewire/boards/show.blade.php
+    for the long version.
 
     Only <li> page elements may live directly inside the list: the index the
     browser reports is the child index, so any other node in here would shift
@@ -44,8 +50,8 @@
 --}}
 <ul
     @if ($sortable)
-        wire:sort="$wire.movePage($item, $position, {{ $parentId === null ? 'null' : $parentId }})"
-        wire:sort:group="{{ $sortGroup }}"
+        x-sort="$wire.movePage($item, $position, {{ $parentId === null ? 'null' : $parentId }})"
+        x-sort:group="{{ $sortGroup }}"
     @endif
     @class([
         'space-y-px',
@@ -74,7 +80,7 @@
             $open = in_array((int) $page->id, array_map('intval', $openIds), true);
         @endphp
 
-        <li wire:key="doc-page-{{ $page->id }}" @if ($sortable) wire:sort:item="{{ $page->id }}" @endif>
+        <li wire:key="doc-page-{{ $page->id }}" @if ($sortable) x-sort:item="{{ $page->id }}" @endif>
             {{--
                 The row: disclosure, then the link, then the actions. Siblings
                 rather than nested, because a button inside an anchor is not
@@ -109,7 +115,7 @@
                         it is only offered to people who may reorganise.
                     --}}
                     <span
-                        wire:sort:handle
+                        x-sort:handle
                         class="-ml-1 shrink-0 cursor-grab px-0.5 py-1 text-slate-300 opacity-0 transition-opacity group-hover/row:opacity-100"
                         aria-hidden="true"
                     >

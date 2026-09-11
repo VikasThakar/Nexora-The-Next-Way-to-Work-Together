@@ -147,11 +147,11 @@ class DocumentationTreeTest extends TestCase
             ->getContent();
 
         // A second copy for mobile would mean two lists carrying the same
-        // wire:sort:item ids, and the drag plugin would have no way to tell
+        // x-sort:item ids, and the drag plugin would have no way to tell
         // which list a drop belonged to.
         $this->assertSame(
             1,
-            substr_count($html, 'wire:sort:item="'.$page->id.'"'),
+            substr_count($html, 'x-sort:item="'.$page->id.'"'),
             'The tree must be rendered once, not once per breakpoint.'
         );
 

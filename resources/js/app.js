@@ -81,6 +81,21 @@ import './doc-toc'
 import './comment-thread'
 
 /*
+ * A Kanban column's scroll box, as the `boardColumn` Alpine component. Caps
+ * each column to the first seven cards and scrolls the rest inside it, so the
+ * board's height stops being decided by its busiest column — see
+ * ./board-column.
+ */
+import './board-column'
+
+/*
+ * Keeps a drag from being read as a navigation. wire:navigate takes the press
+ * rather than the click, so dropping a card would otherwise open the ticket it
+ * had just moved — see ./drag-navigation.
+ */
+import './drag-navigation'
+
+/*
  * Spoken conversation with the assistant, as the `aiVoice` Alpine component.
  * Records a turn, hands it to the server to transcribe, asks the ordinary
  * assistant, and plays the answer back — see ./ai-voice for the state machine

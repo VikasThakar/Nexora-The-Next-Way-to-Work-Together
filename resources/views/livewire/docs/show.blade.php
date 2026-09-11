@@ -43,7 +43,7 @@
     {{--
         One element, two presentations. Rendered once rather than twice for
         desktop and mobile, because two copies would mean two sets of
-        wire:sort:item elements carrying the same page ids — and the drag
+        x-sort:item elements carrying the same page ids — and the drag
         plugin would have no way to tell which list a drop belonged to.
 
         The transform is bound by Alpine and overridden by lg:translate-x-0

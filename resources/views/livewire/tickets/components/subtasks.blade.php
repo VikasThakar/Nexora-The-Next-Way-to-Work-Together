@@ -43,17 +43,17 @@
         </div>
 
         <div
-            @if ($canManage) wire:sort="$wire.reorder($item, $position)" @endif
+            @if ($canManage) x-sort="$wire.reorder($item, $position)" @endif
             class="space-y-1"
         >
             @foreach ($subtasks as $subtask)
                 <div
                     wire:key="subtask-{{ $subtask->id }}"
-                    @if ($canManage) wire:sort:item="{{ $subtask->id }}" @endif
+                    @if ($canManage) x-sort:item="{{ $subtask->id }}" @endif
                     class="group flex items-center gap-2 rounded-lg px-2 py-1.5 transition hover:bg-slate-50"
                 >
                     @if ($canManage)
-                        <span wire:sort:handle class="cursor-grab text-slate-200 group-hover:text-slate-400 active:cursor-grabbing"
+                        <span x-sort:handle class="cursor-grab text-slate-200 group-hover:text-slate-400 active:cursor-grabbing"
                               aria-hidden="true">
                             <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9h16.5m-16.5 6.75h16.5" />
@@ -66,13 +66,13 @@
                         @checked($subtask->completed)
                         @disabled(! $canManage)
                         wire:click="toggle({{ $subtask->id }})"
-                        wire:sort:ignore
+                        x-sort:ignore
                         class="size-4 shrink-0 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                         aria-label="{{ $subtask->completed ? 'Mark incomplete' : 'Mark complete' }}"
                     >
 
                     @if ($editingId === $subtask->id)
-                        <form wire:submit="saveEditing" class="flex flex-1 items-center gap-2" wire:sort:ignore>
+                        <form wire:submit="saveEditing" class="flex flex-1 items-center gap-2" x-sort:ignore>
                             <x-ui.input wire:model="editingTitle" autofocus class="py-1 text-sm"
                                         :invalid="$errors->has('editingTitle')"
                                         @keydown.escape="$wire.cancelEditing()" />
@@ -87,7 +87,7 @@
                         ])>{{ $subtask->title }}</span>
 
                         @if ($canManage)
-                            <div class="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100" wire:sort:ignore>
+                            <div class="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100" x-sort:ignore>
                                 <x-ui.button type="button" variant="ghost" size="sm"
                                              wire:click="startEditing({{ $subtask->id }})">Edit</x-ui.button>
                                 <x-ui.button type="button" variant="ghost" size="sm" class="text-rose-600 hover:bg-rose-50"

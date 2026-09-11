@@ -199,29 +199,103 @@
                     </header>
 
                     {{--
-                        The drop zone.
+                        The drop zone, which is also the column's scroll box.
 
-                        wire:sort is Livewire's bundled sortable. Every column
-                        shares one group name so a card can be dragged between
-                        them, and the handler carries this column's id, so the
-                        server is always told where the card landed.
+                        x-sort is the Alpine Sort plugin bundled inside
+                        Livewire. Every column shares one group name so a card
+                        can be dragged between them, and the handler carries
+                        this column's id, so the server is always told where the
+                        card landed — a drop is the whole status change, because
+                        on this board a ticket's status *is* the column it sits
+                        in.
+
+                        x-sort and not wire:sort, which is Livewire's wrapper
+                        around this same plugin. wire:sort hands the expression
+                        to Livewire's own evaluator first, and that rewrites
+                        every identifier it does not recognise into a property
+                        of $wire — including the plugin's own $item and
+                        $position, which become $wire.$item and $wire.$position.
+                        Those resolve to Livewire's "call a method by this name"
+                        fallback, so the drop arrives at the server as
+                        moveTicket(null, null, 5) and fails on the signature.
+                        Alpine evaluates this attribute itself, where $item and
+                        $position mean what the plugin put in scope. The same
+                        applies to the other three sortables in this codebase;
+                        BoardDragAndDropTest pins the choice.
 
                         Only ticket elements may live inside this container:
                         the index the browser reports is the child index, so an
                         empty-state node in here would shift every position by
                         one. The empty hint and the quick-add form are siblings
                         below it.
+
+                        The Tailwind max-height is a stand-in for the first
+                        paint and for a browser that never runs the script; the
+                        real cap is measured from seven actual cards by the
+                        boardColumn component, because cards are not all the
+                        same height. overscroll-contain keeps a flick at the
+                        end of a column from scrolling the page behind it.
                     --}}
                     <div
                         @if ($canReorder)
-                            wire:sort="$wire.moveTicket($item, $position, {{ $column->id }})"
-                            wire:sort:group="{{ $sortGroup }}"
+                            x-sort="$wire.moveTicket($item, $position, {{ $column->id }})"
+                            x-sort:group="{{ $sortGroup }}"
+
+                            {{--
+                                SortableJS options, on top of the plugin's own.
+
+                                forceFallback drops the browser's native HTML5
+                                drag in favour of SortableJS's own mirror. Three
+                                reasons, all of them load-bearing here:
+                                  - a card is an <a>, and a native drag of a
+                                    link is the browser's link-drag, not ours;
+                                  - the native drag image cannot be styled, and
+                                    fallbackOnBody lifts ours out of this
+                                    element so the column's own overflow does
+                                    not clip the card being dragged;
+                                  - one code path for mouse and touch instead of
+                                    two, so what is tested on a laptop is what
+                                    ships to a tablet.
+
+                                delay with delayOnTouchOnly is what makes a
+                                touch screen work: a finger that presses and
+                                swipes scrolls the column, and a finger that
+                                presses, waits and then moves drags the card.
+                                Without it every attempt to scroll a column
+                                would pick a ticket up instead. A mouse gets no
+                                delay at all — delayOnTouchOnly — so dragging
+                                with a pointer stays immediate.
+
+                                supportPointer is off deliberately. With pointer
+                                events SortableJS suppresses the browser's own
+                                scrolling by calling preventDefault on
+                                pointermove, which browsers are free to ignore;
+                                on touchmove they are not. Turning it off is
+                                what stops a drag on Android from scrolling the
+                                column at the same time.
+                            --}}
+                            x-sort:config="{
+                                forceFallback: true,
+                                fallbackOnBody: true,
+                                fallbackTolerance: 6,
+                                supportPointer: false,
+                                delay: 180,
+                                delayOnTouchOnly: true,
+                                touchStartThreshold: 6,
+                                emptyInsertThreshold: 16,
+                                scrollSensitivity: 64,
+                                scrollSpeed: 18,
+                            }"
                         @endif
-                        class="min-h-24 space-y-2 px-2 pb-1"
+                        x-data="boardColumn"
+                        {{-- A region that scrolls has to be reachable from the keyboard. --}}
+                        tabindex="0"
+                        aria-label="{{ $column->name }} tickets"
+                        class="column-scroll max-h-[41rem] min-h-24 space-y-2 overflow-y-auto overscroll-contain px-2 pb-2 focus-visible:ring-2 focus-visible:ring-brand-500/30 focus-visible:outline-none"
                         data-column-id="{{ $column->id }}"
                     >
                         @foreach ($columnTickets as $ticket)
-                            <div wire:key="ticket-{{ $ticket->id }}" @if ($canReorder) wire:sort:item="{{ $ticket->id }}" @endif>
+                            <div wire:key="ticket-{{ $ticket->id }}" @if ($canReorder) x-sort:item="{{ $ticket->id }}" @endif>
                                 <x-ticket.card
                                     :ticket="$ticket"
                                     :board="$board"

@@ -9,7 +9,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * The sidebar tree is dragged with wire:sort, the Alpine Sort plugin bundled
+ * The sidebar tree is dragged with x-sort, the Alpine Sort plugin bundled
  * inside Livewire — the same mechanism the Kanban board uses, and no extra
  * frontend dependency.
  *
@@ -38,15 +38,15 @@ class DocumentationDragAndDropTest extends TestCase
 
         // Every level is a drop target, sharing one group so a page can be
         // dragged between levels as well as within one.
-        $this->assertStringContainsString('wire:sort:group="docs-'.$board->id.'"', $html);
+        $this->assertStringContainsString('x-sort:group="docs-'.$board->id.'"', $html);
 
         // Each list bakes its own parent id into the handler, so the server is
         // told where the page landed rather than having to infer it.
         $this->assertStringContainsString('$wire.movePage($item, $position, null)', $html);
         $this->assertStringContainsString('$wire.movePage($item, $position, '.$parent->id.')', $html);
 
-        $this->assertStringContainsString('wire:sort:item="'.$parent->id.'"', $html);
-        $this->assertStringContainsString('wire:sort:item="'.$child->id.'"', $html);
+        $this->assertStringContainsString('x-sort:item="'.$parent->id.'"', $html);
+        $this->assertStringContainsString('x-sort:item="'.$child->id.'"', $html);
     }
 
     public function test_the_tree_is_not_sortable_for_a_customer(): void
@@ -64,7 +64,7 @@ class DocumentationDragAndDropTest extends TestCase
 
         // Not a security control — DocPagePolicy::move is — but the handle and
         // the drop target should not be offered at all.
-        $this->assertStringNotContainsString('wire:sort', $html);
+        $this->assertStringNotContainsString('x-sort', $html);
         $this->assertStringNotContainsString('movePage', $html);
     }
 
@@ -85,7 +85,7 @@ class DocumentationDragAndDropTest extends TestCase
             ->getContent();
 
         $this->assertStringContainsString('Alpha', $html);
-        $this->assertStringNotContainsString('wire:sort:group', $html);
+        $this->assertStringNotContainsString('x-sort:group', $html);
     }
 
     public function test_a_page_at_the_maximum_depth_still_renders(): void

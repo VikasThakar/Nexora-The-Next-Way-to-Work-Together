@@ -19,13 +19,13 @@
         {{-- ------------------------------------------------------------- --}}
         <x-ui.card title="Columns" description="Drag to reorder. Tickets are never deleted with a column.">
             <div
-                wire:sort="$wire.reorderColumn($item, $position)"
+                x-sort="$wire.reorderColumn($item, $position)"
                 class="space-y-2"
             >
                 @foreach ($columns as $column)
                     <div
                         wire:key="settings-column-{{ $column->id }}"
-                        wire:sort:item="{{ $column->id }}"
+                        x-sort:item="{{ $column->id }}"
                         class="rounded-lg border border-slate-200 bg-surface p-3"
                     >
                         @if ($editingColumnId === $column->id)
@@ -48,7 +48,7 @@
                             </form>
                         @else
                             <div class="flex items-center gap-3">
-                                <span wire:sort:handle class="cursor-grab text-slate-300 active:cursor-grabbing"
+                                <span x-sort:handle class="cursor-grab text-slate-300 active:cursor-grabbing"
                                       aria-hidden="true" title="Drag to reorder">
                                     <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9h16.5m-16.5 6.75h16.5" />
@@ -64,18 +64,18 @@
 
                                 <button type="button"
                                         wire:click="toggleDoneColumn({{ $column->id }})"
-                                        wire:sort:ignore
+                                        x-sort:ignore
                                         class="rounded px-2 py-1 text-xs font-medium transition {{ $column->is_done ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 ring-inset' : 'text-slate-400 hover:bg-slate-100' }}"
                                         title="Mark the column that means work is finished. Used by future flow metrics.">
                                     Done column
                                 </button>
 
-                                <x-ui.button type="button" variant="ghost" size="sm" wire:sort:ignore
+                                <x-ui.button type="button" variant="ghost" size="sm" x-sort:ignore
                                              wire:click="startEditingColumn({{ $column->id }})">
                                     Rename
                                 </x-ui.button>
 
-                                <x-ui.button type="button" variant="ghost" size="sm" wire:sort:ignore
+                                <x-ui.button type="button" variant="ghost" size="sm" x-sort:ignore
                                              class="text-rose-600 hover:bg-rose-50"
                                              wire:click="startDeletingColumn({{ $column->id }})">
                                     Delete

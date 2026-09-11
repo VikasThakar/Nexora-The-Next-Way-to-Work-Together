@@ -15,23 +15,36 @@
 {{--
     The card is a link, and the whole card is also a drag target.
 
-    A drag that ends on the card would otherwise fire a click and navigate away
-    from the board. The small Alpine guard below tracks whether the pointer
-    travelled more than a few pixels between press and release, and cancels the
-    click if it did. Written inline rather than as a registered Alpine component
-    so it cannot race Livewire's Alpine bootstrap.
+    Dropping it must not open it. There used to be a pixel-counting guard here
+    that cancelled the click after a drag, and it could not work: wire:navigate
+    takes the press, not the click — it arms a mouseup listener on this element
+    at mousedown — and a drop leaves the card directly under the cursor, so the
+    visit starts before any click exists to cancel. The suppression lives in
+    resources/js/drag-navigation.js instead, which cancels the navigation
+    itself. Nothing is needed on the card for it.
+
+    The guard is gone rather than kept as a second line of defence: its
+    threshold was five pixels while a drag now starts at six, so the only
+    presses it could still act on were the ones that never dragged at all.
+
+    draggable="false" turns off the browser's own link dragging. Left on, a
+    mouse press that starts a card drag starts the browser dragging the URL at
+    the same time, and the user gets a ghost of the link text following the
+    cursor next to the card. SortableJS clears it too, but only once it has seen
+    the press; the attribute is true from the first paint.
+
+    A touch screen needs the .ticket-draggable rules for a related reason: a
+    drag begins with a press and a wait, which is also how iOS asks for a link
+    preview and how every platform asks to select text.
 --}}
 <a
     href="{{ $url }}"
     wire:navigate
-    x-data="{ startX: 0, startY: 0, dragged: false }"
-    @pointerdown="startX = $event.clientX; startY = $event.clientY; dragged = false"
-    @pointermove="if (Math.abs($event.clientX - startX) > 5 || Math.abs($event.clientY - startY) > 5) dragged = true"
-    @click="if (dragged) { $event.preventDefault(); dragged = false }"
+    @if ($draggable) draggable="false" @endif
     {{ $attributes->class([
         'group block rounded-lg border border-slate-200 bg-surface p-3 shadow-xs transition',
         'hover:border-brand-300 hover:shadow-md',
-        'cursor-grab active:cursor-grabbing' => $draggable,
+        'ticket-draggable cursor-grab active:cursor-grabbing' => $draggable,
     ]) }}
 >
     <div class="flex items-start gap-2">
