@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Livewire\Tickets;
 
+use App\Actions\Tickets\AttachFilesToTicket;
 use App\Actions\Tickets\CreateTicket;
 use App\Enums\TicketPriority;
 use App\Enums\TicketType;
@@ -71,18 +72,24 @@ class Create extends Component
     }
 
     /**
-     * The board files would be filed under, if any could be.
-     *
-     * Required by EditsRichText, which needs it whenever there is an owner.
-     * There never is one here — see uploadOwner() on that trait — so this is
-     * only ever reached if a future draft-ticket flow gives it one.
+     * The board files are filed under once the ticket exists.
      */
     protected function uploadBoard(): Board
     {
         return $this->board;
     }
 
-    public function save(CreateTicket $createTicket, RichText $rich)
+    /**
+     * There is no ticket to attach to yet, so files dropped into the editor
+     * are staged — see EditsRichText::$stagedUploads — and stored against the
+     * ticket the moment save() has created it.
+     */
+    protected function stagesUploads(): bool
+    {
+        return true;
+    }
+
+    public function save(CreateTicket $createTicket, RichText $rich, AttachFilesToTicket $attach)
     {
         $this->authorize('create', [Ticket::class, $this->board]);
 
@@ -116,6 +123,20 @@ class Create extends Component
             'label_ids' => $this->selectedLabelIds,
         ], auth()->user());
 
+        /*
+         * The files that were waiting for this ticket to exist.
+         *
+         * Stored now, against the new ticket, and the description rewritten
+         * from the editor's preview URLs to the authorized attachment route.
+         * Saved quietly, because the observer has just announced the
+         * creation and this is part of the same act.
+         */
+        if ($this->stagedUploads !== []) {
+            $ticket->description_md = $this->attachStaged($ticket, (string) $validated['descriptionMd'], $attach);
+
+            $ticket->saveQuietly();
+        }
+
         session()->flash('status', $ticket->key().' created.');
 
         return $this->redirect(
@@ -140,6 +161,8 @@ class Create extends Component
             // same split, so hiding it here is presentation, not security.
             'isStaff' => $user->isStaff(),
             'firstColumnName' => $this->board->columns()->ordered()->value('name'),
+            'canAttachInEditor' => $this->canAttachInEditor(),
+            'stagedFiles' => $this->stagedFiles(),
         ])->title('New ticket');
     }
 }

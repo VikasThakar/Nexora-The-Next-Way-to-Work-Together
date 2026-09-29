@@ -56,23 +56,16 @@
     @endif
 >
     @if ($canAttach)
+        {{--
+            No x-data of its own. The drop, paste and progress state belong to
+            the `fileDrop` component on the composer that encloses this — see
+            resources/js/file-drop.js — so that a file dropped anywhere on the
+            composer, or a screenshot pasted into the question box, lands in
+            the same picker as one dropped on this strip. The picker is
+            x-ref="picker", which is the one thing that component needs.
+        --}}
         <div
-            x-data="{ dragging: false, uploading: false, progress: 0 }"
-            x-on:livewire-upload-start="uploading = true; progress = 0"
-            x-on:livewire-upload-finish="uploading = false; progress = 0"
-            x-on:livewire-upload-cancel="uploading = false; progress = 0"
-            x-on:livewire-upload-error="uploading = false; progress = 0"
-            x-on:livewire-upload-progress="progress = $event.detail.progress"
-            x-on:dragover.prevent="dragging = true"
-            x-on:dragleave.prevent="dragging = false"
-            x-on:drop.prevent="
-                dragging = false;
-                if ($event.dataTransfer?.files?.length) {
-                    $refs.picker.files = $event.dataTransfer.files;
-                    $refs.picker.dispatchEvent(new Event('change', { bubbles: true }));
-                }
-            "
-            @class(['rounded-lg border border-dashed transition'])
+            class="rounded-lg border border-dashed transition"
             x-bind:class="dragging
                 ? 'border-brand-400 bg-brand-50/60'
                 : 'border-slate-300 bg-slate-50/60'"
@@ -96,10 +89,10 @@
                         </span>
                     @else
                         <span class="font-medium text-slate-700">
-                            Attach a file, or drop one here
+                            Drop files or screenshots anywhere here, paste one, or choose
                         </span>
                         <span class="block truncate text-xs text-slate-500">
-                            PDF, Markdown, text, CSV, images, audio, Word, Excel and PowerPoint · up to {{ $maxMb }} MB each
+                            Images, PDF, Markdown, text, CSV, audio, Word, Excel and PowerPoint · up to {{ $maxMb }} MB each
                         </span>
                     @endif
                 </span>

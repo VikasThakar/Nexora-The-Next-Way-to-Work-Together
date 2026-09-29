@@ -319,31 +319,45 @@
                         @endcan
                     </p>
                 @else
-                    {{-- Attachments. Above the box, so the drop zone is the
-                         obvious target and a list of files gets the panel's
-                         full width. --}}
-                    <div class="mb-2">
-                        <x-ai.attachments
-                            id="ai-panel-attachments"
-                            :attachments="$attachments"
-                            :can-attach="$canAttach"
-                            :settling="$attachmentsSettling"
-                            :error="$uploadError"
-                            :disabled="$sending"
-                        />
-                    </div>
+                    {{--
+                        The composer: attachments above the box, so a list of
+                        files gets the panel's full width, and the whole thing
+                        is one drop target — a screenshot dropped on the
+                        question, or pasted into it, is attached exactly as
+                        one dropped on the strip. See resources/js/file-drop.js.
+                    --}}
+                    <div
+                        x-data="fileDrop"
+                        x-on:dragenter.prevent="dragEnter($event)"
+                        x-on:dragover.prevent
+                        x-on:dragleave.prevent="dragLeave($event)"
+                        x-on:drop.prevent="drop($event)"
+                        class="rounded-lg transition"
+                        x-bind:class="dragging ? 'ring-2 ring-brand-500/40 ring-offset-2 ring-offset-surface' : ''"
+                    >
+                        <div class="mb-2">
+                            <x-ai.attachments
+                                id="ai-panel-attachments"
+                                :attachments="$attachments"
+                                :can-attach="$canAttach"
+                                :settling="$attachmentsSettling"
+                                :error="$uploadError"
+                                :disabled="$sending"
+                            />
+                        </div>
 
                     <form wire:submit="send" class="space-y-2">
                         <x-ui.textarea
                             x-ref="composer"
                             wire:model="draft"
                             rows="2"
-                            placeholder="Ask Nexora AI…"
+                            placeholder="Ask Nexora AI, or paste a screenshot…"
                             aria-label="Ask Nexora AI"
                             :invalid="$errors->has('draft')"
                             :disabled="$sending"
                             @keydown.enter.prevent="$wire.send()"
                             @keydown.shift.enter.stop
+                            x-on:paste="paste($event)"
                         >{{ $draft }}</x-ui.textarea>
 
                         @error('draft')
@@ -412,6 +426,7 @@
                             </p>
                         @endif
                     </form>
+                    </div>
                 @endif
             </div>
         @endif

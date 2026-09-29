@@ -156,8 +156,32 @@
                                 <div class="markdown mt-1">{!! $bodies[$comment->id] !!}</div>
 
                                 @if ($comment->attachments->isNotEmpty())
-                                    <ul class="mt-2 flex flex-wrap gap-2">
-                                        @foreach ($comment->attachments as $attachment)
+                                    {{-- Pictures and recordings inline; other files as chips. --}}
+                                    @php
+                                        $shown = $comment->attachments->filter(fn ($attachment) => $attachment->isPreviewable());
+                                        $chips = $comment->attachments->reject(fn ($attachment) => $attachment->isPreviewable());
+                                    @endphp
+
+                                    @if ($shown->isNotEmpty())
+                                        <ul class="mt-2 flex flex-wrap gap-2">
+                                            @foreach ($shown as $attachment)
+                                                <li wire:key="comment-media-{{ $attachment->id }}" class="max-w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                                                    @if ($attachment->isVideo())
+                                                        <video src="{{ route('attachments.show', $attachment) }}" controls preload="metadata" playsinline
+                                                               class="block max-h-72 w-full max-w-md bg-black" title="{{ $attachment->filename }}"></video>
+                                                    @else
+                                                        <a href="{{ route('attachments.show', $attachment) }}" target="_blank" rel="noopener" title="Open {{ $attachment->filename }}">
+                                                            <img src="{{ route('attachments.show', $attachment) }}" alt="{{ $attachment->filename }}" loading="lazy"
+                                                                 class="block max-h-72 w-auto max-w-full object-contain">
+                                                        </a>
+                                                    @endif
+                                                </li>
+                                            @endforeach
+                                        </ul>
+                                    @endif
+
+                                    <ul class="mt-2 flex flex-wrap gap-2 empty:hidden">
+                                        @foreach ($chips as $attachment)
                                             <li wire:key="comment-file-{{ $attachment->id }}">
                                                 {{-- Authorized download, never a direct storage URL. --}}
                                                 <a href="{{ route('attachments.show', $attachment) }}"

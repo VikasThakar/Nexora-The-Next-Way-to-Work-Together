@@ -588,7 +588,10 @@ class AiAttachmentTest extends TestCase
             ->assertViewHas('canAttach', true)
             ->html();
 
-        $this->assertStringContainsString('Attach a file, or drop one here', $html);
+        $this->assertStringContainsString('Drop files or screenshots anywhere here, paste one, or choose', $html);
+
+        // The question box takes a pasted screenshot too; see file-drop.js.
+        $this->assertStringContainsString('x-on:paste="paste($event)"', $html);
 
         // The size limit and the formats, so nobody discovers either by being
         // refused.

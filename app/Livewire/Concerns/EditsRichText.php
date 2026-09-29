@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Livewire\Concerns;
 
+use App\Actions\Tickets\AttachFilesToTicket;
 use App\Models\Attachment;
 use App\Models\Board;
+use App\Models\Ticket;
 use App\Services\AttachmentStorage;
 use App\Support\RichText\RichText;
 use Illuminate\Database\Eloquent\Model;
@@ -72,6 +74,26 @@ trait EditsRichText
     public array $pendingUploads = [];
 
     /**
+     * Files waiting for a record to hang off.
+     *
+     * The creation form's answer to "there is no ticket yet". A file dropped
+     * into the editor before the form is saved is kept here — still one of
+     * Livewire's temporary uploads, still on the temporary disk — and the
+     * editor is given a short-lived preview URL to show in the meantime. When
+     * the form is saved and the ticket exists, attachStaged() stores each one
+     * against it and rewrites the preview URL in the description to the
+     * authorized attachment route.
+     *
+     * Nothing is written to the attachments table until then, which keeps
+     * AttachmentPolicy's rule intact: every row has an owner it can be
+     * authorized against, and an abandoned form leaves nothing behind but a
+     * temporary file Livewire sweeps up on its own.
+     *
+     * @var array<int, TemporaryUploadedFile>
+     */
+    public array $stagedUploads = [];
+
+    /**
      * Which of the component's own properties holds the Markdown source.
      *
      * The editor is generic; the field it edits is not. Tickets keep their
@@ -115,12 +137,25 @@ trait EditsRichText
         //
     }
 
+    /**
+     * Whether files may be dropped in before there is anything to attach them
+     * to — see $stagedUploads. Only the creation form says yes.
+     */
+    protected function stagesUploads(): bool
+    {
+        return false;
+    }
+
     public function canAttachInEditor(): bool
     {
         $owner = $this->uploadOwner();
 
-        return $owner instanceof Model
-            && auth()->user()?->can('manageAttachments', $owner) === true;
+        if ($owner instanceof Model) {
+            return auth()->user()?->can('manageAttachments', $owner) === true;
+        }
+
+        return $this->stagesUploads()
+            && auth()->user()?->can('create', [Ticket::class, $this->uploadBoard()]) === true;
     }
 
     /**
@@ -170,24 +205,18 @@ trait EditsRichText
         $owner = $this->uploadOwner();
 
         if (! $owner instanceof Model) {
-            $this->reset('pendingUploads');
+            if (! $this->stagesUploads()) {
+                $this->reset('pendingUploads');
 
-            return [];
+                return [];
+            }
+
+            return $this->stageUploads();
         }
 
         $this->authorize('manageAttachments', $owner);
 
-        // The same rules as the standalone attachments panel, read from the
-        // same configuration: one upload policy for the product, not one per
-        // place a file can be added.
-        $this->validate([
-            'pendingUploads' => ['array', 'max:'.config('attachments.max_per_owner')],
-            'pendingUploads.*' => [
-                'file',
-                'max:'.config('attachments.max_size_kb'),
-                'mimes:'.implode(',', (array) config('attachments.allowed_mimes')),
-            ],
-        ], attributes: ['pendingUploads.*' => 'file']);
+        $this->validateUploads('pendingUploads');
 
         $inserted = [];
 
@@ -208,6 +237,214 @@ trait EditsRichText
         $this->reset('pendingUploads');
 
         return $inserted;
+    }
+
+    /**
+     * The same rules as the standalone attachments panel, read from the same
+     * configuration: one upload policy for the product, not one per place a
+     * file can be added.
+     */
+    private function validateUploads(string $property): void
+    {
+        $this->validate([
+            $property => ['array', 'max:'.config('attachments.max_per_owner')],
+            $property.'.*' => [
+                'file',
+                'max:'.config('attachments.max_size_kb'),
+                'mimes:'.implode(',', (array) config('attachments.allowed_mimes')),
+            ],
+        ], attributes: [$property.'.*' => 'file']);
+    }
+
+    /**
+     * Hold the pending uploads until the form is saved.
+     *
+     * Returns the same shape as attachUploads() so the editor does not need
+     * to know the difference, with one honest exception: a file that cannot
+     * be previewed has no URL yet, and the editor inserts nothing for it. It
+     * is listed under the editor instead, and attached when the ticket is.
+     *
+     * @return array<int, array{url: ?string, name: string, image: bool}>
+     */
+    private function stageUploads(): array
+    {
+        $this->authorize('create', [Ticket::class, $this->uploadBoard()]);
+
+        $this->validateUploads('pendingUploads');
+
+        $limit = (int) config('attachments.max_per_owner');
+
+        $this->validate([
+            'stagedUploads' => ['array', 'max:'.max(0, $limit - count($this->pendingUploads))],
+        ], [
+            'stagedUploads.max' => 'A ticket can have at most '.$limit.' attachments.',
+        ]);
+
+        $inserted = [];
+
+        foreach ($this->pendingUploads as $file) {
+            if (! $file instanceof TemporaryUploadedFile) {
+                continue;
+            }
+
+            $this->stagedUploads[] = $file;
+
+            $inserted[] = $this->stagedDescriptor($file);
+        }
+
+        $this->reset('pendingUploads');
+
+        return $inserted;
+    }
+
+    /**
+     * Take a staged file back out before the form is saved.
+     */
+    public function removeStaged(int $index): void
+    {
+        if (! array_key_exists($index, $this->stagedUploads)) {
+            return;
+        }
+
+        $file = $this->stagedUploads[$index];
+
+        unset($this->stagedUploads[$index]);
+        $this->stagedUploads = array_values($this->stagedUploads);
+
+        if ($file instanceof TemporaryUploadedFile) {
+            // Deleted rather than left for the sweeper: the person said no.
+            try {
+                $file->delete();
+            } catch (\Throwable) {
+                // A temporary file that is already gone is the outcome wanted.
+            }
+        }
+    }
+
+    /**
+     * Store the staged files against the record that now exists, and point the
+     * description at them.
+     *
+     * Returns the Markdown with every preview URL replaced by the authorized
+     * attachment route, and any staged file the text does not mention appended
+     * inline — so a screenshot dropped in and then deleted from the editor by
+     * accident still ends up visible on the ticket, and a PDF is linked rather
+     * than silently attached.
+     */
+    protected function attachStaged(Ticket $ticket, string $markdown, AttachFilesToTicket $attach): string
+    {
+        if ($this->stagedUploads === []) {
+            return $markdown;
+        }
+
+        $files = array_values(array_filter(
+            $this->stagedUploads,
+            static fn ($file): bool => $file instanceof TemporaryUploadedFile,
+        ));
+
+        $previews = array_map(fn (TemporaryUploadedFile $file): ?string => $this->previewUrl($file), $files);
+
+        $attachments = $attach->uploads($ticket, $files, auth()->user());
+
+        foreach ($attachments as $index => $attachment) {
+            $preview = $previews[$index] ?? null;
+
+            if ($preview !== null && $preview !== '') {
+                $markdown = str_replace($preview, route('attachments.show', $attachment), $markdown);
+            }
+        }
+
+        $extra = $attach->inlineMarkdown($attachments, $markdown);
+
+        if ($extra !== '') {
+            $markdown = trim($markdown) === '' ? $extra : rtrim($markdown)."\n\n".$extra;
+        }
+
+        $this->reset('stagedUploads');
+
+        return $markdown;
+    }
+
+    /**
+     * The staged files, described for the strip under the editor.
+     *
+     * @return array<int, array{url: ?string, name: string, image: bool, size: string}>
+     */
+    public function stagedFiles(): array
+    {
+        $files = [];
+
+        foreach ($this->stagedUploads as $file) {
+            if ($file instanceof TemporaryUploadedFile) {
+                $files[] = $this->stagedDescriptor($file) + ['size' => $this->humanSize((int) ($file->getSize() ?: 0))];
+            }
+        }
+
+        return $files;
+    }
+
+    /**
+     * @return array{url: ?string, name: string, image: bool}
+     */
+    private function stagedDescriptor(TemporaryUploadedFile $file): array
+    {
+        return [
+            'url' => $this->previewUrl($file),
+            'name' => $file->getClientOriginalName(),
+            'image' => $this->isImageUpload($file),
+        ];
+    }
+
+    /**
+     * A short-lived URL the browser can show the file from while it is only
+     * temporary, or null when there is none — the preview route only serves
+     * types a browser can display, which is the only case the editor has a
+     * use for one anyway.
+     */
+    private function previewUrl(TemporaryUploadedFile $file): ?string
+    {
+        if (! $this->isImageUpload($file)) {
+            return null;
+        }
+
+        try {
+            return $file->temporaryUrl();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function isImageUpload(TemporaryUploadedFile $file): bool
+    {
+        $type = (string) ($file->getMimeType() ?: $file->getClientMimeType());
+
+        if (str_starts_with($type, 'image/')) {
+            return true;
+        }
+
+        return in_array(
+            strtolower((string) pathinfo($file->getClientOriginalName(), PATHINFO_EXTENSION)),
+            ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif'],
+            true
+        );
+    }
+
+    private function humanSize(int $bytes): string
+    {
+        if ($bytes < 1024) {
+            return $bytes.' B';
+        }
+
+        $units = ['KB', 'MB', 'GB'];
+        $value = $bytes / 1024;
+        $unit = 0;
+
+        while ($value >= 1024 && $unit < count($units) - 1) {
+            $value /= 1024;
+            $unit++;
+        }
+
+        return round($value, $value < 10 ? 1 : 0).' '.$units[$unit];
     }
 
     // -----------------------------------------------------------------

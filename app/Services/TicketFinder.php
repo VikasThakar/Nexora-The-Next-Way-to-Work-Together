@@ -46,7 +46,15 @@ class TicketFinder
     public function forBoard(Board $board, ?Authenticatable $viewer, ?TicketFilters $filters = null): Collection
     {
         $query = $this->query($board, $viewer)
-            ->with(['board', 'assignee', 'labels'])
+            ->with([
+                'board',
+                'assignee',
+                'labels',
+                // The pictures, newest first, for the card's cover. Only image
+                // types: a card has no use for a PDF's row, and a board with
+                // many tickets should not carry every attachment row along.
+                'attachments' => fn ($q) => $q->where('mime_type', 'like', 'image/%')->latest('id'),
+            ])
             ->withCount([
                 'subtasks',
                 'subtasks as completed_subtasks_count' => fn ($q) => $q->where('completed', true),

@@ -40,7 +40,7 @@ class AttachmentController extends Controller
         abort_unless(Storage::disk($attachment->disk)->exists($attachment->path), 404);
 
         /*
-         * Images are served inline; everything else still downloads.
+         * Images and videos are served inline; everything else still downloads.
          *
          * This is what makes an inline image in a ticket description work on a
          * local disk. `download()` sets `Content-Disposition: attachment`, and
@@ -58,8 +58,11 @@ class AttachmentController extends Controller
          * hasImageMimeType(), not isImage(): the latter falls back to the
          * filename for historical rows, and a filename is chosen by whoever
          * uploaded the file. Presentation may guess; this decision may not.
+         * Video is served the same way for the same reason: a <video> element
+         * needs the bytes with a video Content-Type, and a detected video type
+         * is inert in a browser — it is decoded, never executed.
          */
-        if ($attachment->hasImageMimeType() && ! $this->isScriptable($attachment)) {
+        if (($attachment->hasImageMimeType() || $attachment->hasVideoMimeType()) && ! $this->isScriptable($attachment)) {
             return Storage::disk($attachment->disk)->response($attachment->path, $attachment->filename, [
                 'Content-Type' => (string) $attachment->mime_type,
                 'X-Content-Type-Options' => 'nosniff',

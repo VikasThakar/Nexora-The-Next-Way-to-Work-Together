@@ -7,7 +7,30 @@
         :trail="\App\Support\Breadcrumbs::newTicket($board)"
     />
 
-    <form wire:submit="save" class="grid max-w-5xl gap-6 lg:grid-cols-3">
+    {{--
+        The whole form is a drop target.
+
+        Somebody with a screenshot in hand should not have to find the editor
+        with it: a drop anywhere on the form hands the files to the editor,
+        which stages them exactly as a paste would. The editor's own surface
+        keeps handling its own drops — the check on the target is what stops
+        one drop being uploaded twice.
+    --}}
+    <form
+        wire:submit="save"
+        class="grid max-w-5xl gap-6 lg:grid-cols-3"
+        x-data="{ dragging: false }"
+        x-on:dragover.prevent="dragging = true"
+        x-on:dragleave.prevent="dragging = false"
+        x-on:drop.prevent="
+            dragging = false;
+            const files = Array.from($event.dataTransfer?.files ?? []);
+            const editor = $root.querySelector('[data-rich-editor]');
+            if (files.length && editor && ! editor.contains($event.target)) {
+                Alpine.$data(editor).upload?.(files);
+            }
+        "
+    >
         <div class="space-y-6 lg:col-span-2">
             <x-ui.card title="What needs doing?">
                 <x-slot:actions>
@@ -33,7 +56,7 @@
                         :error="$errors->first('descriptionMd')"
                         :hint="$markdownMode
                             ? 'Markdown source. Raw HTML is stripped.'
-                            : 'Files can be attached once the ticket exists — save first, then drop them into the description.'"
+                            : 'Paste or drop screenshots, recordings and files anywhere on this form. They are attached when the ticket is created.'"
                     >
                         @if ($previewing)
                             <div class="markdown min-h-40 rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -47,25 +70,72 @@
                                            :invalid="$errors->has('descriptionMd')">{{ $descriptionMd }}</x-ui.textarea>
                         @else
                             {{--
-                                No uploader here, and that is a constraint
-                                rather than an omission: an attachment row needs
-                                an attachable_id, and there is no ticket to
-                                point one at until this form is saved.
-                                AttachmentPolicy resolves owners from an
-                                explicit allow-list, so there is no board-level
-                                or draft owner to borrow — inventing one would
-                                mean a new database concept for files in limbo.
-                                The editor on the saved ticket does support it.
+                                The uploader is on, and what it feeds is a
+                                staging area rather than the attachments
+                                table: there is no ticket to own a row until
+                                this form is saved, so the files wait as
+                                Livewire temporary uploads and the editor shows
+                                a preview URL. save() stores them against the
+                                new ticket and rewrites the URLs — see
+                                EditsRichText::attachStaged().
                             --}}
                             <div wire:key="rich-new-ticket">
                                 <x-ui.rich-editor
                                     property="descriptionHtml"
                                     :html="$editorHtml"
+                                    :uploader="$canAttachInEditor ? 'pendingUploads' : null"
                                     :invalid="$errors->has('descriptionMd')"
                                 />
                             </div>
+
+                            @error('pendingUploads.*')
+                                <p class="mt-1 text-xs text-rose-600">{{ $message }}</p>
+                            @enderror
+                            @error('stagedUploads')
+                                <p class="mt-1 text-xs text-rose-600">{{ $message }}</p>
+                            @enderror
                         @endif
                     </x-ui.field>
+
+                    @if ($stagedFiles !== [])
+                        {{--
+                            What will be attached when the ticket is created.
+
+                            Pictures as pictures. A screenshot has already been
+                            placed in the description above; this strip is the
+                            complete list, so a recording or a log file — which
+                            the editor cannot show inline — is still visibly
+                            on its way onto the ticket.
+                        --}}
+                        <div>
+                            <p class="mb-2 text-xs font-medium text-slate-600">Attached when the ticket is created</p>
+                            <ul class="flex flex-wrap gap-2">
+                                @foreach ($stagedFiles as $index => $file)
+                                    <li wire:key="staged-{{ $index }}-{{ md5($file['name']) }}"
+                                        class="group relative overflow-hidden rounded-lg border border-slate-200 bg-surface">
+                                        @if ($file['image'] && $file['url'])
+                                            <img src="{{ $file['url'] }}" alt="{{ $file['name'] }}"
+                                                 class="block h-24 w-32 object-cover" loading="lazy">
+                                        @else
+                                            <div class="flex h-24 w-40 flex-col justify-center gap-1 px-3">
+                                                <span class="truncate text-xs font-medium text-slate-800" title="{{ $file['name'] }}">{{ $file['name'] }}</span>
+                                                <span class="text-[11px] text-slate-500">{{ $file['size'] }}</span>
+                                            </div>
+                                        @endif
+
+                                        <button type="button"
+                                                wire:click="removeStaged({{ $index }})"
+                                                class="absolute top-1 right-1 rounded-full bg-slate-900/70 p-1 text-white opacity-0 transition group-hover:opacity-100 focus:opacity-100"
+                                                aria-label="Remove {{ $file['name'] }}">
+                                            <svg class="size-3" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                                            </svg>
+                                        </button>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        </div>
+                    @endif
                 </div>
             </x-ui.card>
         </div>

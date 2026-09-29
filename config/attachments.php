@@ -72,12 +72,20 @@ return [
     |
     */
 
-    'max_size_kb' => (int) env('ATTACHMENT_MAX_SIZE_KB', 10240),
+    'max_size_kb' => (int) env('ATTACHMENT_MAX_SIZE_KB', 30720),
 
     'max_per_owner' => (int) env('ATTACHMENT_MAX_PER_OWNER', 20),
 
+    /*
+    | Screen recordings are in the list alongside screenshots, because a bug
+    | report is as often a recording as a picture. The default size ceiling
+    | above is set with them in mind and stays under the 32 MB request limit
+    | in docker/php.ini and docker/nginx.conf; raise all three together.
+    */
+
     'allowed_mimes' => [
         'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg',
+        'mp4', 'm4v', 'mov', 'webm',
         'pdf', 'txt', 'md', 'csv',
         'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
         'zip',

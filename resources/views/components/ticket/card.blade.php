@@ -10,6 +10,13 @@
     $subtaskTotal = $ticket->subtasks_count ?? 0;
     $subtaskDone = $ticket->completed_subtasks_count ?? 0;
     $overdue = $ticket->due_date !== null && $ticket->due_date->isPast();
+
+    // The newest picture on the ticket, when TicketFinder loaded any. A
+    // screenshot is most of what a bug report is, so it belongs on the card
+    // rather than behind a paperclip count.
+    $cover = $ticket->relationLoaded('attachments')
+        ? $ticket->attachments->first(fn ($attachment) => $attachment->isImage())
+        : null;
 @endphp
 
 {{--
@@ -47,6 +54,14 @@
         'ticket-draggable cursor-grab active:cursor-grabbing' => $draggable,
     ]) }}
 >
+    @if ($cover)
+        <img src="{{ route('attachments.show', $cover) }}"
+             alt=""
+             loading="lazy"
+             draggable="false"
+             class="mb-2 block h-24 w-full rounded-md border border-slate-100 object-cover">
+    @endif
+
     <div class="flex items-start gap-2">
         <span class="mt-1 size-2 shrink-0 rounded-full {{ $ticket->priority->dotClass() }}"
               title="{{ $ticket->priority->label() }} priority"></span>

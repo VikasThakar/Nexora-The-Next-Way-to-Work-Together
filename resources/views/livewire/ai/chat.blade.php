@@ -165,9 +165,21 @@
                 class="mb-3 empty:hidden rounded-lg border border-brand-200 bg-brand-50/40 p-3 text-sm whitespace-pre-wrap text-slate-700"
             ></div>
 
-            {{-- Attachments, above the box rather than beside it: a list of
-                 files needs the full width, and the drop zone should be the
-                 obvious target when somebody drags something onto the page. --}}
+            {{--
+                Attachments above the box rather than beside it, and the whole
+                composer is one drop target: a screenshot dropped on the
+                question or pasted into it is attached exactly as one dropped
+                on the strip. See resources/js/file-drop.js.
+            --}}
+            <div
+                x-data="fileDrop"
+                x-on:dragenter.prevent="dragEnter($event)"
+                x-on:dragover.prevent
+                x-on:dragleave.prevent="dragLeave($event)"
+                x-on:drop.prevent="drop($event)"
+                class="rounded-lg transition"
+                x-bind:class="dragging ? 'ring-2 ring-brand-500/40 ring-offset-2 ring-offset-slate-50' : ''"
+            >
             <div class="mb-3">
                 <x-ai.attachments
                     id="ai-chat-attachments"
@@ -183,11 +195,12 @@
                 <x-ui.textarea
                     wire:model="draft"
                     rows="3"
-                    placeholder="Ask about this board, or about a file you attach — tickets, documentation, repositories. Or ask for a ticket to be drafted."
+                    placeholder="Ask about this board, or about a file you attach — tickets, documentation, repositories. Or drop a screenshot and ask for a ticket."
                     :invalid="$errors->has('draft')"
                     :disabled="$sending"
                     @keydown.meta.enter.prevent="$wire.send()"
                     @keydown.ctrl.enter.prevent="$wire.send()"
+                    x-on:paste="paste($event)"
                 >{{ $draft }}</x-ui.textarea>
 
                 @error('draft')
@@ -225,6 +238,7 @@
                      It is in the page header now, beside the capability badge,
                      matching the panel. One control, one place. --}}
             </form>
+            </div>
         @endif
     </div>
 </div>

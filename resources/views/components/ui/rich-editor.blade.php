@@ -85,6 +85,8 @@
         autosave: @js($autosave),
     })"
     wire:ignore
+    {{-- Lets an enclosing form hand a drop to this editor's upload(). --}}
+    data-rich-editor
     @class([
         'overflow-hidden rounded-lg border bg-surface shadow-xs transition',
         'border-slate-300 focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-500/20' => ! $invalid,

@@ -32,14 +32,30 @@
         'border-amber-200 bg-amber-50/60' => $attachment->status->isProblem(),
     ])
 >
-    {{-- The glyph, or a pulse while it is still being read. --}}
-    <div class="mt-0.5 shrink-0 text-base leading-none" aria-hidden="true">
-        @if ($attachment->status->isTerminal())
-            {{ $attachment->kind->icon() }}
-        @else
-            <span class="inline-block size-2.5 animate-pulse rounded-full bg-brand-500"></span>
-        @endif
-    </div>
+    {{--
+        A picture is shown as a picture; anything else gets its kind's glyph,
+        or a pulse while it is still being read. The thumbnail comes through
+        route('attachments.show') like every other fetch of the bytes, so it
+        is only ever served to somebody who may read this conversation.
+    --}}
+    @if ($attachment->attachment?->isImage())
+        <a href="{{ route('attachments.show', $attachment->attachment) }}" target="_blank" rel="noopener"
+           class="block shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-100"
+           title="Open {{ $attachment->filename() }}">
+            <img src="{{ route('attachments.show', $attachment->attachment) }}"
+                 alt="{{ $attachment->filename() }}"
+                 loading="lazy"
+                 class="block size-16 object-cover">
+        </a>
+    @else
+        <div class="mt-0.5 shrink-0 text-base leading-none" aria-hidden="true">
+            @if ($attachment->status->isTerminal())
+                {{ $attachment->kind->icon() }}
+            @else
+                <span class="inline-block size-2.5 animate-pulse rounded-full bg-brand-500"></span>
+            @endif
+        </div>
+    @endif
 
     <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2">

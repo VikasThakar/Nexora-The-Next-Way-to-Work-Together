@@ -549,6 +549,19 @@ html.dark {
         @apply font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700;
     }
 
+    /*
+     * An inline image — a pasted screenshot, most of the time. Shown at its
+     * own size up to the column's width, never stretched, on a border so a
+     * white screenshot has an edge against a white page.
+     */
+    .markdown img {
+        @apply block h-auto max-h-[32rem] max-w-full rounded-lg border border-slate-200 object-contain;
+    }
+
+    .markdown p > img:only-child {
+        @apply my-1;
+    }
+
     .markdown ul {
         @apply list-disc space-y-1 pl-5;
     }

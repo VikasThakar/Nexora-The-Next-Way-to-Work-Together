@@ -60,8 +60,59 @@
 
         {{-- The preview. Everything the model proposed, so what is
              being confirmed is visible before confirming it. --}}
+        @php
+            // The files a proposal names, looked up so the preview shows
+            // pictures and names rather than numbers. Scoped to what this
+            // person may see: an id that is not theirs simply does not
+            // appear here, and is refused again by ExecuteChatAction.
+            $proposedIds = collect((array) ($input['attachment_ids'] ?? []))
+                ->filter(fn ($id) => is_int($id) || (is_string($id) && ctype_digit($id)))
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values();
+
+            $proposedFiles = $proposedIds->isEmpty()
+                ? collect()
+                : \App\Models\AiAttachment::query()
+                    ->visibleTo(auth()->user())
+                    ->whereKey($proposedIds->all())
+                    ->with('attachment')
+                    ->get();
+        @endphp
+
         <dl class="mt-2 space-y-1 text-xs">
+            @if ($proposedIds->isNotEmpty())
+                <div>
+                    <dt class="font-medium text-slate-600">files</dt>
+                    <dd class="mt-1 flex flex-wrap gap-1.5">
+                        @foreach ($proposedFiles as $file)
+                            @if ($file->attachment?->isImage())
+                                <a href="{{ route('attachments.show', $file->attachment) }}" target="_blank" rel="noopener"
+                                   class="block overflow-hidden rounded-md border border-slate-200 bg-slate-100"
+                                   title="{{ $file->filename() }}">
+                                    <img src="{{ route('attachments.show', $file->attachment) }}" alt="{{ $file->filename() }}"
+                                         loading="lazy" class="block h-14 w-20 object-cover">
+                                </a>
+                            @else
+                                <span class="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-surface px-2 py-1 text-slate-700">
+                                    <span aria-hidden="true">{{ $file->kind->icon() }}</span>
+                                    {{ $file->filename() }}
+                                </span>
+                            @endif
+                        @endforeach
+
+                        @if ($proposedFiles->count() < $proposedIds->count())
+                            <span class="text-amber-800">
+                                {{ $proposedIds->count() - $proposedFiles->count() }} named file(s) are not on this conversation.
+                            </span>
+                        @endif
+                    </dd>
+                </div>
+            @endif
+
             @foreach ($input as $field => $value)
+                @continue($field === 'attachment_ids')
+
                 @php
                     // Arrays are flattened to a readable list rather than
                     // skipped: `labels` arrives as one, and a preview that

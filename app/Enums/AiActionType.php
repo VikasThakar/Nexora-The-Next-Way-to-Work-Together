@@ -156,15 +156,17 @@ enum AiActionType: string
     {
         return match ($this) {
             self::CreateTicket => 'Request a new ticket on a board. Set every field the person asked for in this one '
-                .'call — title, description, priority, type, assignee, status column and labels — rather than '
-                .'creating a bare ticket and changing it afterwards. Whether it is created straight away or shown '
-                .'for confirmation first is the workspace\'s decision, not yours; either way you will be told what '
-                .'actually happened before you report it.',
+                .'call — title, description, priority, type, assignee, status column, labels and attachment_ids — '
+                .'rather than creating a bare ticket and changing it afterwards. When the person has attached '
+                .'screenshots, recordings or files to this conversation and the ticket is about them, pass their '
+                .'ids in attachment_ids so the files land on the ticket; images are then shown inline in it. '
+                .'Whether it is created straight away or shown for confirmation first is the workspace\'s '
+                .'decision, not yours; either way you will be told what actually happened before you report it.',
             self::UpdateTicket => 'Request changes to an existing ticket, identified by its number. This is the tool '
-                .'for re-assigning, moving between status columns, re-prioritising, re-labelling and editing the '
-                .'title or body — send every field the person asked to change in one call. Omitted fields are left '
-                .'alone. Each field is authorized separately against the person asking, so some may be refused '
-                .'while others succeed.',
+                .'for re-assigning, moving between status columns, re-prioritising, re-labelling, editing the '
+                .'title or body, and attaching files from this conversation (attachment_ids) — send every field '
+                .'the person asked to change in one call. Omitted fields are left alone. Each field is authorized '
+                .'separately against the person asking, so some may be refused while others succeed.',
             self::CreateDocPage => 'Propose a new documentation page on this board. New pages are always internal until somebody publishes them separately.',
             self::UpdateDocPage => 'Propose changes to the title or body of an existing documentation page, identified by its slug. Nothing is written until the user accepts.',
             self::CodeRun => 'Propose starting an AI coding session on a ticket. In suggest mode Claude reads the '
@@ -247,6 +249,12 @@ enum AiActionType: string
                         'items' => ['type' => 'string', 'maxLength' => 60],
                         'description' => 'Labels to attach, by name. They must already exist on the board — this cannot create a label.',
                     ],
+                    'attachment_ids' => [
+                        'type' => 'array',
+                        'maxItems' => 20,
+                        'items' => ['type' => 'integer'],
+                        'description' => 'Files from this conversation to put on the ticket, by the id shown next to each entry under ATTACHED FILES (e.g. "ATTACHMENT 1 (id 57)" → 57). Include every attachment the ticket is about; when the person dropped screenshots and asked for a ticket, that is all of them. Images are embedded in the description so they are visible; other files are attached.',
+                    ],
                 ],
                 'required' => ['title'],
             ],
@@ -267,6 +275,12 @@ enum AiActionType: string
                         'maxItems' => 10,
                         'items' => ['type' => 'string', 'maxLength' => 60],
                         'description' => 'The complete set of labels the ticket should end up with, by name — this REPLACES its current labels rather than adding to them, so include the ones it should keep. Pass an empty array to clear them. Omit to leave them unchanged.',
+                    ],
+                    'attachment_ids' => [
+                        'type' => 'array',
+                        'maxItems' => 20,
+                        'items' => ['type' => 'integer'],
+                        'description' => 'Files from this conversation to add to the ticket, by the id shown next to each entry under ATTACHED FILES (e.g. "ATTACHMENT 1 (id 57)" → 57). Use this when the person asks for a screenshot or file they attached to go on an existing ticket. Images are embedded in the description so they are visible; other files are attached.',
                     ],
                 ],
                 'required' => ['number'],

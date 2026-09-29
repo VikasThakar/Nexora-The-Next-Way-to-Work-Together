@@ -2,11 +2,77 @@
     title="Attachments"
     :description="'Up to '.$maxSizeMb.' MB per file. Stored in object storage, never on the web container.'"
 >
+    @php
+        // Pictures and recordings are shown; everything else is listed. The
+        // split is presentation only — both halves are the same rows, served
+        // by the same authorized route.
+        $previewable = $attachments->filter(fn ($attachment) => $attachment->isPreviewable());
+        $listed = $attachments->reject(fn ($attachment) => $attachment->isPreviewable());
+    @endphp
+
     @if ($attachments->isEmpty())
         <p class="text-sm text-slate-400">No attachments.</p>
     @else
-        <ul class="divide-y divide-slate-100">
-            @foreach ($attachments as $attachment)
+        @if ($previewable->isNotEmpty())
+            {{--
+                Inline, never a filename with an icon: a screenshot is worth
+                looking at, and a recording is worth playing, right here.
+                Both come through route('attachments.show'), which serves
+                image and video types inline and re-authorizes each fetch.
+            --}}
+            <ul class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                @foreach ($previewable as $attachment)
+                    <li wire:key="attachment-{{ $attachment->id }}" class="group relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                        @if ($attachment->isVideo())
+                            <video
+                                src="{{ route('attachments.show', $attachment) }}"
+                                controls
+                                preload="metadata"
+                                playsinline
+                                class="block aspect-video w-full bg-black"
+                                title="{{ $attachment->filename }}"
+                            ></video>
+                        @else
+                            <a href="{{ route('attachments.show', $attachment) }}" target="_blank" rel="noopener"
+                               class="block" title="Open {{ $attachment->filename }}">
+                                <img src="{{ route('attachments.show', $attachment) }}"
+                                     alt="{{ $attachment->filename }}"
+                                     loading="lazy"
+                                     class="block aspect-video w-full object-cover transition group-hover:opacity-90">
+                            </a>
+                        @endif
+
+                        <div class="flex items-center gap-2 px-2 py-1.5">
+                            <span class="min-w-0 flex-1 truncate text-[11px] text-slate-500" title="{{ $attachment->filename }}">
+                                {{ $attachment->humanSize() }}
+                                @if ($attachment->uploadedBy)
+                                    &middot; {{ $attachment->uploadedBy->name }}
+                                @endif
+                            </span>
+
+                            @can('delete', $attachment)
+                                <button type="button"
+                                        class="shrink-0 rounded p-0.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                                        wire:click="remove({{ $attachment->id }})"
+                                        x-confirm="{{ \Illuminate\Support\Js::from([
+                                            'title' => 'Delete this file?',
+                                            'body' => $attachment->filename.' will be removed permanently. This cannot be undone.',
+                                            'confirmText' => 'Delete file',
+                                        ]) }}"
+                                        aria-label="Delete {{ $attachment->filename }}">
+                                    <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            @endcan
+                        </div>
+                    </li>
+                @endforeach
+            </ul>
+        @endif
+
+        <ul @class(['divide-y divide-slate-100', 'mt-2' => $previewable->isNotEmpty()])>
+            @foreach ($listed as $attachment)
                 <li wire:key="attachment-{{ $attachment->id }}" class="flex items-center gap-3 py-2.5">
                     <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
                         @if ($attachment->isImage())
@@ -61,13 +127,19 @@
     @endif
 
     @if ($canManage)
-        <div class="mt-4 border-t border-slate-100 pt-4">
-            <label class="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-5 text-sm text-slate-500 transition hover:border-brand-400 hover:text-brand-700">
-                <input type="file" multiple wire:model="files" class="sr-only">
+        <div class="mt-4 border-t border-slate-100 pt-4"
+             x-data="fileDrop"
+             x-on:dragenter.prevent="dragEnter($event)"
+             x-on:dragover.prevent
+             x-on:dragleave.prevent="dragLeave($event)"
+             x-on:drop.prevent="drop($event)">
+            <label class="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-5 text-sm text-slate-500 transition hover:border-brand-400 hover:text-brand-700"
+                   x-bind:class="dragging ? 'border-brand-500 bg-brand-50/60' : 'border-slate-300'">
+                <input type="file" multiple wire:model="files" x-ref="picker" class="sr-only">
                 <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
                 </svg>
-                <span wire:loading.remove wire:target="files">Choose files to upload</span>
+                <span wire:loading.remove wire:target="files">Drop files here, or choose</span>
                 <span wire:loading wire:target="files">Uploading…</span>
             </label>
 

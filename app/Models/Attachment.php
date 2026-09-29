@@ -101,6 +101,54 @@ class Attachment extends Model
     }
 
     /**
+     * Does the stored type say this is a video?
+     *
+     * The strict question, like hasImageMimeType(): read from the detected
+     * MIME type only, because AttachmentController uses it to decide whether
+     * the bytes may be served inline with a video Content-Type.
+     */
+    public function hasVideoMimeType(): bool
+    {
+        return str_starts_with((string) $this->mime_type, 'video/');
+    }
+
+    /**
+     * Should this be presented as a video player?
+     *
+     * Lenient in the same way isImage() is, and for the same reason: rows
+     * written before types were detected carry the generic type, and a screen
+     * recording named `.mp4` is still a recording.
+     */
+    public function isVideo(): bool
+    {
+        if ($this->hasVideoMimeType()) {
+            return true;
+        }
+
+        if ($this->mime_type !== null && $this->mime_type !== 'application/octet-stream') {
+            return false;
+        }
+
+        return in_array(
+            strtolower(pathinfo((string) $this->filename, PATHINFO_EXTENSION)),
+            ['mp4', 'm4v', 'mov', 'webm'],
+            true
+        );
+    }
+
+    /**
+     * Can this be shown inline — a picture or a player — rather than as a
+     * file to download?
+     *
+     * The question every surface that lists attachments asks, so that a
+     * screenshot is a screenshot everywhere and never a filename with an icon.
+     */
+    public function isPreviewable(): bool
+    {
+        return $this->isImage() || $this->isVideo();
+    }
+
+    /**
      * Formatted without Illuminate\Support\Number, which requires the intl
      * extension. Displaying a file size must not be able to take a page down
      * on a runtime that happens not to have it compiled in.

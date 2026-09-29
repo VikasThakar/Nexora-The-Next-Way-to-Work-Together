@@ -276,7 +276,7 @@ function component({ initialHtml, property, uploader, canUpload, placeholder, au
                 return
             }
 
-            this.editor = new tiptap.Editor({
+            const editor = new tiptap.Editor({
                 element: this.$refs.surface,
                 extensions: extensions(tiptap, placeholder),
                 content: initialHtml || '',
@@ -296,6 +296,26 @@ function component({ initialHtml, property, uploader, canUpload, placeholder, au
                 onUpdate: () => this.touched(),
                 onBlur: () => this.sync(),
             })
+
+            /*
+             * Kept out of Alpine's reactivity, and this is load-bearing.
+             *
+             * `this` is Alpine's reactive proxy, and anything assigned to it
+             * is wrapped in a proxy of its own when read back. A proxied
+             * ProseMirror editor compares its state objects by identity, so
+             * the first transaction dispatched through the wrapper — an
+             * uploaded image being inserted — fails with "Applying a
+             * mismatched transaction". Typing was unaffected because
+             * ProseMirror's own view holds the raw instance; only the calls
+             * made from this component were going through the proxy.
+             *
+             * `__v_skip` is the marker Vue's reactivity (which Alpine bundles)
+             * checks before wrapping — what markRaw() sets — so the instance
+             * stored here is the instance handed back on every read.
+             */
+            Object.defineProperty(editor, '__v_skip', { value: true })
+
+            this.editor = editor
 
             this.refreshState()
             this.ready = true
@@ -605,7 +625,7 @@ function component({ initialHtml, property, uploader, canUpload, placeholder, au
         },
 
         /**
-         * @param {Array<{url: string, name: string, image: boolean}>} attachments
+         * @param {Array<{url: ?string, name: string, image: boolean}>} attachments
          */
         insertAttachments(attachments) {
             if (!this.editor || attachments.length === 0) {
@@ -615,6 +635,12 @@ function component({ initialHtml, property, uploader, canUpload, placeholder, au
             const chain = this.editor.chain().focus()
 
             attachments.forEach(({ url, name, image }) => {
+                // A staged file with nothing to show yet: the creation form
+                // lists it under the editor and attaches it on save.
+                if (!url) {
+                    return
+                }
+
                 if (image) {
                     chain.setImage({ src: url, alt: name })
                 } else {

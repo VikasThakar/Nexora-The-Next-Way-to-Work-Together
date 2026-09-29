@@ -102,3 +102,12 @@ import './drag-navigation'
  * and for why no vendor credential ever reaches the browser.
  */
 import './ai-voice'
+
+
+/*
+ * Files by drop, paste or picker, as the `fileDrop` Alpine component. The
+ * quick-add card and the assistant's composer accept files without a rich
+ * editor, and this is what turns a dropped screenshot into a Livewire upload
+ * on those surfaces — see ./file-drop.
+ */
+import './file-drop'

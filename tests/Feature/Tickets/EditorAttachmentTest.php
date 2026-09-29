@@ -7,6 +7,7 @@ namespace Tests\Feature\Tickets;
 use App\Livewire\Tickets\Create;
 use App\Livewire\Tickets\Show as TicketShow;
 use App\Models\Attachment;
+use App\Models\Ticket;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -326,24 +327,201 @@ class EditorAttachmentTest extends TestCase
             ->assertDownload('notes.pdf');
     }
 
+    // -----------------------------------------------------------------
+    // The creation form: files before there is a ticket
+    // -----------------------------------------------------------------
+
     /**
      * There is no ticket to hang a file off until the creation form is saved,
-     * and AttachmentPolicy resolves owners from an explicit allow-list — so the
-     * editor there offers no upload rather than inventing a draft owner.
+     * and AttachmentPolicy resolves owners from an explicit allow-list — so
+     * the form does not invent a draft owner. It stages the file instead: a
+     * temporary upload, a preview URL for the editor, and no attachment row
+     * until save() has something for one to point at.
      */
-    public function test_the_creation_form_offers_no_upload(): void
+    public function test_a_file_dropped_into_the_creation_form_is_staged_rather_than_stored(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+
+        $component = Livewire::actingAs($team)
+            ->test(Create::class, ['board' => $board])
+            ->assertViewHas('canAttachInEditor', true)
+            ->set('pendingUploads', [UploadedFile::fake()->image('early.png')])
+            ->call('attachUploads')
+            ->assertHasNoErrors()
+            ->assertSet('pendingUploads', [])
+            ->assertCount('stagedUploads', 1)
+            ->assertReturned(static fn (array $inserted): bool => count($inserted) === 1
+                && $inserted[0]['name'] === 'early.png'
+                && $inserted[0]['image'] === true
+                && is_string($inserted[0]['url'])
+                && str_contains($inserted[0]['url'], '/preview-file/'));
+
+        // Nothing on the attachments table yet: there is no owner for a row.
+        $this->assertSame(0, Attachment::query()->count());
+
+        // The strip under the editor lists it, as a picture.
+        $component->assertSee('Attached when the ticket is created')
+            ->assertSeeHtml('alt="early.png"');
+    }
+
+    public function test_staged_files_are_stored_on_the_new_ticket_and_the_preview_url_is_rewritten(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+
+        $preview = null;
+
+        $component = Livewire::actingAs($team)
+            ->test(Create::class, ['board' => $board])
+            ->set('pendingUploads', [UploadedFile::fake()->image('screen.png')])
+            ->call('attachUploads')
+            ->assertReturned(static function (array $inserted) use (&$preview): bool {
+                $preview = $inserted[0]['url'] ?? null;
+
+                return is_string($preview);
+            })
+            // A recording the editor cannot preview is staged with no URL and
+            // inserted nowhere; it is attached and linked on save instead.
+            ->set('pendingUploads', [UploadedFile::fake()->create('trace.log', 4, 'text/plain')])
+            ->call('attachUploads')
+            ->assertReturned(static fn (array $inserted): bool => $inserted[0]['url'] === null
+                && $inserted[0]['image'] === false);
+
+        // What the editor would have pushed: the screenshot inline, by its
+        // preview URL, in the middle of the text.
+        $component
+            ->set('title', 'Login page is blank')
+            ->set('descriptionHtml', '<p>Before:</p><img src="'.e($preview).'" alt="screen.png"><p>After nothing.</p>')
+            ->call('save')
+            ->assertHasNoErrors()
+            ->assertRedirect();
+
+        $ticket = Ticket::query()->sole();
+
+        $this->assertSame(2, $ticket->attachments()->count());
+
+        $image = $ticket->attachments()->where('filename', 'screen.png')->sole();
+        $log = $ticket->attachments()->where('filename', 'trace.log')->sole();
+
+        Storage::disk('editor-testing')->assertExists($image->path);
+        Storage::disk('editor-testing')->assertExists($log->path);
+
+        // The description points at the authorized route, never at the
+        // temporary preview, and the file with no inline place is linked so it
+        // is visible on the ticket rather than only in the panel.
+        $description = (string) $ticket->description_md;
+
+        $this->assertStringNotContainsString('/preview-file/', $description);
+        $this->assertStringContainsString('![screen.png]('.route('attachments.show', $image).')', $description);
+        $this->assertStringContainsString('[trace.log]('.route('attachments.show', $log).')', $description);
+        $this->assertStringContainsString('Before:', $description);
+
+        // History records both, as the panel would have.
+        $this->assertSame(2, $ticket->events()->where('type', 'attachment_changed')->count());
+    }
+
+    public function test_a_staged_image_the_editor_does_not_mention_is_still_embedded(): void
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
 
         Livewire::actingAs($team)
             ->test(Create::class, ['board' => $board])
-            ->assertSee('once the ticket exists')
-            // And driving it directly stores nothing rather than erroring.
-            ->set('pendingUploads', [UploadedFile::fake()->image('early.png')])
+            ->set('pendingUploads', [UploadedFile::fake()->image('dropped.png')])
+            ->call('attachUploads')
+            ->set('title', 'Just a screenshot')
+            ->set('descriptionMd', 'See below.')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $ticket = Ticket::query()->sole();
+        $image = $ticket->attachments()->sole();
+
+        $this->assertSame(
+            'See below.'."\n\n".'![dropped.png]('.route('attachments.show', $image).')',
+            $ticket->description_md
+        );
+    }
+
+    public function test_a_staged_file_can_be_removed_before_saving(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+
+        Livewire::actingAs($team)
+            ->test(Create::class, ['board' => $board])
+            ->set('pendingUploads', [UploadedFile::fake()->image('one.png'), UploadedFile::fake()->image('two.png')])
+            ->call('attachUploads')
+            ->assertCount('stagedUploads', 2)
+            ->call('removeStaged', 0)
+            ->assertCount('stagedUploads', 1)
+            ->set('title', 'Only one')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertSame(['two.png'], Ticket::query()->sole()->attachments()->pluck('filename')->all());
+    }
+
+    public function test_the_creation_form_applies_the_same_upload_rules(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+
+        Livewire::actingAs($team)
+            ->test(Create::class, ['board' => $board])
+            ->set('pendingUploads', [UploadedFile::fake()->create('payload.exe', 4)])
+            ->call('attachUploads')
+            ->assertHasErrors('pendingUploads.*')
+            ->assertCount('stagedUploads', 0);
+    }
+
+    /**
+     * Staging is gated on being allowed to create a ticket on the board, which
+     * the form already is — but the method is callable on its own.
+     */
+    public function test_somebody_who_cannot_create_on_the_board_cannot_stage(): void
+    {
+        $team = $this->teamMember();
+        $outsider = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+
+        Livewire::actingAs($outsider)
+            ->test(Create::class, ['board' => $board])
+            ->assertNotFound();
+    }
+
+    /**
+     * A screen recording is a bug report too. Served inline, like an image,
+     * so the panel can play it.
+     */
+    public function test_a_video_is_accepted_and_served_inline(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $ticket = $this->ticketOn($board, $team);
+
+        Livewire::actingAs($team)
+            ->test(TicketShow::class, ['board' => $board, 'number' => $ticket->number])
+            ->call('startEditing')
+            ->set('pendingUploads', [UploadedFile::fake()->create('repro.mp4', 64, 'video/mp4')])
             ->call('attachUploads')
             ->assertHasNoErrors();
 
-        $this->assertSame(0, Attachment::query()->count());
+        $attachment = Attachment::query()->sole();
+
+        // The fake's bytes are zeros, so detection cannot say "video"; the
+        // stored type is what the controller decides on, so it is set here to
+        // what a real recording detects as.
+        $attachment->forceFill(['mime_type' => 'video/mp4'])->save();
+
+        $this->assertTrue($attachment->isVideo());
+        $this->assertTrue($attachment->isPreviewable());
+
+        $response = $this->actingAs($team)->get(route('attachments.show', $attachment));
+
+        $response->assertOk();
+        $this->assertSame('video/mp4', $response->headers->get('Content-Type'));
+        $this->assertStringStartsWith('inline', (string) $response->headers->get('Content-Disposition'));
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Livewire\Boards;
 
+use App\Actions\Tickets\AttachFilesToTicket;
 use App\Actions\Tickets\CreateTicket;
 use App\Actions\Tickets\MoveTicket;
 use App\Enums\TicketPriority;
@@ -20,6 +21,8 @@ use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Url;
 use Livewire\Component;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Livewire\WithFileUploads;
 
 /**
  * The Kanban board.
@@ -37,6 +40,7 @@ use Livewire\Component;
 class Show extends Component
 {
     use ListensForBoardUpdates;
+    use WithFileUploads;
 
     public Board $board;
 
@@ -95,6 +99,33 @@ class Show extends Component
 
     /** @var array<int, int> */
     public array $quickAddLabelIds = [];
+
+    /**
+     * Files just dropped, pasted or chosen on the quick-add card.
+     *
+     * Livewire's temporary uploads for one request. updatedQuickAddUploads()
+     * validates them and moves them into $quickAddFiles, so this is empty
+     * whenever the component is idle — the same shape as the assistant's
+     * composer, and for the same reason: a file input bound with wire:model
+     * replaces its value on every choice, and the card has to accumulate.
+     *
+     * @var array<int, TemporaryUploadedFile>
+     */
+    public array $quickAddUploads = [];
+
+    /**
+     * Files waiting for the ticket to exist.
+     *
+     * A screenshot is the fastest way to describe a bug, and the quick-add
+     * card is the fastest way to file one, so the two belong together: the
+     * files are held here as temporary uploads, shown as thumbnails on the
+     * card, and stored against the ticket the moment quickAdd() has created
+     * it — pictures embedded in the description so they show, everything
+     * else attached.
+     *
+     * @var array<int, TemporaryUploadedFile>
+     */
+    public array $quickAddFiles = [];
 
     public function mount(Board $board): void
     {
@@ -204,7 +235,98 @@ class Show extends Component
      * to them, however this form was filled in or forged. Nothing is branched
      * on the role here, so the two cannot fall out of step.
      */
-    public function quickAdd(CreateTicket $createTicket): void
+    /**
+     * Files chosen on the card: validate, then keep.
+     *
+     * The same limits as every other place a file can be added, read from the
+     * same configuration. A refused file is reported and the rest are kept,
+     * so one oversized recording does not throw away the screenshots that
+     * came with it.
+     */
+    public function updatedQuickAddUploads(): void
+    {
+        $this->authorize('create', [Ticket::class, $this->board]);
+
+        $limit = (int) config('attachments.max_per_owner');
+
+        $this->validate([
+            'quickAddUploads' => ['array', 'max:'.max(0, $limit - count($this->quickAddFiles))],
+            'quickAddUploads.*' => [
+                'file',
+                'max:'.config('attachments.max_size_kb'),
+                'mimes:'.implode(',', (array) config('attachments.allowed_mimes')),
+            ],
+        ], [
+            'quickAddUploads.max' => 'A ticket can have at most '.$limit.' attachments.',
+        ], ['quickAddUploads.*' => 'file']);
+
+        foreach ($this->quickAddUploads as $file) {
+            if ($file instanceof TemporaryUploadedFile) {
+                $this->quickAddFiles[] = $file;
+            }
+        }
+
+        $this->reset('quickAddUploads');
+    }
+
+    public function removeQuickAddFile(int $index): void
+    {
+        if (! array_key_exists($index, $this->quickAddFiles)) {
+            return;
+        }
+
+        $file = $this->quickAddFiles[$index];
+
+        unset($this->quickAddFiles[$index]);
+        $this->quickAddFiles = array_values($this->quickAddFiles);
+
+        if ($file instanceof TemporaryUploadedFile) {
+            try {
+                $file->delete();
+            } catch (\Throwable) {
+                // Already gone is the outcome wanted.
+            }
+        }
+    }
+
+    /**
+     * The staged files, described for the card.
+     *
+     * @return array<int, array{name: string, image: bool, url: ?string}>
+     */
+    public function quickAddFilePreviews(): array
+    {
+        $previews = [];
+
+        foreach ($this->quickAddFiles as $file) {
+            if (! $file instanceof TemporaryUploadedFile) {
+                continue;
+            }
+
+            $type = (string) ($file->getMimeType() ?: $file->getClientMimeType());
+            $image = str_starts_with($type, 'image/');
+
+            $url = null;
+
+            if ($image) {
+                try {
+                    $url = $file->temporaryUrl();
+                } catch (\Throwable) {
+                    $url = null;
+                }
+            }
+
+            $previews[] = [
+                'name' => $file->getClientOriginalName(),
+                'image' => $image,
+                'url' => $url,
+            ];
+        }
+
+        return $previews;
+    }
+
+    public function quickAdd(CreateTicket $createTicket, AttachFilesToTicket $attach): void
     {
         $this->authorize('create', [Ticket::class, $this->board]);
 
@@ -222,7 +344,7 @@ class Show extends Component
             'quickAddDueDate' => 'due date',
         ]);
 
-        $createTicket->handle($this->board, [
+        $ticket = $createTicket->handle($this->board, [
             'title' => $validated['quickAddTitle'],
             'board_column_id' => $validated['quickAddColumnId'],
             'type' => $validated['quickAddType'] ?: null,
@@ -231,6 +353,15 @@ class Show extends Component
             'due_date' => $validated['quickAddDueDate'] ?: null,
             'label_ids' => $validated['quickAddLabelIds'],
         ], auth()->user());
+
+        /*
+         * The files that were waiting for it. Stored against the ticket and
+         * — for pictures — written into its description so they show, rather
+         * than sitting as names in a list.
+         */
+        if ($this->quickAddFiles !== []) {
+            $attach->embed($ticket, $attach->uploads($ticket, $this->quickAddFiles, auth()->user()));
+        }
 
         // The form stays open on the same column, cleared and ready: adding
         // several cards in a row is the whole point of quick add.
@@ -251,6 +382,8 @@ class Show extends Component
         $this->quickAddAssigneeId = '';
         $this->quickAddDueDate = '';
         $this->quickAddLabelIds = [];
+        $this->quickAddUploads = [];
+        $this->quickAddFiles = [];
     }
 
     // -----------------------------------------------------------------
@@ -311,6 +444,7 @@ class Show extends Component
             // CreateTicket will actually honour. Showing a customer an
             // assignee picker whose value is then dropped would be a lie.
             'canQuickAddDetails' => $user->isStaff(),
+            'quickAddFilePreviews' => $this->quickAddFilePreviews(),
             // Drag-and-drop is a delivery-team action; the same rule is
             // enforced per ticket by TicketPolicy::move when a drop arrives.
             'canReorder' => $user->isStaff(),

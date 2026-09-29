@@ -315,7 +315,25 @@
                     @if ($canCreateTickets)
                         <div class="px-2 pb-2">
                             @if ($quickAddColumnId === $column->id)
-                                <form wire:submit="quickAdd" class="rounded-lg border border-brand-300 bg-surface p-2 shadow-sm">
+                                {{--
+                                    The card is a drop target and a paste
+                                    target. A screenshot dropped on it, or
+                                    pasted into the title, becomes a file on
+                                    the ticket about to be created — see
+                                    quickAddFiles on the component and the
+                                    fileDrop component in
+                                    resources/js/file-drop.js.
+                                --}}
+                                <form
+                                    wire:submit="quickAdd"
+                                    x-data="fileDrop"
+                                    x-on:dragenter.prevent="dragEnter($event)"
+                                    x-on:dragover.prevent
+                                    x-on:dragleave.prevent="dragLeave($event)"
+                                    x-on:drop.prevent="drop($event)"
+                                    class="rounded-lg border bg-surface p-2 shadow-sm transition"
+                                    x-bind:class="dragging ? 'border-brand-500 bg-brand-50/60 ring-2 ring-brand-500/20' : 'border-brand-300'"
+                                >
                                     {{--
                                         Enter creates the ticket; Shift-Enter is
                                         left alone so a title can wrap. This is
@@ -327,16 +345,67 @@
                                         wire:model="quickAddTitle"
                                         rows="2"
                                         autofocus
-                                        placeholder="What needs doing?"
+                                        placeholder="What needs doing? Paste a screenshot to attach it."
                                         aria-label="Ticket title"
                                         class="w-full resize-none border-0 p-1 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-0 focus:outline-none"
                                         @keydown.enter.prevent="$wire.quickAdd()"
                                         @keydown.escape="$wire.cancelQuickAdd()"
+                                        x-on:paste="paste($event)"
                                     ></textarea>
 
                                     @error('quickAddTitle')
                                         <p class="px-1 pb-1 text-xs text-rose-600">{{ $message }}</p>
                                     @enderror
+
+                                    <input
+                                        type="file"
+                                        multiple
+                                        x-ref="picker"
+                                        wire:model="quickAddUploads"
+                                        class="sr-only"
+                                        tabindex="-1"
+                                        aria-label="Attach files to the new ticket"
+                                    >
+
+                                    <div x-show="uploading" x-cloak class="px-1 pb-1">
+                                        <div class="h-1 w-full overflow-hidden rounded-full bg-slate-200">
+                                            <div class="h-full rounded-full bg-brand-500 transition-all" x-bind:style="`width: ${progress}%`"></div>
+                                        </div>
+                                    </div>
+
+                                    @error('quickAddUploads.*')
+                                        <p class="px-1 pb-1 text-xs text-rose-600">{{ $message }}</p>
+                                    @enderror
+                                    @error('quickAddUploads')
+                                        <p class="px-1 pb-1 text-xs text-rose-600">{{ $message }}</p>
+                                    @enderror
+
+                                    @if ($quickAddFilePreviews !== [])
+                                        {{-- Pictures as pictures, even here. --}}
+                                        <ul class="flex flex-wrap gap-1.5 px-1 pb-2" aria-label="Files to attach">
+                                            @foreach ($quickAddFilePreviews as $index => $file)
+                                                <li wire:key="qa-file-{{ $column->id }}-{{ $index }}-{{ md5($file['name']) }}"
+                                                    class="group relative overflow-hidden rounded-md border border-slate-200 bg-surface">
+                                                    @if ($file['image'] && $file['url'])
+                                                        <img src="{{ $file['url'] }}" alt="{{ $file['name'] }}" class="block h-16 w-20 object-cover" loading="lazy">
+                                                    @else
+                                                        <span class="flex h-16 w-28 items-center px-2 text-[11px] leading-tight text-slate-600" title="{{ $file['name'] }}">
+                                                            <span class="line-clamp-3 break-all">{{ $file['name'] }}</span>
+                                                        </span>
+                                                    @endif
+
+                                                    <button type="button"
+                                                            wire:click="removeQuickAddFile({{ $index }})"
+                                                            class="absolute top-0.5 right-0.5 rounded-full bg-slate-900/70 p-0.5 text-white opacity-0 transition group-hover:opacity-100 focus:opacity-100"
+                                                            aria-label="Remove {{ $file['name'] }}">
+                                                        <svg class="size-3" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                                                        </svg>
+                                                    </button>
+                                                </li>
+                                            @endforeach
+                                        </ul>
+                                    @endif
 
                                     @if ($canQuickAddDetails)
                                         <div
@@ -404,6 +473,16 @@
 
                                     <div class="flex items-center gap-2 pt-1">
                                         <x-ui.button type="submit" size="sm">Add</x-ui.button>
+
+                                        <button type="button"
+                                                x-on:click="choose()"
+                                                class="rounded p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                                                title="Attach files"
+                                                aria-label="Attach files to the new ticket">
+                                            <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" />
+                                            </svg>
+                                        </button>
 
                                         @if ($canQuickAddDetails)
                                             <x-ui.button type="button" variant="ghost" size="sm"

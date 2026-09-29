@@ -8,6 +8,7 @@ use App\Actions\AI\Exceptions\AiRunRefused;
 use App\Actions\Comments\PostComment;
 use App\Actions\Docs\CreatePage;
 use App\Actions\Docs\UpdatePage;
+use App\Actions\Tickets\AttachFilesToTicket;
 use App\Actions\Tickets\CreateTicket;
 use App\Actions\Tickets\DeleteTicket;
 use App\Actions\Tickets\MoveTicket;
@@ -19,9 +20,11 @@ use App\Enums\AiRunTrigger;
 use App\Enums\CommentStream;
 use App\Enums\TicketPriority;
 use App\Enums\TicketType;
+use App\Models\AiAttachment;
 use App\Models\AiChatMessage;
 use App\Models\AiRun;
 use App\Models\AiToolInvocation;
+use App\Models\Attachment;
 use App\Models\Board;
 use App\Models\BoardColumn;
 use App\Models\Comment;
@@ -36,6 +39,7 @@ use App\Services\BoardAccess;
 use App\Services\DocPageFinder;
 use App\Services\TicketFinder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -125,6 +129,7 @@ class ExecuteChatAction
         private readonly CreateAiRun $createRun,
         private readonly AiAuditLogger $audit,
         private readonly BoardAccess $boards,
+        private readonly AttachFilesToTicket $attachFiles,
     ) {}
 
     /**
@@ -194,8 +199,8 @@ class ExecuteChatAction
 
         try {
             $result = match ($type) {
-                AiActionType::CreateTicket => $this->doCreateTicket($board, $input, $actor),
-                AiActionType::UpdateTicket => $this->doUpdateTicket($board, $input, $actor),
+                AiActionType::CreateTicket => $this->doCreateTicket($board, $input, $actor, $message),
+                AiActionType::UpdateTicket => $this->doUpdateTicket($board, $input, $actor, $message),
                 AiActionType::CreateDocPage => $this->doCreatePage($board, $input, $actor),
                 AiActionType::UpdateDocPage => $this->doUpdatePage($board, $input, $actor),
                 AiActionType::CodeRun => $this->doCodeRun($board, $input, $actor),
@@ -507,11 +512,16 @@ class ExecuteChatAction
      * @param  array<string, mixed>  $input
      * @return array{label: string, url: ?string}
      */
-    private function doCreateTicket(Board $board, array $input, User $actor): array
+    private function doCreateTicket(Board $board, array $input, User $actor, AiChatMessage $message): array
     {
         Gate::forUser($actor)->authorize('create', [Ticket::class, $board]);
 
         $title = $this->requiredString($input, 'title', 'The proposal had no ticket title.');
+
+        // Resolved before the ticket exists, like labels: an id that is not a
+        // file on this conversation means no ticket rather than a ticket
+        // missing the screenshot it was raised about.
+        $files = $this->attachmentsFrom($message, $input, $actor);
 
         $attributes = [
             'title' => mb_substr($title, 0, 200),
@@ -558,10 +568,21 @@ class ExecuteChatAction
 
         $ticket = $this->createTicket->handle($board, $attributes, $actor);
 
+        /*
+         * The conversation's files, copied onto the ticket.
+         *
+         * Copied rather than moved: the transcript still refers to them. Images
+         * are written into the description so they are seen, not listed.
+         */
+        if ($files->isNotEmpty()) {
+            $this->attachFiles->embed($ticket, $this->attachFiles->copies($ticket, $files, $actor));
+        }
+
         $ticket->loadMissing(['board', 'column', 'assignee', 'labels']);
 
         return [
-            'label' => 'Created ticket '.$ticket->key().' — '.$this->summarise($ticket),
+            'label' => 'Created ticket '.$ticket->key().' — '.$this->summarise($ticket)
+                .($files->isNotEmpty() ? ' with '.$this->countFiles($files) : ''),
             'url' => route('tickets.show', ['board' => $board, 'number' => $ticket->number]),
             'target' => $ticket->key(),
         ];
@@ -586,11 +607,17 @@ class ExecuteChatAction
      * @param  array<string, mixed>  $input
      * @return array{label: string, url: ?string}
      */
-    private function doUpdateTicket(Board $board, array $input, User $actor): array
+    private function doUpdateTicket(Board $board, array $input, User $actor, AiChatMessage $message): array
     {
         $ticket = $this->ticketFrom($board, $input, $actor, 'The proposal did not say which ticket to change.');
 
         Gate::forUser($actor)->authorize('update', $ticket);
+
+        $files = $this->attachmentsFrom($message, $input, $actor);
+
+        if ($files->isNotEmpty()) {
+            Gate::forUser($actor)->authorize('manageAttachments', $ticket);
+        }
 
         $attributes = array_filter([
             'title' => $this->optionalString($input, 'title'),
@@ -636,7 +663,7 @@ class ExecuteChatAction
             $labelIds = $this->targets->labelIds($board, $labels);
         }
 
-        if ($attributes === [] && $column === null && $labelIds === null) {
+        if ($attributes === [] && $column === null && $labelIds === null && $files->isEmpty()) {
             throw new RuntimeException('The proposal contained no changes to make.');
         }
 
@@ -683,6 +710,12 @@ class ExecuteChatAction
             $changes[] = $labelIds === []
                 ? 'cleared its labels'
                 : 'set its labels to '.implode(', ', $ticket->fresh()?->labels->pluck('name')->all() ?? []);
+        }
+
+        if ($files->isNotEmpty()) {
+            $this->attachFiles->embed($ticket, $this->attachFiles->copies($ticket, $files, $actor));
+
+            $changes[] = 'attached '.$this->countFiles($files);
         }
 
         $ticket->refresh()->loadMissing(['board', 'column', 'assignee', 'labels']);
@@ -901,6 +934,66 @@ class ExecuteChatAction
      *
      * @param  array<string, mixed>  $input
      */
+    /**
+     * The conversation's files a proposal names, as stored attachments.
+     *
+     * Resolved against the message's own session and the person confirming,
+     * so an id from another conversation — the model's, or a forged
+     * proposal's — is simply not found. A file that is still being read is
+     * fine to attach: the ticket wants the bytes, not the extraction.
+     *
+     * @param  array<string, mixed>  $input
+     * @return Collection<int, Attachment>
+     */
+    private function attachmentsFrom(AiChatMessage $message, array $input, User $actor): Collection
+    {
+        $ids = collect((array) ($input['attachment_ids'] ?? []))
+            ->filter(static fn ($id): bool => is_int($id) || (is_string($id) && ctype_digit($id)))
+            ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return new Collection;
+        }
+
+        $session = $message->session;
+
+        if ($session === null) {
+            throw new RuntimeException('That proposal names files, but the conversation they were attached to is gone.');
+        }
+
+        $records = AiAttachment::query()
+            ->visibleTo($actor)
+            ->forSession($session)
+            ->whereKey($ids->all())
+            ->with('attachment')
+            ->get();
+
+        if ($records->count() !== $ids->count()) {
+            throw new RuntimeException(
+                'The proposal names a file that is not attached to this conversation. Nothing was changed — '
+                .'attach the file again and ask once more.'
+            );
+        }
+
+        return $records
+            ->map(static fn (AiAttachment $record): ?Attachment => $record->attachment)
+            ->filter(static fn (?Attachment $attachment): bool => $attachment instanceof Attachment)
+            ->values();
+    }
+
+    /**
+     * @param  Collection<int, Attachment>  $files
+     */
+    private function countFiles(Collection $files): string
+    {
+        $count = $files->count();
+
+        return $count.' '.($count === 1 ? 'file' : 'files');
+    }
+
     private function ticketFrom(Board $board, array $input, User $actor, string $missing): Ticket
     {
         $number = (int) ($input['number'] ?? 0);
