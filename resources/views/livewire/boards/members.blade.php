@@ -22,7 +22,7 @@
         <ul class="divide-y divide-slate-100">
             @foreach ($members as $member)
                 <li wire:key="member-{{ $member->id }}" class="flex items-center gap-3 py-2.5">
-                    <x-ui.avatar :name="$member->name" size="sm" />
+                    <x-ui.avatar :user="$member" size="sm" />
 
                     <div class="min-w-0 flex-1">
                         <p class="truncate text-sm font-medium text-slate-900">{{ $member->name }}</p>

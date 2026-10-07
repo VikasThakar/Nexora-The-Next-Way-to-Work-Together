@@ -78,7 +78,7 @@
                                         wire:model="memberIds"
                                         class="size-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                                     >
-                                    <x-ui.avatar :name="$candidate->name" size="sm" />
+                                    <x-ui.avatar :user="$candidate" size="sm" />
                                     <span class="min-w-0 flex-1">
                                         <span class="block truncate text-sm font-medium text-slate-900">{{ $candidate->name }}</span>
                                         <span class="block truncate text-xs text-slate-500">{{ $candidate->email }}</span>

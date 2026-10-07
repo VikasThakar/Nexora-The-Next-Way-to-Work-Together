@@ -69,7 +69,29 @@ class AttachmentController extends Controller
             ]);
         }
 
-        return Storage::disk($attachment->disk)->download($attachment->path, $attachment->filename);
+        /*
+         * Everything else is a download, and is typed as bytes rather than as
+         * whatever it looks like.
+         *
+         * `download()` left to itself guesses the type from the file, and the
+         * guess is made from content an uploader chose: a `.txt` whose bytes
+         * open with a tag is detected as `text/html`. The disposition header
+         * already stops a browser rendering it, so that was never directly
+         * exploitable — but a response that says it is HTML is one browser quirk,
+         * one proxy rewrite or one future `Content-Disposition` bug away from
+         * being treated as HTML, and nothing is gained by naming the type on a
+         * response whose whole purpose is to be saved to disk.
+         *
+         * `application/octet-stream` cannot be rendered or executed by anything,
+         * and a browser picks the application to open a downloaded file by its
+         * extension rather than by this header, so nothing is lost either. The
+         * `nosniff` header then stops the browser overruling it — which is what
+         * makes this the branch SVG is deliberately routed down.
+         */
+        return Storage::disk($attachment->disk)->download($attachment->path, $attachment->filename, [
+            'Content-Type' => 'application/octet-stream',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     /**

@@ -474,7 +474,7 @@ class AiAttachmentSecurityTest extends TestCase
     {
         $this->assertTrue(
             $response->isSuccessful() || $response->isRedirect(),
-            'The file should have been delivered, got '.$response->status()
+            'The file should have been delivered, got '.$response->getStatusCode()
         );
     }
 

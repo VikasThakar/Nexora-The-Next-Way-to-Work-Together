@@ -11,6 +11,7 @@ use App\Http\Controllers\GitHubWebhookController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\StatisticsExportController;
 use App\Http\Controllers\ThemePreferenceController;
+use App\Http\Controllers\UserAvatarController;
 use App\Livewire\Activity\Index as ActivityIndex;
 use App\Livewire\Ai\Chat as AiChat;
 use App\Livewire\Ai\GlobalSettings as AiGlobalSettings;
@@ -119,9 +120,15 @@ Route::middleware('auth')->group(function (): void {
      *
      * Guarded the same way workspace user administration is, and for the same
      * reason — it holds credentials and it decides how far the AI is trusted:
-     * the role middleware blocks the request, password.confirm forces
-     * re-authentication, and the component authorizes `administer-ai` on mount,
-     * on every action and on every render.
+     * the role middleware blocks the request, and the component authorizes
+     * `administer-ai` on mount, on every action and on every render.
+     *
+     * `password.confirm` is the optional third layer, off unless a deployment
+     * sets REQUIRE_PASSWORD_CONFIRMATION — see
+     * App\Http\Middleware\ConfirmPasswordWhenRequired. It is the only one of
+     * the three that can be switched off, and switching it off grants nobody
+     * anything: it decides whether an administrator is asked to prove it is
+     * still them, not whether they may be here.
      */
     Route::get('/admin/ai', AiGlobalSettings::class)
         ->middleware(['role:admin', 'password.confirm'])
@@ -294,6 +301,15 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/attachments/{attachment}', AttachmentController::class)->name('attachments.show');
 
     /*
+     * A profile picture, authorized per viewer.
+     *
+     * Addressed by user rather than by storage key so that UserPolicy::viewAvatar
+     * can decide — a picture is exactly as visible as the name it sits beside,
+     * and a bare storage URL would decide nothing. Denials are 404.
+     */
+    Route::get('/users/{user}/avatar', UserAvatarController::class)->name('users.avatar');
+
+    /*
      * Exporting a table or a chart out of an assistant answer.
      *
      * Behind `role:admin,team` because the whole assistant is, and then
@@ -347,9 +363,15 @@ Route::middleware('auth')->group(function (): void {
     /*
      * Workspace administration.
      *
-     * Guarded three times over, on purpose: the role middleware blocks the
-     * whole group, password.confirm forces re-authentication, and UserPolicy
-     * authorizes every individual component action.
+     * The privilege-escalation path, and guarded accordingly: the role
+     * middleware blocks the whole group and UserPolicy authorizes every
+     * individual component action — neither of which is optional.
+     *
+     * `password.confirm` is the third layer and the one that is. It is off
+     * unless a deployment sets REQUIRE_PASSWORD_CONFIRMATION, because the
+     * delivery team creates accounts as ordinary work. This is the screen most
+     * worth turning it back on for: it is where somebody holding a session they
+     * should not have could promote themselves.
      */
     Route::prefix('admin/users')
         ->name('users.')

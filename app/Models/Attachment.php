@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToBoard;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -19,6 +20,11 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * is internal. That is enforced by authorizing against the owner before ever
  * producing a URL — see AttachmentPolicy — rather than by a flag here, so the
  * two can never drift apart.
+ *
+ * The one row without an owner is a draft — a file dropped into a creation form
+ * before the record it belongs to exists. It is private to whoever uploaded it
+ * until the form adopts it, which is the only moment an attachment ever gains
+ * an owner. See isDraft() and the allow_draft_attachments migration.
  */
 class Attachment extends Model
 {
@@ -47,6 +53,37 @@ class Attachment extends Model
     public function attachable(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    /**
+     * A file uploaded on a creation form, before the record it belongs to
+     * exists.
+     *
+     * No owner is the whole definition — there is no draft flag, for the same
+     * reason there is no visibility flag: a second column would be a second
+     * answer to a question the first column already answers, and the two would
+     * eventually disagree. Adoption is therefore not a state change but the
+     * arrival of an owner.
+     *
+     * While it is true, AttachmentPolicy protects the row by its uploader
+     * instead of by delegation, because there is nothing yet to delegate to.
+     */
+    public function isDraft(): bool
+    {
+        return $this->attachable_id === null;
+    }
+
+    /**
+     * Drafts, which is to say rows nothing owns.
+     *
+     * Used by the adoption action to re-resolve ids coming from a browser, and
+     * by `workspace:prune` to collect the ones nobody ever claimed.
+     *
+     * @param  Builder<$this>  $query
+     */
+    public function scopeDraft($query): void
+    {
+        $query->whereNull('attachable_id');
     }
 
     /** @return BelongsTo<User, $this> */

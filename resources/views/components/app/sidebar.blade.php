@@ -187,7 +187,7 @@
             wire:navigate
             class="flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-sidebar-hover"
         >
-            <x-ui.avatar :name="$user?->name ?? '?'" />
+            <x-ui.avatar :user="$user" :name="$user?->name ?? '?'" />
             <div class="min-w-0 flex-1">
                 <p class="truncate text-sm font-medium text-sidebar-ink">{{ $user?->name }}</p>
                 <p class="truncate text-xs text-sidebar-ink-dim">{{ $user?->role->label() }}</p>

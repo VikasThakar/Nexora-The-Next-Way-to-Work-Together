@@ -41,6 +41,7 @@ use Livewire\WithFileUploads;
  */
 trait EditsRichText
 {
+    use CollectsDraftAttachments;
     use WithFileUploads;
 
     /**
@@ -113,15 +114,32 @@ trait EditsRichText
     /**
      * The record a file dropped into the editor should hang off.
      *
-     * Null means "not yet", which is the honest answer on a creation form: an
-     * attachment row needs an `attachable_id`, and there is no ticket to point
-     * at until the form is saved. AttachmentPolicy resolves an owner from an
-     * explicit allow-list and denies anything else, so there is no
-     * board-level or draft owner to borrow.
+     * Null means "not yet", which is the honest answer on a creation form: there
+     * is no ticket to point at until the form is saved. That used to mean the
+     * editor simply refused uploads there. It no longer does — a component that
+     * returns null may instead say it accepts drafts, and the file is stored
+     * with no owner until the record it belongs to exists. See
+     * allowsDraftUploads() below and App\Livewire\Concerns\CollectsDraftAttachments.
      */
     protected function uploadOwner(): ?Model
     {
         return null;
+    }
+
+    /**
+     * May this screen take files before it has a record to attach them to?
+     *
+     * Off by default, because the answer is only yes on a form that will go on
+     * to adopt them — a component that accepted drafts and never called
+     * adoptDraftUploads() would store files nothing ever claims and leave the
+     * pruner to clear up after it.
+     *
+     * Saying yes is therefore a two-part commitment, and both parts live in the
+     * component: this method, and an adoption call after the record is created.
+     */
+    protected function allowsDraftUploads(): bool
+    {
+        return false;
     }
 
     /**
@@ -138,14 +156,15 @@ trait EditsRichText
     }
 
     /**
-     * Whether files may be dropped in before there is anything to attach them
-     * to — see $stagedUploads. Only the creation form says yes.
+     * Whether the editor should offer the file button, and accept a drop or a
+     * pasted screenshot.
+     *
+     * Two ways to be true, and they ask different questions. With an owner, the
+     * question is the ordinary one — may this person attach a file to that
+     * record. Without one there is no record to ask about yet, so the component
+     * is asked instead, and it is expected to have checked that this person may
+     * create the thing the files are destined for.
      */
-    protected function stagesUploads(): bool
-    {
-        return false;
-    }
-
     public function canAttachInEditor(): bool
     {
         $owner = $this->uploadOwner();
@@ -154,8 +173,7 @@ trait EditsRichText
             return auth()->user()?->can('manageAttachments', $owner) === true;
         }
 
-        return $this->stagesUploads()
-            && auth()->user()?->can('create', [Ticket::class, $this->uploadBoard()]) === true;
+        return $this->allowsDraftUploads();
     }
 
     /**
@@ -204,26 +222,36 @@ trait EditsRichText
     {
         $owner = $this->uploadOwner();
 
-        if (! $owner instanceof Model) {
-            if (! $this->stagesUploads()) {
-                $this->reset('pendingUploads');
+        if (! $owner instanceof Model && ! $this->allowsDraftUploads()) {
+            $this->reset('pendingUploads');
 
-                return [];
-            }
-
-            return $this->stageUploads();
+            return [];
         }
 
-        $this->authorize('manageAttachments', $owner);
+        if ($owner instanceof Model) {
+            $this->authorize('manageAttachments', $owner);
+        }
 
         $this->validateUploads('pendingUploads');
 
         $inserted = [];
 
         foreach ($this->pendingUploads as $file) {
-            $attachment = $storage->store($file, $owner, $this->uploadBoard(), auth()->user());
+            /*
+             * The two branches differ only in whether an owner is known yet.
+             * Both produce a real row with a real route('attachments.show')
+             * URL, which is what lets the editor write the same Markdown in
+             * either case — and why a draft adopted later needs no rewriting.
+             */
+            if ($owner instanceof Model) {
+                $attachment = $storage->store($file, $owner, $this->uploadBoard(), auth()->user());
 
-            $this->recordUpload($attachment);
+                $this->recordUpload($attachment);
+            } else {
+                $attachment = $storage->storeDraft($file, $this->uploadBoard(), auth()->user());
+
+                $this->draftAttachmentIds[] = (int) $attachment->getKey();
+            }
 
             $inserted[] = [
                 'url' => route('attachments.show', $attachment),

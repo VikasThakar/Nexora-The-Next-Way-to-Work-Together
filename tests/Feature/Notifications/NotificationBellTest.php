@@ -168,6 +168,40 @@ class NotificationBellTest extends TestCase
             ->assertSee('Nothing yet');
     }
 
+    /**
+     * The count wears the brand accent, not the danger one.
+     *
+     * Two things are pinned here, and only one of them is taste. A permanent
+     * red disc in the top bar reads as something being wrong rather than as
+     * things waiting, and red is the colour this product spends on destructive
+     * buttons -- that part is the decision. The load-bearing part is the token:
+     * `brand-600` is remapped for dark mode so link text can lift off a dark
+     * ground, so a badge painted with it would put white text on a pale disc in
+     * one of the two appearances. `brand-solid` exists precisely so a saturated
+     * ground carrying white is the same colour in both, and the compiled CSS
+     * leaves it out of the dark block deliberately.
+     */
+    public function test_the_unread_count_is_painted_with_the_brand_accent(): void
+    {
+        $team = $this->teamMember();
+        $customer = $this->customer();
+        $board = $this->boardWithColumns([$team, $customer]);
+
+        $ticket = $this->ticketOn($board, $customer);
+        $this->commentOn($ticket, $team, 'A reply', CommentStream::Customer);
+
+        $html = Livewire::actingAs($customer->fresh())
+            ->test(Bell::class)
+            ->assertSee('1')
+            ->html();
+
+        $this->assertStringContainsString('rounded-full bg-brand-solid', $html);
+        $this->assertStringNotContainsString('bg-danger-solid', $html);
+
+        // The shade that looks equivalent and is not.
+        $this->assertStringNotContainsString('bg-brand-600', $html);
+    }
+
     public function test_the_bell_appears_on_every_authenticated_page(): void
     {
         $team = $this->teamMember();

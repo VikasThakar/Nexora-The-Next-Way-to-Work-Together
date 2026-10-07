@@ -1,0 +1,589 @@
+/*
+ * Print stylesheet for the Nexora system documentation.
+ *
+ * Paged.js polyfills CSS Paged Media in the browser, so @page rules, running
+ * headers and target-counter() page numbers in the table of contents all work.
+ */
+
+/* ------------------------------------------------------------------ */
+/* Design tokens                                                       */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --ink:        #16181d;
+  --ink-soft:   #454b57;
+  --ink-mute:   #6b7280;
+  --rule:       #dfe3ea;
+  --rule-soft:  #eceff4;
+  --paper:      #ffffff;
+  --wash:       #f7f8fa;
+
+  --brand:      #2f5bd7;
+  --brand-deep: #1c3a92;
+  --brand-wash: #eef2fd;
+
+  --note:       #2f5bd7;
+  --note-wash:  #eef2fd;
+  --warn:       #b45309;
+  --warn-wash:  #fdf4e6;
+  --imp:        #7c3aed;
+  --imp-wash:   #f4efff;
+
+  --code-bg:    #f5f6f8;
+  --code-ink:   #1f2430;
+
+  --font-text:  "Charter", "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+  --font-ui:    "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --font-code:  "Cascadia Mono", "Consolas", "SF Mono", "DejaVu Sans Mono", monospace;
+}
+
+/* ------------------------------------------------------------------ */
+/* Page geometry                                                       */
+/* ------------------------------------------------------------------ */
+
+@page {
+  size: A4;
+  margin: 20mm 18mm 18mm 18mm;
+
+  @top-left {
+    content: string(section-title);
+    font-family: var(--font-ui);
+    font-size: 7.6pt;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #8b93a3;
+    padding-bottom: 2mm;
+    border-bottom: 0.4pt solid #e6e9ef;
+    width: 100%;
+  }
+
+  @bottom-left {
+    content: "Nexora · Complete System Documentation";
+    font-family: var(--font-ui);
+    font-size: 7.4pt;
+    color: #9aa1b0;
+    padding-top: 2mm;
+  }
+
+  @bottom-right {
+    content: counter(page);
+    font-family: var(--font-ui);
+    font-size: 8.4pt;
+    font-weight: 600;
+    color: var(--ink-soft);
+    padding-top: 2mm;
+  }
+}
+
+/* The cover carries no furniture at all. */
+@page cover {
+  margin: 0;
+  @top-left { content: none; }
+  @bottom-left { content: none; }
+  @bottom-right { content: none; }
+}
+
+@page toc {
+  @top-left {
+    content: "Contents";
+    font-family: var(--font-ui);
+    font-size: 7.6pt;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #8b93a3;
+    padding-bottom: 2mm;
+    border-bottom: 0.4pt solid #e6e9ef;
+    width: 100%;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Base type                                                           */
+/* ------------------------------------------------------------------ */
+
+html { font-size: 10.2pt; }
+
+body {
+  font-family: var(--font-text);
+  color: var(--ink);
+  line-height: 1.58;
+  margin: 0;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  text-rendering: optimizeLegibility;
+}
+
+p { margin: 0 0 0.62em; orphans: 2; widows: 2; }
+
+a { color: var(--brand-deep); text-decoration: none; }
+
+strong { font-weight: 700; color: var(--ink); }
+
+em { font-style: italic; }
+
+/* ------------------------------------------------------------------ */
+/* Cover                                                               */
+/* ------------------------------------------------------------------ */
+
+.cover {
+  page: cover;
+  break-after: page;
+  height: 297mm;
+  width: 210mm;
+  box-sizing: border-box;
+  position: relative;
+  background: linear-gradient(158deg, #10142b 0%, #1c2a63 48%, #2f5bd7 100%);
+  color: #fff;
+  padding: 30mm 22mm 22mm;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cover::after {
+  content: "";
+  position: absolute;
+  right: -60mm;
+  top: -40mm;
+  width: 190mm;
+  height: 190mm;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 34%, rgba(255,255,255,0.15), rgba(255,255,255,0) 62%);
+}
+
+.cover__mark {
+  display: flex;
+  align-items: center;
+  gap: 4mm;
+  font-family: var(--font-ui);
+  font-size: 9.5pt;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.72);
+  position: relative;
+  z-index: 2;
+}
+
+.cover__glyph {
+  width: 9mm; height: 9mm;
+  border: 1.6pt solid rgba(255,255,255,0.85);
+  border-radius: 2.2mm;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-ui);
+  font-size: 13pt; font-weight: 700; letter-spacing: 0;
+  color: #fff;
+}
+
+.cover__body { margin-top: auto; position: relative; z-index: 2; }
+
+.cover__title {
+  font-family: var(--font-ui);
+  font-size: 54pt;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 0.96;
+  margin: 0;
+  /* Overrides the document h1 rule, which is dark and carries a rule. */
+  color: #fff;
+  border: none;
+  padding: 0;
+  string-set: none;
+}
+
+.cover__tagline {
+  font-family: var(--font-ui);
+  font-size: 15pt;
+  font-weight: 300;
+  color: rgba(255,255,255,0.88);
+  margin: 4mm 0 0;
+  letter-spacing: 0.005em;
+}
+
+.cover__rule {
+  width: 26mm; height: 2pt;
+  background: rgba(255,255,255,0.55);
+  margin: 9mm 0 7mm;
+  border-radius: 1pt;
+}
+
+.cover__doctype {
+  font-family: var(--font-ui);
+  font-size: 17pt;
+  font-weight: 600;
+  color: #fff;
+  margin: 0 0 10mm;
+}
+
+.cover__meta {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 5mm 8mm;
+  border-top: 0.6pt solid rgba(255,255,255,0.24);
+  padding-top: 7mm;
+  position: relative;
+  z-index: 2;
+}
+
+.cover__meta dt {
+  font-family: var(--font-ui);
+  font-size: 7.4pt;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.58);
+  margin-bottom: 1.2mm;
+}
+
+.cover__meta dd {
+  font-family: var(--font-ui);
+  font-size: 10.5pt;
+  font-weight: 500;
+  color: #fff;
+  margin: 0;
+}
+
+.cover__foot {
+  margin-top: 12mm;
+  font-family: var(--font-ui);
+  font-size: 8pt;
+  color: rgba(255,255,255,0.48);
+  position: relative;
+  z-index: 2;
+}
+
+/* ------------------------------------------------------------------ */
+/* Table of contents                                                   */
+/* ------------------------------------------------------------------ */
+
+.toc { page: toc; break-after: page; }
+
+.toc__heading {
+  font-family: var(--font-ui);
+  font-size: 26pt;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  margin: 0 0 1.5mm;
+}
+
+.toc__sub {
+  font-family: var(--font-ui);
+  font-size: 9pt;
+  color: var(--ink-mute);
+  margin: 0 0 8mm;
+  padding-bottom: 5mm;
+  border-bottom: 1.4pt solid var(--brand);
+}
+
+.toc ol { list-style: none; margin: 0; padding: 0; }
+
+.toc__l1 > a {
+  display: flex;
+  align-items: baseline;
+  font-family: var(--font-ui);
+  font-size: 9.8pt;
+  font-weight: 700;
+  color: var(--ink);
+  padding: 1.5mm 0 1.1mm;
+  border-bottom: 0.4pt solid var(--rule-soft);
+  break-after: avoid;
+}
+
+.toc__l2 > a {
+  display: flex;
+  align-items: baseline;
+  font-family: var(--font-ui);
+  font-size: 8.4pt;
+  font-weight: 400;
+  color: var(--ink-soft);
+  padding: 0.35mm 0 0.35mm 8mm;
+}
+
+.toc__l1 { break-inside: avoid; }
+
+.toc__num {
+  font-variant-numeric: tabular-nums;
+  color: var(--brand);
+  font-weight: 700;
+  min-width: 11mm;
+  flex: none;
+}
+
+.toc__l2 .toc__num { color: var(--ink-mute); font-weight: 600; min-width: 13mm; }
+
+.toc__text { flex: 0 1 auto; }
+
+.toc__dots {
+  flex: 1 1 auto;
+  margin: 0 2mm;
+  border-bottom: 0.5pt dotted #c3c9d4;
+  transform: translateY(-1.1mm);
+  min-width: 6mm;
+}
+
+.toc__page {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ink-soft);
+  flex: none;
+}
+
+.toc__l1 > a::after,
+.toc__l2 > a::after { content: target-counter(attr(href url), page); }
+
+.toc__l1 > a .toc__page,
+.toc__l2 > a .toc__page { display: none; }
+
+/* ------------------------------------------------------------------ */
+/* Headings                                                            */
+/* ------------------------------------------------------------------ */
+
+h1 {
+  string-set: section-title content(text);
+  font-family: var(--font-ui);
+  font-size: 23pt;
+  font-weight: 800;
+  letter-spacing: -0.016em;
+  line-height: 1.12;
+  color: var(--ink);
+  margin: 0 0 6mm;
+  padding-bottom: 3.4mm;
+  border-bottom: 1.6pt solid var(--brand);
+  break-after: avoid;
+  break-inside: avoid;
+}
+
+/* The "SECTION n" eyebrow above each part title. Deliberately a sibling of the
+ * h1 rather than a child, so the running header string picks up the title only. */
+.section-eyebrow {
+  font-family: var(--font-ui);
+  font-size: 8.4pt;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brand);
+  margin: 0 0 2.4mm;
+  break-after: avoid;
+  break-inside: avoid;
+}
+
+h2 {
+  font-family: var(--font-ui);
+  font-size: 13.4pt;
+  font-weight: 700;
+  letter-spacing: -0.008em;
+  color: var(--ink);
+  margin: 8mm 0 2.6mm;
+  break-after: avoid;
+  break-inside: avoid;
+}
+
+h2 .h-num { color: var(--brand); margin-right: 2.2mm; font-variant-numeric: tabular-nums; }
+
+h3 {
+  font-family: var(--font-ui);
+  font-size: 10.8pt;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 5.5mm 0 1.8mm;
+  break-after: avoid;
+  break-inside: avoid;
+}
+
+h4 {
+  font-family: var(--font-ui);
+  font-size: 9.6pt;
+  font-weight: 700;
+  color: var(--ink-soft);
+  margin: 4.5mm 0 1.4mm;
+  break-after: avoid;
+}
+
+h1 + h2, h2 + h3, h3 + h4 { margin-top: 3mm; }
+
+/* ------------------------------------------------------------------ */
+/* Lists                                                               */
+/* ------------------------------------------------------------------ */
+
+ul, ol { margin: 0 0 0.7em; padding-left: 5.4mm; }
+li { margin-bottom: 0.26em; }
+li > ul, li > ol { margin-top: 0.26em; margin-bottom: 0.1em; }
+ul li::marker { color: var(--brand); }
+ol li::marker { color: var(--brand); font-weight: 700; font-family: var(--font-ui); }
+
+/* ------------------------------------------------------------------ */
+/* Tables                                                              */
+/* ------------------------------------------------------------------ */
+
+.table-wrap { margin: 3.4mm 0 5mm; break-inside: auto; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-ui);
+  font-size: 8.3pt;
+  line-height: 1.42;
+  table-layout: fixed;
+}
+
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+
+th {
+  background: var(--brand-deep);
+  color: #fff;
+  font-weight: 600;
+  font-size: 7.7pt;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 2.1mm 2.4mm;
+  border: none;
+  vertical-align: bottom;
+}
+
+th:first-child { border-top-left-radius: 1mm; }
+th:last-child  { border-top-right-radius: 1mm; }
+
+td {
+  padding: 1.9mm 2.4mm;
+  border-bottom: 0.4pt solid var(--rule);
+  vertical-align: top;
+  color: var(--ink-soft);
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+td strong { color: var(--ink); }
+tbody tr:nth-child(even) { background: var(--wash); }
+tbody tr:last-child td { border-bottom: 0.9pt solid var(--rule); }
+
+table code {
+  font-size: 7.5pt;
+  background: #e9ecf2;
+  padding: 0.15mm 0.9mm;
+  border-radius: 0.7mm;
+  word-break: break-word;
+}
+
+/* ------------------------------------------------------------------ */
+/* Code                                                                */
+/* ------------------------------------------------------------------ */
+
+code {
+  font-family: var(--font-code);
+  font-size: 0.87em;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 0.2mm 1.1mm;
+  border-radius: 0.8mm;
+  border: 0.3pt solid #e3e6ec;
+}
+
+pre {
+  font-family: var(--font-code);
+  font-size: 7.9pt;
+  line-height: 1.46;
+  background: var(--code-bg);
+  border: 0.5pt solid var(--rule);
+  border-left: 2pt solid var(--brand);
+  border-radius: 1.2mm;
+  padding: 3mm 3.4mm;
+  margin: 3mm 0 4.4mm;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  break-inside: avoid;
+  color: var(--code-ink);
+}
+
+pre code { background: none; border: none; padding: 0; font-size: inherit; }
+
+/* ------------------------------------------------------------------ */
+/* Diagrams                                                            */
+/* ------------------------------------------------------------------ */
+
+.diagram {
+  font-family: var(--font-code);
+  font-size: 7.1pt;
+  line-height: 1.34;
+  background: #fbfcfd;
+  border: 0.5pt solid var(--rule);
+  border-radius: 1.4mm;
+  padding: 4.5mm 4mm;
+  margin: 4mm 0 5.5mm;
+  white-space: pre;
+  overflow: hidden;
+  break-inside: avoid;
+  color: #313846;
+  text-align: left;
+}
+
+.diagram::before {
+  content: "Figure";
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 6.6pt;
+  font-weight: 700;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  color: var(--brand);
+  margin-bottom: 3mm;
+  white-space: normal;
+}
+
+/* ------------------------------------------------------------------ */
+/* Callouts                                                            */
+/* ------------------------------------------------------------------ */
+
+.callout {
+  margin: 4mm 0 5mm;
+  padding: 3.2mm 4mm 3.2mm 4.4mm;
+  border-radius: 1.4mm;
+  border-left: 2.6pt solid var(--note);
+  background: var(--note-wash);
+  break-inside: avoid;
+  font-size: 9.4pt;
+  line-height: 1.5;
+}
+
+.callout > :last-child { margin-bottom: 0; }
+
+.callout__label {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 7.2pt;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--note);
+  margin-bottom: 1.6mm;
+}
+
+.callout--warning    { border-left-color: var(--warn); background: var(--warn-wash); }
+.callout--warning .callout__label { color: var(--warn); }
+
+.callout--important  { border-left-color: var(--imp); background: var(--imp-wash); }
+.callout--important .callout__label { color: var(--imp); }
+
+.callout table { font-size: 7.9pt; }
+
+/* ------------------------------------------------------------------ */
+/* Misc                                                                */
+/* ------------------------------------------------------------------ */
+
+hr {
+  border: none;
+  border-top: 0.5pt solid var(--rule);
+  margin: 6mm 0;
+}
+
+blockquote:not(.callout) {
+  margin: 3mm 0;
+  padding-left: 4mm;
+  border-left: 1.6pt solid var(--rule);
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.pagebreak { break-after: page; }
+
+h1, h2, h3, h4 { -webkit-column-break-after: avoid; }

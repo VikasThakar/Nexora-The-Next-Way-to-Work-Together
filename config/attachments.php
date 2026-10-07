@@ -77,6 +77,30 @@ return [
     'max_per_owner' => (int) env('ATTACHMENT_MAX_PER_OWNER', 20),
 
     /*
+    |--------------------------------------------------------------------------
+    | Draft retention
+    |--------------------------------------------------------------------------
+    |
+    | How long a file dropped into a creation form is kept before it is assumed
+    | abandoned. A draft is an attachment with no owner — see the
+    | allow_draft_attachments migration — and it only exists between the drop
+    | and the Save that adopts it.
+    |
+    | Most are adopted within a minute. The ones that are not belong to somebody
+    | who closed the tab, and nothing in the application can reach them again:
+    | the only list of their ids was the Livewire component that has since gone.
+    |
+    | Twenty-four hours rather than minutes, because the cost of being wrong is
+    | asymmetric. Too long keeps a few unreferenced files for a day; too short
+    | deletes the screenshot out from under somebody who left a half-written
+    | ticket open over lunch. `workspace:prune` removes them, file and row
+    | together.
+    |
+    */
+
+    'draft_retention_hours' => (int) env('ATTACHMENT_DRAFT_RETENTION_HOURS', 24),
+
+    /*
     | Screen recordings are in the list alongside screenshots, because a bug
     | report is as often a recording as a picture. The default size ceiling
     | above is set with them in mind and stays under the 32 MB request limit
@@ -90,6 +114,43 @@ return [
         'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
         'zip',
         'log', 'json', 'yml', 'yaml',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Profile pictures
+    |--------------------------------------------------------------------------
+    |
+    | A profile picture is not an attachment — it hangs off no record, it has no
+    | board, and it is not served by AttachmentController. Its settings live
+    | here anyway because it shares the one thing that matters operationally:
+    | the disk above, and therefore the production durability check in
+    | App\Providers\AppServiceProvider. Somebody asking "where do uploaded files
+    | go and do they survive a deploy" should find one answer, not two.
+    |
+    | The ceilings are deliberately tighter than the attachment ones. A picture
+    | is cropped to a square and scaled down to `max_dimension`, so anything
+    | larger than a few megabytes is bytes nobody will ever see — and the file
+    | that is finally stored was written by this application, not uploaded.
+    |
+    | `allowed_mimes` has no `svg`, unlike the attachment list above. An SVG is a
+    | document that can carry script rather than a picture, and a profile
+    | picture is the one upload in the product that is rendered inline in an
+    | <img> on every screen. The list is also what the `image` validation rule
+    | narrows: that rule already excludes SVG, and this names what is left.
+    |
+    */
+
+    'avatars' => [
+
+        'max_size_kb' => (int) env('AVATAR_MAX_SIZE_KB', 4096),
+
+        'max_dimension' => (int) env('AVATAR_MAX_DIMENSION', 512),
+
+        'jpeg_quality' => (int) env('AVATAR_JPEG_QUALITY', 85),
+
+        'allowed_mimes' => ['jpg', 'jpeg', 'png', 'webp'],
+
     ],
 
 ];

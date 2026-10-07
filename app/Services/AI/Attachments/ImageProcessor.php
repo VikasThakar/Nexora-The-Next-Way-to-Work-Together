@@ -8,6 +8,7 @@ use App\Enums\AiAttachmentKind;
 use App\Models\Attachment;
 use App\Services\AI\Attachments\Concerns\ReadsStoredFiles;
 use App\Services\AI\Data\AiMedia;
+use App\Support\Images\ImageTranscoder;
 use Throwable;
 
 /**
@@ -51,6 +52,8 @@ use Throwable;
 class ImageProcessor implements AiAttachmentProcessor
 {
     use ReadsStoredFiles;
+
+    public function __construct(private readonly ImageTranscoder $transcoder) {}
 
     public function kind(): AiAttachmentKind
     {
@@ -152,6 +155,18 @@ class ImageProcessor implements AiAttachmentProcessor
 
     // -----------------------------------------------------------------
 
+    /*
+     * The GD work below lives in App\Support\Images\ImageTranscoder.
+     *
+     * It was extracted when profile pictures needed the same decode, resize and
+     * re-encode, because two implementations would be two sets of assumptions
+     * about alpha, about enlargement and about what counts as a decodable file.
+     * These three methods stay as the names this class reads best with, and the
+     * configuration stays here: `ai.attachments.image.*` governs what the model
+     * is sent, and the shared helper deliberately reads no configuration of its
+     * own so one caller's limits can never govern another's.
+     */
+
     /**
      * Fit the image inside the configured box, preserving its proportions.
      *
@@ -161,27 +176,10 @@ class ImageProcessor implements AiAttachmentProcessor
      */
     private function resize(\GdImage $image): \GdImage
     {
-        $max = max(200, (int) config('ai.attachments.image.max_dimension', 1568));
-
-        $width = imagesx($image);
-        $height = imagesy($image);
-        $longest = max($width, $height);
-
-        if ($longest <= $max) {
-            return $image;
-        }
-
-        $scale = $max / $longest;
-
-        $resized = imagescale($image, max(1, (int) round($width * $scale)), max(1, (int) round($height * $scale)));
-
-        if ($resized === false) {
-            return $image;
-        }
-
-        imagedestroy($image);
-
-        return $resized;
+        return $this->transcoder->fit(
+            $image,
+            max(200, (int) config('ai.attachments.image.max_dimension', 1568)),
+        );
     }
 
     /**
@@ -194,11 +192,7 @@ class ImageProcessor implements AiAttachmentProcessor
      */
     private function hasAlpha(Attachment $attachment): bool
     {
-        $type = strtolower((string) $attachment->mime_type);
-
-        return str_contains($type, 'png')
-            || str_contains($type, 'gif')
-            || str_contains($type, 'webp');
+        return $this->transcoder->prefersAlpha($attachment->mime_type);
     }
 
     /**
@@ -210,14 +204,10 @@ class ImageProcessor implements AiAttachmentProcessor
      */
     private function encode(\GdImage $image, bool $asPng): ?string
     {
-        ob_start();
-
-        $written = $asPng
-            ? imagepng($image, null, 6)
-            : imagejpeg($image, null, max(40, min(95, (int) config('ai.attachments.image.jpeg_quality', 82))));
-
-        $bytes = ob_get_clean();
-
-        return $written && is_string($bytes) && $bytes !== '' ? $bytes : null;
+        return $this->transcoder->encode(
+            $image,
+            $asPng,
+            (int) config('ai.attachments.image.jpeg_quality', 82),
+        );
     }
 }

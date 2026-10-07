@@ -141,7 +141,19 @@
 
         <span class="ml-auto">
             @if ($ticket->assignee)
-                <x-ui.avatar :name="$ticket->assignee->name" size="sm" :title="'Assigned to '.$ticket->assignee->name" />
+                {{--
+                    Labelled, unlike every other avatar in the product, because
+                    this one stands alone: the assignee's name appears nowhere
+                    else on the card. A `title` is a tooltip, not an accessible
+                    name, so without the label a screen reader was told nothing
+                    at all about who a ticket belongs to.
+                --}}
+                <x-ui.avatar
+                    :user="$ticket->assignee"
+                    size="sm"
+                    :label="'Assigned to '.$ticket->assignee->name"
+                    :title="'Assigned to '.$ticket->assignee->name"
+                />
             @else
                 <span class="inline-flex size-7 items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-300"
                       title="Unassigned">

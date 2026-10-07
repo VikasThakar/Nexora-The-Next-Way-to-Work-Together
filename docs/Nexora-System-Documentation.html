@@ -1,0 +1,2118 @@
+<title>Nexora System Documentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+/* ============================================================
+   Tokens — derived from the product's own @theme block, so the
+   document and the application share one palette.
+   Amber is reserved for attention. Internal content is slate.
+   ============================================================ */
+:root {
+  --ground:      oklch(0.985 0.004 255);
+  --ground-2:    oklch(0.962 0.006 255);
+  --surface:     oklch(1 0 0);
+  --surface-2:   oklch(0.972 0.005 256);
+  --ink:         oklch(0.24 0.022 262);
+  --ink-2:       oklch(0.45 0.018 260);
+  --ink-3:       oklch(0.575 0.014 258);
+  --rule:        oklch(0.905 0.008 258);
+  --rule-2:      oklch(0.835 0.012 258);
+  --brand:       oklch(0.55 0.208 263);
+  --brand-soft:  oklch(0.955 0.024 258);
+  --brand-ink:   oklch(0.42 0.166 264);
+  --amber:       oklch(0.70 0.155 68);
+  --amber-soft:  oklch(0.963 0.042 82);
+  --amber-ink:   oklch(0.455 0.115 62);
+  --ok:          oklch(0.575 0.125 155);
+  --ok-soft:     oklch(0.958 0.032 155);
+  --ok-ink:      oklch(0.415 0.105 155);
+  --lock:        oklch(0.475 0.015 258);
+  --lock-soft:   oklch(0.945 0.006 258);
+  --shadow:      0 1px 2px oklch(0.24 0.02 262 / 0.05), 0 8px 24px -12px oklch(0.24 0.02 262 / 0.14);
+  --sans:  "IBM Plex Sans", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --mono:  "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:      oklch(0.172 0.016 262);
+    --ground-2:    oklch(0.198 0.017 262);
+    --surface:     oklch(0.218 0.018 262);
+    --surface-2:   oklch(0.252 0.018 262);
+    --ink:         oklch(0.945 0.008 258);
+    --ink-2:       oklch(0.785 0.012 258);
+    --ink-3:       oklch(0.645 0.013 258);
+    --rule:        oklch(0.325 0.016 260);
+    --rule-2:      oklch(0.405 0.018 260);
+    --brand:       oklch(0.735 0.142 258);
+    --brand-soft:  oklch(0.295 0.055 262);
+    --brand-ink:   oklch(0.845 0.085 256);
+    --amber:       oklch(0.79 0.128 72);
+    --amber-soft:  oklch(0.305 0.052 68);
+    --amber-ink:   oklch(0.875 0.095 78);
+    --ok:          oklch(0.725 0.115 158);
+    --ok-soft:     oklch(0.285 0.045 158);
+    --ok-ink:      oklch(0.855 0.088 158);
+    --lock:        oklch(0.705 0.012 258);
+    --lock-soft:   oklch(0.272 0.010 258);
+    --shadow:      0 1px 2px oklch(0 0 0 / 0.30), 0 10px 28px -14px oklch(0 0 0 / 0.55);
+  }
+}
+:root[data-theme="dark"] {
+  --ground:      oklch(0.172 0.016 262);
+  --ground-2:    oklch(0.198 0.017 262);
+  --surface:     oklch(0.218 0.018 262);
+  --surface-2:   oklch(0.252 0.018 262);
+  --ink:         oklch(0.945 0.008 258);
+  --ink-2:       oklch(0.785 0.012 258);
+  --ink-3:       oklch(0.645 0.013 258);
+  --rule:        oklch(0.325 0.016 260);
+  --rule-2:      oklch(0.405 0.018 260);
+  --brand:       oklch(0.735 0.142 258);
+  --brand-soft:  oklch(0.295 0.055 262);
+  --brand-ink:   oklch(0.845 0.085 256);
+  --amber:       oklch(0.79 0.128 72);
+  --amber-soft:  oklch(0.305 0.052 68);
+  --amber-ink:   oklch(0.875 0.095 78);
+  --ok:          oklch(0.725 0.115 158);
+  --ok-soft:     oklch(0.285 0.045 158);
+  --ok-ink:      oklch(0.855 0.088 158);
+  --lock:        oklch(0.705 0.012 258);
+  --lock-soft:   oklch(0.272 0.010 258);
+  --shadow:      0 1px 2px oklch(0 0 0 / 0.30), 0 10px 28px -14px oklch(0 0 0 / 0.55);
+}
+
+/* ============================================================ Base */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 16.5px;
+  line-height: 1.64;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, h4, .u-sans { font-family: var(--sans); }
+h1, h2, h3, h4 { text-wrap: balance; margin: 0; font-weight: 600; letter-spacing: -0.012em; }
+p { margin: 0; }
+strong { font-weight: 600; color: var(--ink); }
+a { color: var(--brand); text-decoration-color: color-mix(in oklab, var(--brand) 35%, transparent); text-underline-offset: 2px; }
+a:hover { text-decoration-color: var(--brand); }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 3px; }
+code { font-family: var(--mono); font-size: 0.85em; font-weight: 500; }
+:not(pre) > code {
+  background: var(--surface-2); border: 1px solid var(--rule); border-radius: 4px;
+  padding: 0.08em 0.34em; color: var(--ink-2); white-space: nowrap;
+}
+
+/* ============================================================ Shell */
+.shell { display: grid; grid-template-columns: 252px minmax(0, 1fr); max-width: 1250px; margin: 0 auto; }
+.rail {
+  position: sticky; top: env(safe-area-inset-top, 0px); align-self: start;
+  max-height: 100vh; overflow-y: auto;
+  padding: 32px 24px 44px 20px; border-right: 1px solid var(--rule);
+}
+.rail-mark {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--sans); font-weight: 600; font-size: 14.5px; letter-spacing: 0.01em;
+  padding-bottom: 14px; margin-bottom: 16px; border-bottom: 1px solid var(--rule);
+}
+.glyph { width: 20px; height: 20px; border-radius: 5px; flex: none; background: var(--brand); position: relative; overflow: hidden; }
+.glyph::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; border-left: 2px dashed var(--surface); }
+.rail-heading {
+  font-family: var(--sans); font-size: 10px; font-weight: 600; letter-spacing: 0.11em;
+  text-transform: uppercase; color: var(--ink-3); margin-bottom: 9px;
+}
+.rail nav { display: flex; flex-direction: column; gap: 1px; }
+.rail nav a {
+  display: grid; grid-template-columns: 20px 1fr; gap: 7px; align-items: baseline;
+  font-family: var(--sans); font-size: 13px; line-height: 1.32;
+  color: var(--ink-2); text-decoration: none;
+  padding: 5px 8px; border-radius: 5px; border-left: 2px solid transparent; margin-left: -2px;
+}
+.rail nav a .n { font-family: var(--mono); font-size: 11px; color: var(--ink-3); font-weight: 500; }
+.rail nav a:hover { background: var(--surface-2); color: var(--ink); }
+.rail nav a.on { color: var(--brand); border-left-color: var(--brand); background: var(--brand-soft); font-weight: 500; }
+.rail nav a.on .n { color: var(--brand); }
+.doc { padding: 0 clamp(20px, 4vw, 58px) 90px; min-width: 0; }
+
+/* ============================================================ Cover */
+.cover { padding: clamp(38px, 6vw, 72px) 0 40px; border-bottom: 1px solid var(--rule); }
+.kicker {
+  font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: 0.15em;
+  text-transform: uppercase; color: var(--brand); display: flex; align-items: center; gap: 12px; margin-bottom: 22px;
+}
+.kicker::after { content: ""; height: 1px; flex: 1; background: linear-gradient(90deg, var(--rule-2), transparent); }
+.cover h1 { font-size: clamp(42px, 7.4vw, 76px); line-height: 0.97; letter-spacing: -0.038em; font-weight: 700; }
+.cover .subtitle {
+  font-family: var(--sans); font-size: clamp(17px, 2.4vw, 23px); font-weight: 400;
+  color: var(--ink-2); letter-spacing: -0.012em; margin-top: 6px;
+}
+.doctype {
+  font-family: var(--sans); font-size: 12.5px; font-weight: 600; letter-spacing: 0.03em;
+  padding: 6px 13px; border: 1px solid var(--rule-2); border-radius: 999px;
+  display: inline-block; margin-top: 26px; color: var(--ink);
+}
+.cover .lede { font-size: 19.5px; line-height: 1.58; color: var(--ink-2); max-width: 58ch; margin-top: 26px; }
+/* Separators are drawn by each cell, not by the container's background, so a
+   row that does not fill its last column leaves white space rather than a slab. */
+.meta {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 1px;
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 9px; overflow: hidden; margin-top: 34px;
+}
+.meta div { background: var(--surface); padding: 13px 15px; box-shadow: 0 0 0 1px var(--rule); }
+.meta dt {
+  font-family: var(--sans); font-size: 9.5px; font-weight: 600; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--ink-3); margin-bottom: 5px;
+}
+.meta dd { margin: 0; font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-weight: 500; line-height: 1.4; }
+
+/* ============================================================ Sections */
+.sec { padding-top: 62px; scroll-margin-top: 20px; }
+.sec-num { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--brand); letter-spacing: 0.08em; display: block; margin-bottom: 8px; }
+.sec h2 { font-size: clamp(26px, 3.6vw, 35px); line-height: 1.1; letter-spacing: -0.028em; }
+.deck { margin-top: 13px; font-size: 18px; color: var(--ink-2); max-width: 64ch; }
+.sec h3 { font-size: 18.5px; letter-spacing: -0.015em; padding-bottom: 8px; border-bottom: 1px solid var(--rule); }
+.sec h4 { font-size: 12.5px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-3); }
+.sec > * + * { margin-top: 20px; }
+.sec > h3 { margin-top: 44px; }
+.sec > h4 { margin-top: 32px; }
+.sec > h3 + *, .sec > h4 + * { margin-top: 14px; }
+.prose { max-width: 68ch; display: flex; flex-direction: column; gap: 15px; }
+.tight { font-size: 15.5px; line-height: 1.6; }
+ul.list, ol.list { max-width: 68ch; margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 9px; }
+ul.list li::marker { color: var(--brand); }
+ol.list li::marker { color: var(--ink-3); font-family: var(--mono); font-size: 0.85em; }
+
+/* ============================================================ Figures */
+.figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(126px, 1fr)); gap: 1px; background: var(--surface); border: 1px solid var(--rule); border-radius: 9px; overflow: hidden; }
+.fig { background: var(--surface); padding: 16px 16px 14px; box-shadow: 0 0 0 1px var(--rule); }
+.fig .v { font-family: var(--sans); font-size: 27px; font-weight: 600; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+.fig .k { font-family: var(--sans); font-size: 11.5px; color: var(--ink-3); margin-top: 7px; line-height: 1.3; }
+
+/* ============================================================ Tables */
+.scroller { overflow-x: auto; border: 1px solid var(--rule); border-radius: 9px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 540px; font-family: var(--sans); font-size: 13.5px; line-height: 1.45; }
+thead th {
+  text-align: left; font-weight: 600; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-3); padding: 11px 14px; border-bottom: 1px solid var(--rule-2); white-space: nowrap;
+  background: var(--surface-2);
+}
+tbody td, tbody th { padding: 10px 14px; border-top: 1px solid var(--rule); vertical-align: top; text-align: left; }
+tbody th { font-weight: 600; color: var(--ink); }
+tbody tr:first-child td, tbody tr:first-child th { border-top: none; }
+td.c, th.c { text-align: center; }
+table .mono { font-family: var(--mono); font-size: 12.5px; font-weight: 500; }
+.cap { font-family: var(--sans); font-size: 12.5px; color: var(--ink-3); margin-top: 9px; max-width: 72ch; }
+
+.yes { color: var(--ok-ink); font-weight: 600; }
+.no  { color: var(--ink-3); }
+.never { color: var(--lock); font-weight: 600; }
+:root[data-theme="dark"] .yes, :root[data-theme="dark"] .never { font-weight: 500; }
+
+/* ============================================================ Pills */
+.pill {
+  display: inline-flex; align-items: center; gap: 5px; font-family: var(--sans);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em; padding: 2.5px 8px; border-radius: 999px;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.pill.done    { background: var(--ok-soft);    color: var(--ok-ink);    border-color: color-mix(in oklab, var(--ok) 28%, transparent); }
+.pill.part    { background: var(--amber-soft); color: var(--amber-ink); border-color: color-mix(in oklab, var(--amber) 32%, transparent); }
+.pill.absent  { background: var(--surface-2);  color: var(--ink-3);     border-color: var(--rule-2); }
+.pill.internal{ background: var(--lock-soft);  color: var(--lock);      border-color: var(--rule-2); }
+.pill.brandy  { background: var(--brand-soft); color: var(--brand-ink); border-color: color-mix(in oklab, var(--brand) 26%, transparent); }
+
+/* ============================================================ Callouts */
+.note {
+  border-left: 3px solid var(--rule-2); background: var(--surface); border-radius: 0 8px 8px 0;
+  padding: 15px 18px; max-width: 72ch; font-size: 15.5px; line-height: 1.58;
+  border-top: 1px solid var(--rule); border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+}
+.note .lbl { display: block; font-family: var(--sans); font-size: 10.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; color: var(--ink-3); }
+.note.key   { border-left-color: var(--brand); background: var(--brand-soft); border-color: color-mix(in oklab, var(--brand) 18%, var(--rule)); border-left-color: var(--brand); }
+.note.key .lbl { color: var(--brand-ink); }
+.note.warn  { border-left-color: var(--amber); background: var(--amber-soft); border-color: color-mix(in oklab, var(--amber) 22%, var(--rule)); border-left-color: var(--amber); }
+.note.warn .lbl { color: var(--amber-ink); }
+
+/* ============================================================ The boundary lanes — the page's centrepiece */
+.lanes { border: 1px solid var(--rule); border-radius: 11px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
+.lane-row { display: grid; grid-template-columns: 116px 1fr 1fr; gap: 0; border-top: 1px solid var(--rule); }
+.lane-row:first-child { border-top: none; }
+.lane-row > * { padding: 13px 16px; }
+.lane-row > .side {
+  font-family: var(--sans); font-size: 11.5px; font-weight: 600; color: var(--ink-3);
+  background: var(--surface-2); display: flex; align-items: center; letter-spacing: 0.01em;
+}
+.lane-row > .cust { font-family: var(--sans); font-size: 13.5px; line-height: 1.45; color: var(--ink); }
+.lane-row > .intl {
+  font-family: var(--sans); font-size: 13.5px; line-height: 1.45; color: var(--ink-2);
+  border-left: 2px dashed var(--rule-2); background: color-mix(in oklab, var(--lock-soft) 60%, var(--surface));
+}
+.lane-head > * { padding-top: 14px; padding-bottom: 14px; }
+.lane-head { background: var(--surface-2); }
+.lane-head .cust, .lane-head .intl {
+  font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+  background: var(--surface-2);
+}
+.lane-head .cust { color: var(--brand); }
+.lane-head .intl { color: var(--lock); }
+.lane-foot {
+  padding: 13px 16px; font-family: var(--sans); font-size: 12.5px; color: var(--ink-3);
+  border-top: 1px solid var(--rule); background: var(--surface-2);
+}
+
+/* ============================================================ Layer stack */
+.stack { display: flex; flex-direction: column; gap: 8px; max-width: 76ch; }
+.layer {
+  display: grid; grid-template-columns: 30px 152px 1fr; gap: 14px; align-items: start;
+  border: 1px solid var(--rule); border-radius: 9px; padding: 13px 16px; background: var(--surface);
+}
+.layer .lv { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--brand); padding-top: 1px; }
+.layer .nm { font-family: var(--sans); font-size: 13.5px; font-weight: 600; }
+.layer .ds { font-family: var(--sans); font-size: 13px; color: var(--ink-2); line-height: 1.45; }
+.layer.primary { border-color: color-mix(in oklab, var(--brand) 40%, var(--rule)); background: var(--brand-soft); }
+
+/* ============================================================ Pipeline */
+.pipe { display: flex; flex-wrap: wrap; gap: 7px; align-items: stretch; }
+.step {
+  flex: 1 1 122px; border: 1px solid var(--rule); border-radius: 8px; padding: 11px 13px;
+  background: var(--surface); display: flex; flex-direction: column; gap: 5px; min-width: 0;
+}
+.step .st { font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-3); }
+.step .sb { font-family: var(--sans); font-size: 12.5px; line-height: 1.38; color: var(--ink); }
+.step.stop { border-color: color-mix(in oklab, var(--amber) 45%, var(--rule)); background: var(--amber-soft); }
+.step.stop .st { color: var(--amber-ink); }
+.step.stop .sb { color: var(--amber-ink); }
+
+/* ============================================================ Cards */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(238px, 1fr)); gap: 12px; }
+.card { border: 1px solid var(--rule); border-radius: 10px; padding: 16px 17px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; }
+.card h5 { margin: 0; font-family: var(--sans); font-size: 14px; font-weight: 600; letter-spacing: -0.008em; }
+.card p { font-family: var(--sans); font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.card .tag { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.04em; text-transform: uppercase; }
+
+/* ============================================================ Glossary */
+.gloss { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1px; background: var(--surface); border: 1px solid var(--rule); border-radius: 9px; overflow: hidden; }
+.gloss div { background: var(--surface); padding: 13px 16px; box-shadow: 0 0 0 1px var(--rule); }
+.gloss dt { font-family: var(--sans); font-size: 13.5px; font-weight: 600; margin-bottom: 4px; }
+.gloss dd { margin: 0; font-family: var(--sans); font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+
+/* ============================================================ Footer */
+.colophon { margin-top: 74px; padding-top: 26px; border-top: 1px solid var(--rule); font-family: var(--sans); font-size: 12.5px; color: var(--ink-3); max-width: 74ch; display: flex; flex-direction: column; gap: 10px; }
+
+/* ============================================================ Responsive */
+@media (max-width: 1000px) {
+  /* The contents becomes a compact sticky chip strip, so the cover — not a
+     seventeen-item list — is what the first frame of a phone shows. */
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .rail {
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+    max-height: none; overflow: visible; background: var(--ground);
+    border-right: none; border-bottom: 1px solid var(--rule);
+    padding: 9px 0;
+  }
+  .rail-mark, .rail-heading { display: none; }
+  .rail nav {
+    flex-direction: row; overflow-x: auto; gap: 5px;
+    padding: 2px clamp(20px, 4vw, 58px); scrollbar-width: thin;
+  }
+  .rail nav a {
+    grid-template-columns: auto auto; flex: none; white-space: nowrap;
+    border: 1px solid var(--rule); border-radius: 999px; background: var(--surface);
+    margin-left: 0; padding: 5px 12px;
+  }
+  .rail nav a.on { border-color: var(--brand); background: var(--brand-soft); }
+  .doc { padding-top: 0; }
+}
+@media (max-width: 640px) {
+  body { font-size: 16px; }
+  .lane-row { grid-template-columns: 1fr; }
+  .lane-row > .side { border-bottom: 1px solid var(--rule); }
+  .lane-row > .intl { border-left: none; border-top: 2px dashed var(--rule-2); }
+  .lane-head { display: none; }
+  .lane-row > .cust::before, .lane-row > .intl::before {
+    display: block; font-family: var(--sans); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 5px;
+  }
+  .lane-row > .cust::before { content: "Customer sees"; color: var(--brand); }
+  .lane-row > .intl::before { content: "Stays internal"; color: var(--lock); }
+  .layer { grid-template-columns: 26px 1fr; }
+  .layer .ds { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+html { scroll-behavior: smooth; }
+
+@media print {
+  .rail { display: none; }
+  .shell { display: block; max-width: none; }
+  .doc { padding: 0; }
+  .sec { page-break-inside: auto; padding-top: 34px; }
+  .lanes, .note, .card, .scroller, .layer { break-inside: avoid; }
+  body { font-size: 10.5pt; background: #fff; color: #000; }
+}
+</style>
+
+<div class="shell">
+
+  <aside class="rail">
+    <div class="rail-mark"><span class="glyph"></span> Nexora</div>
+    <div class="rail-heading">Contents</div>
+    <nav id="toc">
+      <a href="#s1"><span class="n">01</span><span>Executive summary</span></a>
+      <a href="#s2"><span class="n">02</span><span>The customer boundary</span></a>
+      <a href="#s3"><span class="n">03</span><span>Roles and permissions</span></a>
+      <a href="#s4"><span class="n">04</span><span>Boards and tickets</span></a>
+      <a href="#s5"><span class="n">05</span><span>Documentation workspace</span></a>
+      <a href="#s6"><span class="n">06</span><span>The workspace AI</span></a>
+      <a href="#s7"><span class="n">07</span><span>AI ticket runs</span></a>
+      <a href="#s8"><span class="n">08</span><span>Integrations</span></a>
+      <a href="#s9"><span class="n">09</span><span>Reporting and realtime</span></a>
+      <a href="#s10"><span class="n">10</span><span>Architecture</span></a>
+      <a href="#s11"><span class="n">11</span><span>Security</span></a>
+      <a href="#s12"><span class="n">12</span><span>Data model</span></a>
+      <a href="#s13"><span class="n">13</span><span>Deployment and operations</span></a>
+      <a href="#s14"><span class="n">14</span><span>Quality assurance</span></a>
+      <a href="#s15"><span class="n">15</span><span>Implementation status</span></a>
+      <a href="#s16"><span class="n">16</span><span>Findings and next steps</span></a>
+      <a href="#s17"><span class="n">17</span><span>Glossary</span></a>
+    </nav>
+  </aside>
+
+  <main class="doc">
+
+    <!-- ============================================ COVER -->
+    <header class="cover">
+      <div class="kicker">Complete System Documentation</div>
+      <h1>Nexora</h1>
+      <div class="subtitle">The Next Way to Work Together</div>
+      <div class="doctype">Scope, functionality and implementation status</div>
+      <p class="lede">
+        A shared delivery workspace in which an agency plans and executes its work and the
+        customer watches that work happen &mdash; on the same tickets, at the same time, but
+        seeing a deliberately different slice of it.
+      </p>
+      <dl class="meta">
+        <div><dt>Repository</dt><dd>aqueduct/workspace</dd></div>
+        <div><dt>Commit</dt><dd>30bfc83</dd></div>
+        <div><dt>Status</dt><dd>Pre&#8209;1.0, active</dd></div>
+        <div><dt>Licence</dt><dd>Proprietary</dd></div>
+        <div><dt>Compiled</dt><dd>17 Sep 2026</dd></div>
+      </dl>
+      <div class="note key" style="margin-top:28px">
+        <span class="lbl">How to read this document</span>
+        Every statement here was derived from the source at the commit above &mdash; routes,
+        migrations, policies, services, container configuration and the test suite. Nothing
+        describes a feature that does not exist. Where a capability is present but incomplete
+        it is marked <span class="pill part">Partial</span>; where it is designed for but
+        absent, <span class="pill absent">Not built</span>.
+        Section&nbsp;15 collects every such marking in one table.
+      </div>
+    </header>
+
+    <!-- ============================================ 01 -->
+    <section class="sec" id="s1">
+      <span class="sec-num">01</span>
+      <h2>Executive summary</h2>
+      <p class="deck">
+        Nexora replaces four tools with one, and earns the right to do so by solving the
+        problem that stops agencies sharing a board with their customers in the first place.
+      </p>
+
+      <div class="figures">
+        <div class="fig"><div class="v">355</div><div class="k">PHP classes</div></div>
+        <div class="fig"><div class="v">35</div><div class="k">Livewire screens</div></div>
+        <div class="fig"><div class="v">41</div><div class="k">Migrations</div></div>
+        <div class="fig"><div class="v">27</div><div class="k">Domain enums</div></div>
+        <div class="fig"><div class="v">139</div><div class="k">Test files</div></div>
+        <div class="fig"><div class="v">1,718</div><div class="k">Passing tests</div></div>
+      </div>
+
+      <h3>What it is</h3>
+      <div class="prose">
+        <p>
+          Nexora combines four things that are normally four separate products: <strong>Kanban
+          boards and tickets</strong> for the work itself; a <strong>documentation
+          workspace</strong> with a nested page tree and a live editor; an <strong>AI assistant
+          with real access to the workspace</strong> that reads through the asking person&rsquo;s
+          own permissions and can draft changes for a human to confirm; and
+          <strong>integrations</strong> with the tools engineering already lives in &mdash;
+          GitHub, Slack and SMS.
+        </p>
+        <p>
+          It is a single Laravel application, server-rendered, deployed as one Docker image run
+          three ways. There is no separate front-end application, no API gateway and no
+          microservices.
+        </p>
+      </div>
+
+      <h3>The problem it solves</h3>
+      <div class="cards">
+        <div class="card">
+          <span class="tag">Problem one</span>
+          <h5>Customers cannot see progress without a person exporting it</h5>
+          <p>Status meetings exist because nobody outside the team can read the board. Nexora gives the
+          customer a real login to the real board &mdash; and answers the obvious objection by making
+          <em>internal</em> the default for everything, with publication a deliberate, audited,
+          staff-only act.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Problem two</span>
+          <h5>Internal candour and customer communication collide</h5>
+          <p>A team that shares its board stops writing frankly on it. Nexora gives every ticket two
+          conversation streams &mdash; one the customer takes part in, one the customer cannot see,
+          cannot count and cannot detect &mdash; so the team keeps its working notes without keeping a
+          second system.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Problem three</span>
+          <h5>Knowing what is happening costs time</h5>
+          <p>Somebody has to read forty tickets to answer &ldquo;what is overdue?&rdquo;, or open
+          GitHub to answer &ldquo;did that ship?&rdquo;. Nexora&rsquo;s assistant answers those from
+          the live workspace, using retrieval tools scoped to the asker, and will draft the ticket
+          that should follow.</p>
+        </div>
+      </div>
+
+      <h3>Who uses it</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Audience</th><th>Role</th><th>What they are there for</th></tr></thead>
+          <tbody>
+            <tr><th>Agency administrators</th><td class="mono">admin</td><td>Creating boards and accounts, holding AI credentials, setting how far automation is trusted, seeing every board</td></tr>
+            <tr><th>Delivery team members</th><td class="mono">team</td><td>Daily work: tickets, documentation, the assistant, integrations, and board configuration for boards they belong to</td></tr>
+            <tr><th>Customer stakeholders</th><td class="mono">customer</td><td>Raising requests, following progress, reading published documentation, asking a read-only assistant about their own project</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        There is no self-service sign-up by default. <code>ALLOW_PUBLIC_REGISTRATION</code> is
+        <code>false</code> and an administrator creates accounts. When enabled, a self-registered
+        account receives the least-privileged role, <code>customer</code> &mdash; never staff.
+      </p>
+
+      <h3>Capabilities at a glance</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Capability</th><th style="width:118px">Status</th></tr></thead>
+          <tbody>
+            <tr><td>Kanban boards with drag-and-drop columns and cards</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>Tickets: type, priority, assignee, estimate, due date, labels, checklist, links</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>Two-stream ticket conversation (customer / internal)</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>Nested documentation workspace, WYSIWYG editing, autosave drafts</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>Workspace AI assistant &mdash; panel and full page &mdash; with ten retrieval tools</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>AI proposals: create and update tickets and pages, comment, delete, start a run</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>AI-generated charts, tables and KPI rows, with CSV and PNG export</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>Spoken conversation (speech-to-text and text-to-speech)</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>AI file attachments: text, Markdown, CSV, PDF, images, audio, Office documents</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>GitHub inbound webhooks: branches, commits, pull requests, check suites, statuses</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>GitHub outbound: push a branch, open a draft pull request</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>Slack notifications, per board and per event; SMS alerts for critical tickets</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>Statistics: team and customer screens, flow metrics, CSV and PNG export</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>Realtime board, conversation and notification updates</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>Command palette global search; workspace activity feed; light/dark/system theme</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>AI ticket runs &mdash; <em>suggest</em> mode, end to end</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>AI ticket runs &mdash; <em>apply</em> mode (opens a draft pull request)</td><td><span class="pill part">Partial</span></td></tr>
+            <tr><td>Live external knowledge lookup for the assistant</td><td><span class="pill part">Partial</span></td></tr>
+            <tr><td>AI Standup Generator</td><td><span class="pill absent">Not built</span></td></tr>
+            <tr><td>REST / JSON API for third parties</td><td><span class="pill absent">Not built</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============================================ 02 -->
+    <section class="sec" id="s2">
+      <span class="sec-num">02</span>
+      <h2>The customer boundary</h2>
+      <p class="deck">
+        One idea runs through every feature in this product, and it is the reason the rest of it
+        can exist: a customer may never observe internal content, on any board, including boards
+        they belong to.
+      </p>
+
+      <div class="lanes">
+        <div class="lane-row lane-head">
+          <div class="side"></div>
+          <div class="cust">Customer sees</div>
+          <div class="intl">Stays internal</div>
+        </div>
+        <div class="lane-row">
+          <div class="side">Tickets</div>
+          <div class="cust">Tickets marked customer-visible, on boards they are a member of</div>
+          <div class="intl">Every internal ticket &mdash; and its count, and that it exists at all</div>
+        </div>
+        <div class="lane-row">
+          <div class="side">Conversation</div>
+          <div class="cust">The customer stream on those tickets, and their own replies</div>
+          <div class="intl">The internal stream: notes, their authors, their number</div>
+        </div>
+        <div class="lane-row">
+          <div class="side">Documentation</div>
+          <div class="cust">Published pages whose every ancestor is also published</div>
+          <div class="intl">Internal pages, and the whole tree standing above them</div>
+        </div>
+        <div class="lane-row">
+          <div class="side">Code activity</div>
+          <div class="cust">Nothing</div>
+          <div class="intl">Branches, commits, pull requests, CI status, attached repositories</div>
+        </div>
+        <div class="lane-row">
+          <div class="side">AI</div>
+          <div class="cust">A read-only assistant over their own material</div>
+          <div class="intl">AI runs, their cost, their failures, and the full-page board chat</div>
+        </div>
+        <div class="lane-row">
+          <div class="side">Reporting</div>
+          <div class="cust">Six aggregate metrics, counted over tickets they can open</div>
+          <div class="intl">Assignee workload, cycle time, AI spend, the internal/visible split</div>
+        </div>
+        <div class="lane-row">
+          <div class="side">History</div>
+          <div class="cust">Nothing</div>
+          <div class="intl">The whole workspace activity feed</div>
+        </div>
+        <div class="lane-foot">
+          A denial is <strong>404, never 403</strong>, wherever existence is itself a secret &mdash;
+          a 403 on <code>/boards/acme-platform</code> would confirm that such a board exists.
+        </div>
+      </div>
+
+      <h3>Where the rule is enforced</h3>
+      <div class="prose">
+        <p>
+          Four independent layers, designed to overlap. Authorization is applied in SQL first and
+          in policies second: a collection is filtered by a query scope, and a single loaded record
+          is then checked by the matching policy method. Each policy is written to mirror its scope
+          line for line.
+        </p>
+      </div>
+      <div class="stack">
+        <div class="layer">
+          <div class="lv">01</div>
+          <div class="nm">Route middleware</div>
+          <div class="ds"><code>role:admin,team</code> blocks before a component exists; <code>password.confirm</code> re-authenticates for administration screens. Coarse only.</div>
+        </div>
+        <div class="layer primary">
+          <div class="lv">02</div>
+          <div class="nm">Query scopes</div>
+          <div class="ds"><strong>The primary defence.</strong> <code>Ticket::visibleTo()</code>, <code>Comment::visibleTo()</code>, <code>AiRun::visibleTo()</code> and <code>DocPageFinder</code> filter in SQL &mdash; which protects lists, search, counts and links at once.</div>
+        </div>
+        <div class="layer">
+          <div class="lv">03</div>
+          <div class="nm">Policies</div>
+          <div class="ds">Eight of them. A single loaded record is checked against the scope it came from. Attachments hold no rules of their own &mdash; they resolve their owner and ask <em>that</em> record&rsquo;s policy.</div>
+        </div>
+        <div class="layer">
+          <div class="lv">04</div>
+          <div class="nm">Actions</div>
+          <div class="ds">Field-level rules that hold whatever calls them &mdash; a screen, a console command, or a confirmed AI proposal. There is no second, weaker path into the same tables.</div>
+        </div>
+      </div>
+
+      <div class="note key">
+        <span class="lbl">The design decision that carries the most weight</span>
+        <code>customer_visible</code> is stored <strong>positively and defaults to
+        <code>false</code></strong> on both tickets and documentation pages, so a row created by
+        code that forgets to set it is internal rather than exposed. It is deliberately
+        <strong>not mass-assignable</strong>: only the ticket actions can set it. The same applies
+        to a comment&rsquo;s stream &mdash; staff choose explicitly, and the default when nothing is
+        said is <em>internal</em>, so a code path that forgets to choose keeps quiet rather than
+        publishing to a client.
+      </div>
+
+      <div class="note">
+        <span class="lbl">Why customers get a narrower kind of refusal</span>
+        A customer&rsquo;s restricted fields are <strong>silently dropped</strong> rather than
+        rejected. The ticket policy permits a customer to edit a ticket they raised; the
+        <em>action</em> is what narrows which fields they may touch. So a crafted request that
+        submits <code>assignee_id</code>, <code>estimate</code> or <code>customer_visible</code>
+        cannot set any of them, even though the update itself is authorized.
+      </div>
+    </section>
+
+    <!-- ============================================ 03 -->
+    <section class="sec" id="s3">
+      <span class="sec-num">03</span>
+      <h2>Roles and permissions</h2>
+      <p class="deck">
+        Three application-wide roles answer &ldquo;what kind of person is this?&rdquo;. Board
+        membership answers &ldquo;what may they do on board X?&rdquo;. The two are separate, and
+        that separation is deliberate.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Role</th><th>Value</th><th class="c">Sees every board</th><th class="c">May see internal content</th><th class="c">May administer</th></tr></thead>
+          <tbody>
+            <tr><th>Administrator</th><td class="mono">admin</td><td class="c"><span class="yes">Yes</span>, without membership</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td></tr>
+            <tr><th>Team member</th><td class="mono">team</td><td class="c"><span class="no">Memberships only</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="no">No</span></td></tr>
+            <tr><th>Customer</th><td class="mono">customer</td><td class="c"><span class="no">Memberships only</span></td><td class="c"><span class="never">Never</span></td><td class="c"><span class="no">No</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        The enum groups the first two as <em>staff</em>. The internal-content rule is written as a
+        deny-list of one, so that any future role is internal-unsafe unless it is deliberately
+        added to the staff set.
+      </p>
+
+      <h3>Workspace and boards</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Capability</th><th class="c">Administrator</th><th class="c">Team</th><th class="c">Customer</th></tr></thead>
+          <tbody>
+            <tr><td>See the board index</td><td class="c"><span class="yes">All boards</span></td><td class="c">Own memberships</td><td class="c">Own memberships</td></tr>
+            <tr><td>Open a board</td><td class="c"><span class="yes">Any</span></td><td class="c">Member only</td><td class="c">Member only</td></tr>
+            <tr><td>Create, rename or delete a board</td><td class="c"><span class="yes">Yes</span> + password confirm</td><td class="c"><span class="no">No</span></td><td class="c"><span class="no">No</span></td></tr>
+            <tr><td>Add or remove board members</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="no">No</span></td><td class="c"><span class="no">No</span></td></tr>
+            <tr><td>Create, rename, reorder, delete columns and labels</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Member only</span></td><td class="c"><span class="no">No</span></td></tr>
+            <tr><td>Configure board AI settings, repositories, Slack and SMS</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Member only</span></td><td class="c"><span class="never">404</span></td></tr>
+            <tr><td>Global AI settings <code>/admin/ai</code></td><td class="c"><span class="yes">Yes</span> + confirm</td><td class="c"><span class="no">403</span></td><td class="c"><span class="no">403</span></td></tr>
+            <tr><td>Create, edit, deactivate users; change another user&rsquo;s role</td><td class="c"><span class="yes">Yes</span> + confirm</td><td class="c"><span class="no">403</span></td><td class="c"><span class="no">403</span></td></tr>
+            <tr><td>Change <strong>own</strong> role, or delete <strong>own</strong> account</td><td class="c"><span class="never">Forbidden</span></td><td class="c"><span class="no">No</span></td><td class="c"><span class="no">No</span></td></tr>
+            <tr><td>Edit own profile, password and theme</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        The split is deliberate. The board <em>record</em> &mdash; its name, prefix, membership and
+        existence &mdash; stays administrator-only. The board&rsquo;s <em>working surface</em> is
+        the delivery team&rsquo;s daily work on their own board.
+      </p>
+
+      <h3>Tickets</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Capability</th><th class="c">Administrator</th><th class="c">Team</th><th class="c">Customer</th></tr></thead>
+          <tbody>
+            <tr><td>See an internal ticket</td><td class="c"><span class="yes">Yes</span></td><td class="c">Member only</td><td class="c"><span class="never">Never</span></td></tr>
+            <tr><td>Create a ticket</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span>, constrained</td></tr>
+            <tr><td>Choose the column at creation</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="never">Always first column</span></td></tr>
+            <tr><td>Set visibility at creation</td><td class="c">Defaults internal</td><td class="c">Defaults internal</td><td class="c"><span class="never">Always customer-visible</span></td></tr>
+            <tr><td>Assign at creation</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="never">Always unassigned</span></td></tr>
+            <tr><td>Edit a ticket raised by somebody else</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="no">No</span></td></tr>
+            <tr><td>Change assignee, estimate or customer visibility</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="never">Silently dropped</span></td></tr>
+            <tr><td>Move between columns; add labels; link tickets</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="no">No</span></td></tr>
+            <tr><td>Manage the checklist; attach files</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c">Own tickets only</td></tr>
+            <tr><td>Delete a ticket</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="no">No</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Conversations, documentation and files</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Capability</th><th class="c">Administrator</th><th class="c">Team</th><th class="c">Customer</th></tr></thead>
+          <tbody>
+            <tr><td>Read and post to the customer conversation</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c">If the board allows it</td></tr>
+            <tr><td>Read internal notes</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="never">Never &mdash; not even the count</span></td></tr>
+            <tr><td>Edit a comment</td><td class="c">Own only</td><td class="c">Own only</td><td class="c">Own only</td></tr>
+            <tr><td>Delete a comment</td><td class="c"><span class="yes">Own, and anybody&rsquo;s</span></td><td class="c">Own only</td><td class="c">Own only</td></tr>
+            <tr><td>Read published documentation</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c">Only if every ancestor is published</td></tr>
+            <tr><td>Read internal documentation</td><td class="c"><span class="yes">Yes</span></td><td class="c">Member only</td><td class="c"><span class="never">Never</span></td></tr>
+            <tr><td>Create, edit, move, delete or publish a page</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Member only</span></td><td class="c"><span class="no">No</span></td></tr>
+            <tr><td>Download an attachment</td><td colspan="3" class="c">If the owning record is readable &mdash; a file has no visibility of its own</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>AI</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Capability</th><th class="c">Administrator</th><th class="c">Team</th><th class="c">Customer</th></tr></thead>
+          <tbody>
+            <tr><td>Open the assistant panel</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span> &mdash; read-only</td></tr>
+            <tr><td>Open the full-page board AI chat</td><td class="c">Member boards</td><td class="c">Member only</td><td class="c"><span class="never">404</span></td></tr>
+            <tr><td>Read somebody else&rsquo;s conversation</td><td class="c"><span class="never">No &mdash; ownership is absolute</span></td><td class="c"><span class="no">No</span></td><td class="c"><span class="no">No</span></td></tr>
+            <tr><td>Use the voice interface</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td></tr>
+            <tr><td>Be offered <em>write</em> tools by the model</td><td class="c">Mode permitting</td><td class="c">Mode permitting</td><td class="c"><span class="never">Never, in any mode</span></td></tr>
+            <tr><td>Confirm an AI proposal</td><td class="c">Mode permitting</td><td class="c">Mode permitting</td><td class="c"><span class="no">No</span></td></tr>
+            <tr><td>See, start or cancel AI runs on a ticket</td><td class="c"><span class="yes">Yes</span></td><td class="c">Member only</td><td class="c"><span class="never">404</span></td></tr>
+            <tr><td>Set the workspace capability mode</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="no">No</span></td><td class="c"><span class="no">No</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note key">
+        <span class="lbl">A tool a person may not use is not sent to the model at all</span>
+        Rather than sent and then refused. A model with no write tool cannot produce a proposal,
+        so there is no preview, no confirm button and nothing for a crafted request to execute.
+        An unrecognised tool name and a tool that exists but is withheld produce the
+        <em>same</em> refusal text, so a customer cannot tell the two apart.
+      </div>
+    </section>
+
+    <!-- ============================================ 04 -->
+    <section class="sec" id="s4">
+      <span class="sec-num">04</span>
+      <h2>Boards and tickets</h2>
+      <p class="deck">
+        A board is the unit of work, the unit of access and the unit of configuration. Access to
+        Nexora is access to a set of boards; there is no entity above one.
+      </p>
+
+      <h3>The board</h3>
+      <div class="prose">
+        <p>
+          A board carries a globally unique <strong>slug</strong> used in every URL and a globally
+          unique <strong>ticket prefix</strong> of two to six characters. Primary keys are never
+          exposed. On creation it receives the standard workflow &mdash; Backlog, To&nbsp;Do,
+          In&nbsp;Progress, Review, Done &mdash; with <em>Done</em> marked terminal.
+        </p>
+        <p>
+          Board options live in a JSON <code>settings</code> column read through a helper that
+          falls back to configuration defaults, so a new board option needs no migration and no
+          backfill. Columns are unique per board and reorderable; deleting one moves its tickets
+          out one at a time and deliberately <strong>suppresses the &ldquo;moved to&rdquo;
+          notification</strong>, because otherwise tidying a board would notify everyone assigned
+          a card on it.
+        </p>
+      </div>
+
+      <h3>Anatomy of a ticket</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><th>number</th><td class="mono">integer</td><td>Per board, allocated under a row lock. Unique with <code>board_id</code>. The human key is <code>PREFIX-NUMBER</code> &mdash; <code>NL-42</code></td></tr>
+            <tr><th>title</th><td class="mono">string(200)</td><td>Required</td></tr>
+            <tr><th>type</th><td class="mono">enum</td><td><code>bug</code>, <code>task</code>, <code>feature</code> &mdash; stored and filterable; no workflow differs by it</td></tr>
+            <tr><th>description_md</th><td class="mono">text</td><td>Markdown, written through the rich-text editor</td></tr>
+            <tr><th>priority</th><td class="mono">enum</td><td><code>critical</code>, <code>high</code>, <code>medium</code>, <code>low</code>, <code>nice_to_have</code></td></tr>
+            <tr><th>assignee_id</th><td class="mono">FK users</td><td>Active, non-customer members of the board only</td></tr>
+            <tr><th>estimate</th><td class="mono">decimal(6,2)</td><td>Staff-only field</td></tr>
+            <tr><th>due_date</th><td class="mono">date</td><td>Indexed</td></tr>
+            <tr><th>customer_visible</th><td class="mono">boolean</td><td><strong>Defaults to false.</strong> The customer boundary</td></tr>
+            <tr><th>board_column_id</th><td class="mono">FK columns</td><td>Status. Restricted on delete &mdash; a column cannot be removed from under its tickets</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        Numbers are allocated inside the create action with <code>SELECT &hellip; FOR UPDATE</code>
+        on the board row. Combined with the unique index, two simultaneous requests cannot receive
+        the same number.
+      </p>
+
+      <h3>The two conversation streams</h3>
+      <div class="lanes">
+        <div class="lane-row lane-head">
+          <div class="side"></div>
+          <div class="cust">Customer stream</div>
+          <div class="intl">Internal stream</div>
+        </div>
+        <div class="lane-row">
+          <div class="side">Who reads it</div>
+          <div class="cust">Everyone who can read the ticket</div>
+          <div class="intl">Staff only</div>
+        </div>
+        <div class="lane-row">
+          <div class="side">Who writes to it</div>
+          <div class="cust">Staff always; customers if the board allows customer comments</div>
+          <div class="intl">Staff only</div>
+        </div>
+        <div class="lane-row">
+          <div class="side">The default</div>
+          <div class="cust">A comment written by a customer is always here, whatever the request said</div>
+          <div class="intl">Where a staff comment lands when nothing is chosen</div>
+        </div>
+        <div class="lane-foot">
+          Everything that follows a post &mdash; who is notified, what is broadcast &mdash; is
+          derived from the stream that was actually stored, never from what the caller asked for.
+        </div>
+      </div>
+
+      <h3>What a ticket carries besides prose</h3>
+      <div class="cards">
+        <div class="card"><span class="tag">ticket_subtasks</span><h5>Checklist</h5><p>Title, completion, position, who completed it and when. Deliberately not written to the timeline &mdash; a checklist changes often and would drown the events that matter. Convertible into Markdown checkboxes on a button press, preserving the metadata a checkbox cannot express.</p></div>
+        <div class="card"><span class="tag">ticket_links</span><h5>Links</h5><p><code>blocks</code> and <code>relates_to</code>, staff-only, and only to tickets the person can already see.</p></div>
+        <div class="card"><span class="tag">ticket_label</span><h5>Labels</h5><p>Board-scoped, unique per board, from a fixed colour palette. A customer sees the labels on a ticket they may read but cannot change them.</p></div>
+        <div class="card"><span class="tag">ticket_events</span><h5>Append-only history</h5><p>Twenty event types spanning human actions, AI runs and GitHub activity, in one unified timeline &mdash; so &ldquo;branch created&rdquo; sits between &ldquo;Vikas created NL-3&rdquo; and &ldquo;Alex changed priority&rdquo;, not in a separate panel.</p></div>
+      </div>
+
+      <h3>What happens when a ticket changes</h3>
+      <div class="prose tight">
+        <p>
+          One observer fans every change out, because &ldquo;every change to a ticket is
+          announced&rdquo; is a property of the model rather than of any one screen.
+        </p>
+      </div>
+      <div class="pipe">
+        <div class="step"><span class="st">Broadcast</span><span class="sb">An internal ticket signals only the internal channel, so a customer&rsquo;s browser is never even woken</span></div>
+        <div class="step"><span class="st">Notify</span><span class="sb">One row per recipient, each policy-checked against the thing being notified about</span></div>
+        <div class="step"><span class="st">AI</span><span class="sb">On creation only, and only for a customer&rsquo;s ticket &mdash; subject to board settings, mode and the daily cap</span></div>
+        <div class="step"><span class="st">Slack</span><span class="sb">Per board, per event, opt-in. Queued</span></div>
+        <div class="step"><span class="st">SMS</span><span class="sb">Critical tickets only. Per board opt-in. Queued</span></div>
+      </div>
+      <p class="cap">
+        None of these may throw &mdash; nothing here is important enough to fail a ticket save.
+        Position rewrites during a drag go through the query builder rather than through models,
+        so shuffling ten cards produces <strong>one</strong> announcement from the ticket that
+        actually moved, not eleven.
+      </p>
+    </section>
+
+    <!-- ============================================ 05 -->
+    <section class="sec" id="s5">
+      <span class="sec-num">05</span>
+      <h2>Documentation workspace</h2>
+      <p class="deck">
+        Each board carries its own nested page tree with a live editor, per-page publication to
+        customers, attachments and a contents list &mdash; where runbooks, decisions and
+        customer-facing guides live next to the work they describe.
+      </p>
+
+      <h3>Structure</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Property</th><th>Detail</th></tr></thead>
+          <tbody>
+            <tr><th>Layout</th><td>Three columns: page tree, document, and an &ldquo;On this page&rdquo; contents list</td></tr>
+            <tr><th>Parent</th><td>Self-referencing, restricted on delete</td></tr>
+            <tr><th>Maximum depth</th><td><strong>4.</strong> So ancestor walks terminate in a known number of queries, and the sidebar stays legible</td></tr>
+            <tr><th>Ordering</th><td>Drag-and-drop within each parent</td></tr>
+            <tr><th>Slug</th><td>Unique per board, used in the URL &mdash; never the primary key</td></tr>
+            <tr><th>Icon</th><td>An optional emoji from a picker</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>The ancestor visibility rule</h3>
+      <div class="note key">
+        <span class="lbl">A tree needs one rule a flat table does not</span>
+        A page is visible only when <strong>it and every one of its ancestors</strong> are visible.
+        Publishing a child of an internal page would otherwise show a customer a page whose
+        parent, path and siblings they must not see &mdash; and the breadcrumb alone would leak
+        the internal titles.
+      </div>
+      <div class="prose tight">
+        <p>
+          It is enforced in three deliberately overlapping places: <strong>on write</strong>,
+          publishing is refused when a parent is internal and &ldquo;make internal&rdquo; cascades
+          down the whole subtree; <strong>on reading one page</strong>, the finder walks the
+          ancestor chain through the visibility scope and 404s if any link is missing; and
+          <strong>on reading the tree</strong>, any node whose parent is not in the visible set is
+          dropped, so a broken invariant cannot surface as an orphan.
+        </p>
+        <p>
+          The two operations are deliberately <strong>asymmetric</strong>. Publishing is
+          <em>refused</em> rather than silently publishing the ancestors too, because exposing a
+          parent page is the author&rsquo;s decision, not a side effect. Un-publishing
+          <em>cascades</em>, because anything else would leave published children hanging off an
+          internal parent. Retracting always fails closed: more is hidden, never less.
+        </p>
+      </div>
+
+      <h3>The editor is not a mode</h3>
+      <div class="prose tight">
+        <p>
+          Anybody who may edit a page gets the editor <strong>immediately, on the page they
+          opened</strong>. There is no Edit button and no read-only step in front of it: a
+          documentation tool whose default state is &ldquo;looking at&rdquo; rather than
+          &ldquo;working on&rdquo; makes every small correction a four-click job, which is how
+          documentation goes stale. A reader who may not edit gets the rendered document, and
+          never so much as the markup of a control they could not use.
+        </p>
+        <p>
+          The editor is TipTap (ProseMirror), registered as an Alpine component and used headless,
+          so the toolbar is ordinary Blade buttons styled like every other button in the product.
+          Supported: headings, bold, italic, underline, strikethrough, inline code, code blocks
+          with syntax highlighting, links, bullet, ordered and task lists, block quotes,
+          horizontal rules, images and tables.
+        </p>
+      </div>
+      <div class="note">
+        <span class="lbl">Markdown is the storage format</span>
+        The WYSIWYG editor is a surface over Markdown, and the HTML-to-Markdown conversion happens
+        <strong>server-side</strong>. The stored artefact is always <code>body_md</code>, which
+        keeps documents readable, searchable, diffable and exportable without the editor &mdash;
+        and means a future change to how documents are rendered cannot alter what was stored.
+      </div>
+
+      <h3>Autosave lands by audience</h3>
+      <div class="lanes">
+        <div class="lane-row lane-head">
+          <div class="side"></div>
+          <div class="cust">Published page</div>
+          <div class="intl">Internal page</div>
+        </div>
+        <div class="lane-row">
+          <div class="side">Autosave writes to</div>
+          <div class="cust"><code>draft_md</code> &mdash; held back</div>
+          <div class="intl"><code>body_md</code> &mdash; committed immediately</div>
+        </div>
+        <div class="lane-row">
+          <div class="side">Why</div>
+          <div class="cust">A page a customer is reading changes when its author says so, not between keystrokes</div>
+          <div class="intl">Nobody outside the team can read it, so there is no audience to show half-written prose to</div>
+        </div>
+        <div class="lane-row">
+          <div class="side">Release</div>
+          <div class="cust">Publish moves the draft into the body, records the edit, tells other clients, discards the draft</div>
+          <div class="intl">None needed</div>
+        </div>
+        <div class="lane-foot">
+          <strong>Autosave never broadcasts</strong>, on either branch &mdash; a colleague reading
+          the board should not have their screen pulled out from under them because somebody two
+          desks away is typing.
+        </div>
+      </div>
+      <p class="cap">
+        Two properties make autosaving on a timer safe: the update action returns early unless the
+        row is actually dirty, and the activity logger coalesces an editing session into one feed
+        entry per person per page. An afternoon&rsquo;s typing is a handful of writes and one line
+        in the feed.
+      </p>
+
+      <h4>Not implemented in this module</h4>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Capability</th><th style="width:118px">Status</th></tr></thead>
+          <tbody>
+            <tr><td>Page version history &mdash; only the current body and one draft are stored</td><td><span class="pill absent">Not built</span></td></tr>
+            <tr><td>Page comments</td><td><span class="pill absent">Not built</span></td></tr>
+            <tr><td>Templates; export a page or space to PDF or Word</td><td><span class="pill absent">Not built</span></td></tr>
+            <tr><td>Real-time collaborative editing &mdash; autosave is single-author</td><td><span class="pill absent">Not built</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============================================ 06 -->
+    <section class="sec" id="s6">
+      <span class="sec-num">06</span>
+      <h2>The workspace AI</h2>
+      <p class="deck">
+        Nexora&rsquo;s largest subsystem &mdash; roughly a third of the application&rsquo;s
+        classes. Almost every question about AI behaviour resolves to one of three settings, and
+        none of them can grant what another refuses.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Setting</th><th>Who chooses it</th><th>What it decides</th></tr></thead>
+          <tbody>
+            <tr><th>Capability mode</th><td>An administrator for the workspace; the team for a board</td><td>The <strong>ceiling</strong> on what the AI may ever attempt here</td></tr>
+            <tr><th>Chat mode</th><td>The person asking, per conversation</td><td>What this conversation is <em>for</em> &mdash; reading, writing, or both</td></tr>
+            <tr><th>Knowledge scope</th><td>The person asking, per conversation</td><td>Where an answer may be <em>sourced</em> from</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Capability mode &mdash; the security dial</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Mode</th><th class="c">Read and answer</th><th class="c">Propose writes</th><th class="c">Ticket analysis</th><th class="c">Write code</th><th class="c">Run unattended</th></tr></thead>
+          <tbody>
+            <tr><th><span class="pill internal">AI Observer</span></th><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="no">No</span></td><td class="c"><span class="no">No</span></td><td class="c"><span class="no">No</span></td><td class="c"><span class="no">No</span></td></tr>
+            <tr><th><span class="pill brandy">AI Operator</span></th><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Confirmed by a person</span></td><td class="c">Suggest runs</td><td class="c"><span class="no">No</span></td><td class="c"><span class="no">No</span></td></tr>
+            <tr><th><span class="pill part">AI Agent</span></th><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c">Suggest and apply</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        Three cumulative levels rather than a matrix of switches, because a matrix reads well on a
+        settings screen and is impossible to reason about in a security review. Observer refuses
+        ticket runs entirely, and that is stricter than people expect on purpose: a suggest run
+        ends by posting an internal note, and a note is a write.
+      </p>
+
+      <div class="note key">
+        <span class="lbl">The capability mode is a ceiling, never a floor</span>
+        Every method on the capability guard can only ever <em>deny</em>. Raising a workspace to
+        AI Agent gives no user a capability they did not already have by hand. The order of checks
+        on any write is always: (1)&nbsp;may this person use the assistant at all, decided by the
+        route group, board policy and SQL scopes; (2)&nbsp;does the mode permit the AI to attempt
+        this; (3)&nbsp;is <strong>this person</strong> allowed to make <strong>this</strong>
+        change, applied against the confirming user by the ordinary action.
+      </div>
+
+      <h3>Chat mode and knowledge scope</h3>
+      <div class="cards">
+        <div class="card">
+          <span class="tag">Chat mode</span>
+          <h5>Reading &middot; Writing &middot; Everything</h5>
+          <p><strong>Reading</strong> is the default, so the setting somebody gets by not choosing is
+          the one that changes nothing. <strong>Writing</strong> withholds the lookups so that
+          &ldquo;write me a ticket for the login bug&rdquo; does not become four searches and a
+          summary before it gets to the draft. Each mode names its own model, because
+          lookup-and-summarise and drafting-something-actionable have different shapes.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Knowledge scope</span>
+          <h5>Project only &middot; Outside Project</h5>
+          <p><strong>Project only</strong> is the default and is not configurable away. Outside is
+          <em>additive</em>, never a replacement &mdash; the board context still goes in and a
+          question about NL-5 is still answered from NL-5, because &ldquo;compare our architecture
+          with a typical Laravel SaaS&rdquo; needs both halves at once.</p>
+        </div>
+      </div>
+      <div class="note">
+        <span class="lbl">Knowledge scope has nothing to do with authorization</span>
+        Switching it does not widen what a person may read by a single row. It is enforced by the
+        <strong>data layer</strong> &mdash; the tool registry decides which tools exist for a turn
+        &mdash; not by the prompt. One honest limit is written down in the code: a language
+        model&rsquo;s own trained knowledge is not a data source this application can withhold, so
+        under Project the assistant is <em>instructed</em> to decline general questions, and that
+        is a prompt rather than a wall. What the data layer does guarantee is narrower and
+        stronger: no external service is contacted, and no project data is widened either way.
+      </div>
+
+      <h3>The two surfaces</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Surface</th><th>Who</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><th>Assistant panel</th><td>Everyone with at least one reachable board, <strong>customers included</strong></td><td>Mounted in the layout, persists across navigation. Costs nothing until opened. <strong>Never aborts</strong> &mdash; every failure narrows it to its board picker rather than taking down the page it is rendered on</td></tr>
+            <tr><th>Board AI chat</th><td><strong>Staff members of the board only</strong> &mdash; 404 otherwise</td><td>Full page. Quotes internal tickets, internal notes and internal documentation</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        The two exist as two abilities rather than one loosened ability, because the surfaces
+        differ in what they are allowed to contain and a single relaxed check would have quietly
+        opened the staff page as well.
+      </p>
+
+      <h3>The ten retrieval tools</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Tool</th><th>What it reads</th><th>Availability</th></tr></thead>
+          <tbody>
+            <tr><th class="mono">get_board</th><td>Description, columns with counts, labels, prefix</td><td>Everyone</td></tr>
+            <tr><th class="mono">get_ticket</th><td>One ticket in full, plus recent conversation and history</td><td>Everyone &mdash; scoped</td></tr>
+            <tr><th class="mono">search_tickets</th><td>By text, column, label, priority, assignee, due date, age</td><td>Everyone &mdash; scoped</td></tr>
+            <tr><th class="mono">search_documentation</th><td>Page titles and bodies, with extracts</td><td>Everyone &mdash; scoped</td></tr>
+            <tr><th class="mono">get_documentation_page</th><td>One page in full, by slug</td><td>Everyone &mdash; scoped</td></tr>
+            <tr><th class="mono">get_statistics</th><td>Eight aggregate metrics</td><td>Everyone; three metrics staff-only</td></tr>
+            <tr><th class="mono">get_activity</th><td>Workspace activity history</td><td><span class="never">Staff only</span></td></tr>
+            <tr><th class="mono">get_code_activity</th><td>Branches, commits, pull requests, CI state</td><td><span class="never">Staff only</span></td></tr>
+            <tr><th class="mono">get_github_repository</th><td>Attached repositories, default branch, build commands &mdash; never credentials, never repository contents</td><td><span class="never">Staff only</span></td></tr>
+            <tr><th class="mono">search_external_knowledge</th><td>An outside service</td><td>Outside Project scope <em>and</em> a configured driver</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        The three statistics metrics withheld from customers are per-assignee workload, per-label
+        counts and the internal/visible split. The five they may ask for are totals, by status, by
+        priority, created by week and completed by week.
+      </p>
+
+      <h4>Four promises made structural</h4>
+      <div class="cards">
+        <div class="card"><span class="tag">Schema</span><h5>Enforced before entry</h5><p>Each tool declares its schema, and a call that does not fit is answered with prose the model can act on &mdash; not an exception.</p></div>
+        <div class="card"><span class="tag">Authorization</span><h5>The asker is the viewer</h5><p>A tool argument names a <em>subject</em>; the viewer comes from the <em>request</em>. An assistant with tools answers more questions than one without, about exactly the same material.</p></div>
+        <div class="card"><span class="tag">Containment</span><h5>A tool that throws is contained</h5><p>The exception is logged in full and reported to the model as &ldquo;that lookup failed&rdquo;, with nothing about why &mdash; a message can carry a query, a path or a column name.</p></div>
+        <div class="card"><span class="tag">Audit</span><h5>One row per call, whatever the outcome</h5><p>Written to <code>ai_tool_invocations</code>. A refused call is the interesting one to have a record of.</p></div>
+      </div>
+      <p class="cap">
+        The loop is bounded at 4 rounds, 6 calls per round and 60,000 characters of tool material
+        per question. Those are cost and latency controls, <strong>not</strong> security controls
+        &mdash; turning tools off narrows what the assistant can answer and grants nobody anything.
+      </p>
+
+      <h3>Write tools: propose, then confirm</h3>
+      <div class="prose tight">
+        <p>
+          Seven action types, each exposed to the model as <code>propose_&lt;name&gt;</code>. The
+          prefix is deliberate: the name itself tells the model that calling it does not perform
+          the action. Six are reversible &mdash; create and update a ticket, comment on one, create
+          and update a documentation page, start a code run. One is destructive &mdash; delete a
+          ticket &mdash; and is <strong>always confirmed by typing the ticket&rsquo;s key by
+          hand</strong>, in every mode.
+        </p>
+      </div>
+      <div class="pipe">
+        <div class="step"><span class="st">Step 1</span><span class="sb">Model emits one proposal. Exactly one is kept per turn &mdash; a preview showing two changes invites confirming both while reading one</span></div>
+        <div class="step"><span class="st">Step 2</span><span class="sb">Under Operator: a preview and a Confirm button. Under Agent: reversible actions are carried out immediately</span></div>
+        <div class="step"><span class="st">Step 3</span><span class="sb">The target is re-resolved from the stored proposal, through readers that apply visibility</span></div>
+        <div class="step"><span class="st">Step 4</span><span class="sb">The capability mode is re-checked &mdash; a preview can be on screen when an administrator lowers it</span></div>
+        <div class="step"><span class="st">Step 5</span><span class="sb">Gate checks run against the <strong>confirming</strong> user, <strong>per field</strong>, all before any write</span></div>
+        <div class="step"><span class="st">Step 6</span><span class="sb">The ordinary action is called &mdash; every rule it owns still applies</span></div>
+      </div>
+      <div class="note key">
+        <span class="lbl">What the schemas deliberately cannot express</span>
+        <strong>No schema carries <code>customer_visible</code>, and no path here sets it.</strong>
+        No request through the chat can be the thing that publishes internal work to a client.
+        Likewise there is no field that can name a viewer, a user id, a column id, a label id or a
+        visibility. Assignees, columns and labels are named <em>in words</em> &mdash; &ldquo;Alex
+        Round&rdquo;, &ldquo;In Progress&rdquo;, &ldquo;bug&rdquo; &mdash; because a name has to be
+        <em>resolved</em>, and that is the step where the resolver can refuse an assignee who is
+        not on the board and ask which of two matching columns was meant.
+      </div>
+      <div class="prose tight">
+        <p>
+          Authorization is <strong>per field, and happens first</strong>. A request to move a card
+          <em>and</em> re-assign it asks both policies, and both are taken before either write
+          happens &mdash; so a team member who may move but not assign changes nothing at all and
+          is told why, rather than getting a moved card, a dropped assignee and a vague error.
+        </p>
+      </div>
+
+      <h3>Sessions, budgets and cost</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Limit</th><th>Default</th><th>Variable</th></tr></thead>
+          <tbody>
+            <tr><td>Tokens per session</td><td class="mono">400,000</td><td class="mono">AI_SESSION_TOKEN_LIMIT</td></tr>
+            <tr><td>Tokens per user per day</td><td class="mono">2,000,000</td><td class="mono">AI_DAILY_USER_TOKEN_LIMIT</td></tr>
+            <tr><td>Turns replayed as history</td><td class="mono">20</td><td class="mono">AI_CHAT_HISTORY</td></tr>
+            <tr><td>Output tokens per answer</td><td class="mono">4,000</td><td class="mono">AI_CHAT_MAX_OUTPUT_TOKENS</td></tr>
+            <tr><td>Context: one board</td><td class="mono">60 tickets, 40 pages, 40 events</td><td>&mdash;</td></tr>
+            <tr><td>Context: whole workspace</td><td class="mono">12 boards, 6 tickets each, titles only</td><td>&mdash;</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">
+        <span class="lbl">A conversation belongs to one person &mdash; an administrator included</span>
+        There is no reading right over a colleague&rsquo;s thread, and therefore none over the
+        documents in it. Every denial is a 404. Transcripts persist; <strong>prompts do
+        not</strong> &mdash; the system prompt and the context are rebuilt on every request, so
+        editing a board&rsquo;s project context changes the next answer instead of being frozen
+        into an old row.
+      </div>
+      <p class="cap">
+        Usage is recorded per exchange with a <code>usage_reported</code> flag: a run whose token
+        counts were never reported has <strong>no</strong> cost and is shown as an unpriced run
+        rather than folded in as zero. Pricing lives in exactly one place, and a model that is not
+        listed produces a null cost rather than a guess.
+      </p>
+
+      <h3>Charts, voice and attachments</h3>
+      <div class="cards">
+        <div class="card">
+          <span class="tag">Visualisation</span>
+          <h5>Seven chart types, drawn server-side</h5>
+          <p>Line, bar, horizontal bar, area, pie, donut and scatter, plus tables and KPI rows.
+          <strong>The model never supplies anything that is executed or rendered directly</strong> &mdash;
+          it supplies numbers and labels, which are validated into typed specs, and the server draws
+          the SVG from those. Colours come from a fixed palette chosen by index. Failure is always
+          prose: a malformed chart falls back to the text the model wrote.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Export</span>
+          <h5>CSV by block index, PNG in the browser</h5>
+          <p>The CSV route re-reads the stored answer and re-parses it with the same parser the screen
+          used, then exports block <em>N</em> &mdash; it addresses an index rather than accepting a
+          payload, because a browser that could POST its rows could export rows the model never
+          produced. PNG is produced from the SVG already on the page.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Voice</span>
+          <h5>Three steps, not a fourth kind of session</h5>
+          <p>Speech-to-text, the ordinary assistant, text-to-speech &mdash; which is what lets a spoken
+          question inherit sessions, attachments, capability modes, the audit trail and the customer
+          boundary without any of them being taught about voice. Generated audio is
+          <strong>bytes, never a file</strong>, and there is deliberately no cache.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Attachments</span>
+          <h5>Seven kinds, full text once then a digest</h5>
+          <p>Text, Markdown, CSV, PDF, image, audio and Office documents. A forty-page specification is
+          sent in full on the first turn that uses it and as a digest thereafter, unless the question
+          names the filename. <strong>Every truncation is stated in the prompt</strong>, because a
+          model handed half a contract and not told will summarise it as though it read the end.</p>
+        </div>
+      </div>
+      <p class="cap">
+        CSV rows are sent as data <em>and</em> the profile &mdash; column types, ranges, outliers
+        &mdash; is computed from <em>all</em> of them, so a question about an average is answered
+        from every row even when only the first 300 are quoted. Images are re-encoded rather than
+        forwarded, stripping EXIF including GPS, and are sent as pictures only to models that
+        declare vision. An instruction <em>inside</em> an uploaded document is framed to the model
+        as text somebody wrote, never a command.
+      </p>
+    </section>
+
+    <!-- ============================================ 07 -->
+    <section class="sec" id="s7">
+      <span class="sec-num">07</span>
+      <h2>AI ticket runs</h2>
+      <p class="deck">
+        A run is the AI working on one ticket, off the request cycle, on its own queue. It is a
+        different feature from the assistant: the assistant is a conversation, a run is a job with
+        a result.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Mode</th><th>What it does</th><th>Requires</th></tr></thead>
+          <tbody>
+            <tr><th>Suggest</th><td>Reads the ticket and repository metadata, writes an opinion as an <strong>internal note</strong> on the ticket</td><td>AI Operator or above</td></tr>
+            <tr><th>Apply</th><td>Works in an isolated clone, on a new branch, runs the configured tests, and opens a <strong>draft pull request</strong></td><td>AI Agent, a GitHub token, an attached repository, and a code-generation driver</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>The apply pipeline</h3>
+      <div class="pipe">
+        <div class="step"><span class="st">Preparing</span><span class="sb">Check the coding runtime exists; clone into the run&rsquo;s own directory</span></div>
+        <div class="step stop"><span class="st">Refuse</span><span class="sb">If the base branch is protected: main, master, production, release, develop</span></div>
+        <div class="step"><span class="st">Branch</span><span class="sb">Create <code>ai/NL-42-&lt;uuid&gt;</code> off the base</span></div>
+        <div class="step"><span class="st">Coding</span><span class="sb">The runtime edits files; the diff is re-derived from <code>git status</code>, not from what it claimed</span></div>
+        <div class="step stop"><span class="st">Refuse</span><span class="sb">An empty diff fails the run &mdash; no pull request is opened for work that did not happen</span></div>
+        <div class="step"><span class="st">Testing</span><span class="sb">Run the configured validation commands</span></div>
+        <div class="step stop"><span class="st">Refuse</span><span class="sb">A non-zero exit fails the run, <strong>before</strong> anything is pushed</span></div>
+        <div class="step"><span class="st">Pull request</span><span class="sb">Commit, push the <strong>new branch only</strong>, open a <strong>draft</strong> PR</span></div>
+        <div class="step"><span class="st">Finished</span><span class="sb">Internal note with the branch and the PR link; usage recorded; directory deleted</span></div>
+      </div>
+
+      <h3>Three invariants that are structural, not instructions</h3>
+      <div class="cards">
+        <div class="card"><span class="tag">Invariant</span><h5>Never pushes to main</h5><p>The push is always to a generated branch ref. The base branch is only ever read, and a protected base is refused outright.</p></div>
+        <div class="card"><span class="tag">Invariant</span><h5>Never merges</h5><p>The pull-request client has <strong>no merge method</strong>, no branch-delete method and no review-approval method. The capability is absent from the codebase, so apply mode could not merge even if the token allowed it &mdash; and the token is never given merge rights.</p></div>
+        <div class="card"><span class="tag">Invariant</span><h5>Never fakes success</h5><p>An empty diff, a failed validation command or an unavailable runtime all raise. The run is recorded as failed and an internal note names the step that stopped it.</p></div>
+      </div>
+
+      <h3>Caps, and the asymmetry between them</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Trigger</th><th>Who starts it</th><th>Cap</th><th>Bypass</th></tr></thead>
+          <tbody>
+            <tr><th>Manual</th><td>A staff member presses a button on the ticket</td><td class="mono">100/day</td><td>Administrators may exceed it, if configured</td></tr>
+            <tr><th>Automatic</th><td>A customer&rsquo;s ticket is created, if the board opts in</td><td class="mono">20/day per board</td><td><span class="never">Nobody. Ever.</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        Nobody chose the automatic runs &mdash; a customer filing twenty tickets in an afternoon
+        starts twenty runs, and on apply mode that is twenty clones and twenty pull requests. There
+        is no bypass for the automatic cap <strong>because there is nobody to grant one to</strong>.
+        &ldquo;Today&rdquo; is the board&rsquo;s own day, so a board configured for
+        <code>Europe/Stockholm</code> rolls over at Stockholm midnight. Cancelled runs do not count,
+        since they never started.
+      </p>
+
+      <div class="note warn">
+        <span class="lbl">Apply mode is partially implemented as shipped</span>
+        <code>AI_CODE_DRIVER</code> defaults to <code>unavailable</code>, and with that setting an
+        apply run <strong>fails immediately</strong> with an internal note naming exactly what is
+        missing. Nothing is faked and no empty pull request is opened. The working driver is
+        <code>claude_code</code>, which runs the Claude Code CLI inside the isolated checkout and
+        needs the binary (already installed in the Docker image) plus an API key in the
+        worker&rsquo;s environment. Repository <em>cloning</em> is separately opt-in and defaults
+        to off; with it off, suggest mode still runs and <strong>records that the working tree was
+        unavailable</strong> rather than pretending it read the code.
+      </div>
+
+      <h3>Durability</h3>
+      <div class="prose tight">
+        <p>
+          Duplicate execution is guarded twice, because the two guards fail differently: a cache
+          lock stops two workers starting the same run at the same moment, and an authoritative
+          <strong>status claim</strong> flips <code>queued</code> to <code>running</code> in a
+          single conditional update and checks the affected row count. Only transient provider
+          failures are retried &mdash; a missing credential, an unavailable runtime, a protected
+          branch or a failed test suite would fail identically three times, so those stop on the
+          first attempt rather than producing three identical internal notes twenty minutes apart.
+        </p>
+        <p>
+          A run is owned by the job that claimed it, so if that job disappears &mdash; a deploy, a
+          restart, an out-of-memory kill &mdash; the ticket would show &ldquo;Running&rdquo; for
+          ever. A scheduled command recovers stranded runs <strong>every ten minutes</strong>, and
+          refuses to touch a run that still has a job on the queue.
+        </p>
+      </div>
+      <div class="note key">
+        <span class="lbl">A customer has no relationship with AI runs at all</span>
+        Not &ldquo;cannot start one&rdquo; &mdash; cannot see that they exist, cannot see a status,
+        a cost or a failure. Every ability denies a customer as <strong>404</strong>, because a 403
+        on &ldquo;AI runs for AQD-42&rdquo; would confirm the feature is being used on their ticket.
+      </div>
+    </section>
+
+    <!-- ============================================ 08 -->
+    <section class="sec" id="s8">
+      <span class="sec-num">08</span>
+      <h2>Integrations</h2>
+      <p class="deck">
+        Three outward connections, each off until credentials exist, and each failing loudly rather
+        than pretending.
+      </p>
+
+      <h3>GitHub</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Direction</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><th>Inbound</th><td>GitHub tells Nexora about branches, commits, pull requests and CI that mention a ticket key</td></tr>
+            <tr><th>Outbound</th><td>Apply mode pushes a branch and opens a draft pull request</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="prose tight">
+        <p>
+          A developer writes <code>NL-42</code> in a branch name or a commit message. GitHub posts
+          a signed delivery; Nexora rate-limits it, verifies an HMAC-SHA256 digest over the
+          <strong>raw body</strong> in constant time, records the delivery id under a unique index
+          &mdash; the insert <em>is</em> the de-duplication claim &mdash; queues the work and
+          answers 202 in well under GitHub&rsquo;s ten-second budget. A worker then resolves the
+          reference and upserts a link on the ticket timeline.
+        </p>
+      </div>
+      <div class="note key">
+        <span class="lbl">The security boundary is the repository, not the pattern</span>
+        A webhook is an anonymous request whose only credential proves GitHub sent it &mdash; it
+        does <em>not</em> prove who owns the repository it is about. So a delivery may only reach
+        tickets on boards where an administrator has <strong>already attached that
+        repository</strong>. The repository name in the payload is matched against the attachment
+        table, and the resulting board ids are the <em>only</em> boards in scope. A repository
+        nobody has configured resolves to nothing and the delivery is recorded as ignored.
+      </div>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Event</th><th>What is linked</th></tr></thead>
+          <tbody>
+            <tr><th class="mono">push</th><td>Branch and commits. The <strong>branch name is checked as well as each commit message</strong>, because most teams put the key in the branch once rather than in every commit</td></tr>
+            <tr><th class="mono">create</th><td>Branch, only when the ref type is a branch &mdash; tags have no place on a ticket</td></tr>
+            <tr><th class="mono">pull_request</th><td>References taken from the title, the body and the head branch. Tracks opened, edited, closed, merged and ready-for-review</td></tr>
+            <tr><th class="mono">check_suite</th><td>CI status on an existing link</td></tr>
+            <tr><th class="mono">status</th><td>CI status on an existing link</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        Three link types and deliberately no more &mdash; a ticket&rsquo;s engineering trail is
+        &ldquo;somebody started a branch, commits landed on it, a pull request was opened&rdquo;;
+        anything further belongs in GitHub. Ticket events are written <strong>only when something
+        actually changed</strong>, because GitHub sends a check suite for every push and an event
+        per delivery would bury the ticket&rsquo;s own history within a day.
+      </p>
+
+      <h3>Slack</h3>
+      <div class="prose tight">
+        <p>
+          Configured <strong>per board rather than per workspace</strong>, because that is how the
+          product is used: each customer&rsquo;s board belongs to a different delivery team with a
+          different channel. The webhook URL therefore lives on the board, <strong>encrypted at
+          rest</strong> &mdash; a Slack incoming-webhook URL is a bearer token wearing a
+          URL&rsquo;s clothes, and Slack has no read-only variant.
+        </p>
+      </div>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Event</th><th class="c">Default</th><th>Fires when</th></tr></thead>
+          <tbody>
+            <tr><th class="mono">customer_ticket_raised</th><td class="c"><span class="pill done">On</span></td><td>Somebody outside the delivery team files a new ticket</td></tr>
+            <tr><th class="mono">customer_comment_posted</th><td class="c"><span class="pill done">On</span></td><td>A customer replies. <strong>Internal notes are never announced</strong></td></tr>
+            <tr><th class="mono">ticket_moved_to_done</th><td class="c"><span class="pill done">On</span></td><td>A ticket reaches a column marked terminal</td></tr>
+            <tr><th class="mono">ai_run_finished</th><td class="c"><span class="pill absent">Off</span></td><td>A run completes or fails. The analysis itself stays in the internal note</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">
+        <span class="lbl">Why a Slack message is deliberately thin</span>
+        A Slack channel is <strong>outside this application&rsquo;s authorization model</strong>.
+        Whoever is in the room reads the message, and Nexora has no idea which of them is a board
+        member, which is a customer and which is a contractor added last week. So a message carries
+        an identifier, a title, who did it, and a link &mdash; never a description, a comment body
+        or an AI summary. <strong>The link is the access control</strong>: following it requires
+        logging in, and the ordinary visibility rules then apply.
+      </div>
+
+      <h3>SMS</h3>
+      <div class="prose tight">
+        <p>
+          An SMS is the most intrusive notification this application can send: it reaches a person
+          who is not at a computer, possibly asleep, and it costs money per message. So it has
+          <strong>exactly one trigger &mdash; a critical ticket being raised &mdash; and it is off
+          until somebody deliberately turns it on.</strong>
+        </p>
+        <p>
+          Recipients are <strong>numbers rather than users</strong>, on purpose: on-call is a rota,
+          not a role, and the person carrying the phone this week is often not the person whose
+          account raised the board. A hard ceiling of five recipients applies whatever a board is
+          configured with. Duplicates are suppressed by a unique index per ticket per number, plus
+          a per-board cooldown &mdash; so if a script files forty critical tickets in a minute, the
+          on-call phone rings once.
+        </p>
+      </div>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Driver</th><th>Behaviour</th></tr></thead>
+          <tbody>
+            <tr><th class="mono">unavailable</th><td><strong>The default.</strong> Every send is refused with a message naming exactly what to configure, and recorded as <em>failed</em>. No message is claimed to have been sent</td></tr>
+            <tr><th class="mono">log</th><td>Writes to the application log and records status <em>logged</em>, <strong>never <em>sent</em></strong> &mdash; a dashboard counting these as delivered would be lying about whether an on-call engineer was reached</td></tr>
+            <tr><th class="mono">46elks</th><td>The real provider</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        Each record holds a phone number, which is personal data, so the table has a retention
+        window of 90 days rather than growing for ever &mdash; long enough to answer &ldquo;was the
+        on-call rota reached about that incident?&rdquo; without keeping it indefinitely. On the
+        integrations screen the rota field is readable, because somebody has to be able to remove a
+        colleague&rsquo;s number when they leave it; the delivery <em>history</em> below it is
+        masked.
+      </p>
+    </section>
+
+    <!-- ============================================ 09 -->
+    <section class="sec" id="s9">
+      <span class="sec-num">09</span>
+      <h2>Reporting and realtime</h2>
+
+      <h3>Two statistics screens, not one screen with a role switch</h3>
+      <div class="note key">
+        <span class="lbl">The separation is the safety property</span>
+        A shared class with a &ldquo;for customer&rdquo; flag would mean every future metric
+        somebody adds is exposed by default and has to be remembered <em>not</em> to be &mdash; the
+        wrong way round. Here the customer screen can only render what its own service offers, and
+        that class offers six things. <strong>There is no branch on either page that a careless
+        edit could invert.</strong>
+      </div>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Screen</th><th>Who</th><th>Metrics</th></tr></thead>
+          <tbody>
+            <tr><th>Team statistics</th><td>Staff only</td><td>Counts, by column, by priority, <strong>by assignee</strong>, <strong>by label</strong>, created by week, <strong>visibility split</strong>; flow metrics; AI usage and cost</td></tr>
+            <tr><th>Customer summary</th><td><strong>Everyone, staff included</strong></td><td>Counts, by priority, open versus closed, created by week, recent activity, recent tickets</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        The customer screen is open to staff deliberately: it is the only way for a team member to
+        see exactly what a customer sees. When they open it they see <em>their own</em> visibility,
+        not a simulated customer&rsquo;s, and the screen says so.
+      </p>
+
+      <h4>Flow metrics come from history, never from current state</h4>
+      <div class="prose tight">
+        <p>
+          &ldquo;Twelve tickets are in Done&rdquo; is <strong>not throughput</strong>: those twelve
+          might have arrived over two years, and the eight finished last month and then reopened
+          are invisible. Flow is a property of <em>transitions</em>, so these are read from the
+          append-only event table &mdash; which carries the board and both column ids as dedicated
+          indexed columns precisely so that &ldquo;which tickets entered a done column on this
+          board last week&rdquo; is one index range scan.
+        </p>
+        <p>
+          Two limitations are surfaced to the reader rather than hidden: a ticket that has never
+          left its column contributes no interval to the time-in-column figures, because counting
+          &ldquo;so far&rdquo; would make a healthy board look worse the longer it stays healthy;
+          and the fold is bounded, so a range wide enough to exceed it <strong>reports that it was
+          truncated</strong> instead of quietly averaging a subset.
+        </p>
+      </div>
+
+      <h4>Export</h4>
+      <div class="prose tight">
+        <p>
+          Dataset names are an <strong>allow-list</strong> &mdash; anything not in the list is
+          refused rather than reflected, with no dynamic method call. Every dataset is derived from
+          a scope resolved for the requesting viewer, so a CSV cannot contain a figure its
+          requester could not see on screen. The date range is <em>corrected rather than
+          trusted</em>: an unknown preset falls back to the default, reversed dates are swapped,
+          and an absurd span is clamped to three years, so a hand-edited URL cannot ask the
+          database for ten years of transitions. There is deliberately <strong>no per-ticket
+          export</strong> &mdash; these are aggregates.
+        </p>
+      </div>
+
+      <h3>Realtime</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Channel</th><th>Who may join</th><th>Carries</th></tr></thead>
+          <tbody>
+            <tr><th class="mono">board.{id}.internal</th><td>Staff members of that board</td><td>Content-free signals about internal changes</td></tr>
+            <tr><th class="mono">board.{id}.customer</th><td>Anyone who may view the board, customers included</td><td>Content-free signals about customer-visible changes</td></tr>
+            <tr><th class="mono">users.{id}</th><td>That user, while active</td><td>A nudge for the notification bell</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note key">
+        <span class="lbl">Every channel is private &mdash; there is no public or presence channel</span>
+        Because the internal channel is only signalled for internal changes, a customer&rsquo;s
+        browser is <strong>never even woken</strong> by activity they are not allowed to know about
+        &mdash; which closes the timing side-channel a single shared channel would leave open even
+        with an empty payload. The rule for tickets is subtler than &ldquo;is it customer-visible?&rdquo;:
+        a ticket that has just been <em>hidden</em> also changes what customers see, so the customer
+        audience is signalled when the ticket is customer-visible <em>now or was before the change</em>.
+      </div>
+      <p class="cap">
+        Events are dispatched after the surrounding transaction commits &mdash; broadcasting a
+        change that then rolls back would tell every open board to re-read something that never
+        happened. Realtime is optional: with broadcasting switched off everything still works,
+        screens simply do not refresh by themselves.
+      </p>
+
+      <h3>Search, notifications and activity</h3>
+      <div class="cards">
+        <div class="card"><span class="tag">Cmd / Ctrl + K</span><h5>Command palette</h5><p>Four categories &mdash; tickets, documentation, boards, people &mdash; at most five hits each, each filtered by the same visibility scopes the screens use. Pasting a ticket key resolves it as an indexed key seek and puts it at the top.</p></div>
+        <div class="card"><span class="tag">Bell</span><h5>Notifications</h5><p>Holds no data of its own. Everything is re-read on each render and re-checked against the visibility scopes, so what is shown is what the viewer may see <em>now</em>, not what they were allowed to see when it was written.</p></div>
+        <div class="card"><span class="tag">/activity</span><h5>Workspace activity feed</h5><p>Ticket movement, assignments, comments, documentation changes and board configuration, newest first. <strong>Staff only</strong>, enforced three times &mdash; route middleware, a component check, and a SQL refusal &mdash; because every description is written for the delivery team.</p></div>
+        <div class="card"><span class="tag">Appearance</span><h5>Light, dark, system</h5><p>Three states rather than a boolean, because &ldquo;follow the operating system&rdquo; is a genuine third answer. The preference is stored on the user row so it follows a person between devices, cached in local storage, and applied by an inline script before the bundle downloads so there is no flash of the wrong theme.</p></div>
+      </div>
+      <div class="note">
+        <span class="lbl">Search is plain SQL, on purpose</span>
+        There is no Scout, Meilisearch, Algolia or Elasticsearch. An external index has no idea
+        that a ticket is internal, so the filtering would have to be reproduced in the
+        engine&rsquo;s query language, correctly, for ever &mdash; and it would hold a second copy
+        of every ticket description outside this application&rsquo;s visibility rules. The
+        documented next step, when <code>LIKE</code> stops scaling, is a <strong>MySQL FULLTEXT
+        index</strong>, which stays inside MySQL and needs no new service. Scout is the step after
+        that.
+      </div>
+    </section>
+
+    <!-- ============================================ 10 -->
+    <section class="sec" id="s10">
+      <span class="sec-num">10</span>
+      <h2>Architecture</h2>
+      <p class="deck">
+        A single Laravel application rendered server-side, made interactive by Livewire, and
+        deployed as one Docker image run three ways.
+      </p>
+
+      <h3>Technology stack</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Layer</th><th>Technology</th><th>Version</th><th>Why it is here</th></tr></thead>
+          <tbody>
+            <tr><th>Language</th><td>PHP</td><td class="mono">^8.2 (8.3 in the container)</td><td>&mdash;</td></tr>
+            <tr><th>Framework</th><td>Laravel</td><td class="mono">^12.0</td><td>Policies, queues, broadcasting, notifications and Eloquent scopes are the actual enforcement mechanisms, not conveniences layered on top</td></tr>
+            <tr><th>Interactive UI</th><td>Livewire</td><td class="mono">^4.4</td><td>Server-rendered interactivity without a second application. One component owns a whole board, so a drag-and-drop move re-renders source column, destination column and both counts in one round trip</td></tr>
+            <tr><th>Styling</th><td>Tailwind CSS</td><td class="mono">^4.0</td><td>Utility styling with no component stylesheet to fight</td></tr>
+            <tr><th>Editor</th><td>TipTap / ProseMirror</td><td class="mono">^3.31</td><td>A schema-constrained editor: the document can only ever contain nodes the schema declares, which is a security property as much as a correctness one</td></tr>
+            <tr><th>Realtime</th><td>Laravel Reverb + Echo</td><td class="mono">^1.11</td><td>First-party WebSocket server, so realtime needs no third-party service and channel authorization runs through Laravel&rsquo;s own gates</td></tr>
+            <tr><th>Database</th><td>MySQL</td><td class="mono">&mdash;</td><td>Relational integrity is load-bearing &mdash; foreign keys and the unique <code>(board_id, number)</code> key are what make the rules hold under concurrency</td></tr>
+            <tr><th>Queue</th><td>Database, Redis optional</td><td class="mono">&mdash;</td><td>No Redis required for a working deployment; Redis is needed only for multi-replica scheduler locks and Reverb scaling</td></tr>
+            <tr><th>AI</th><td>Anthropic SDK; OpenAI over HTTP</td><td class="mono">^0.45</td><td>Two providers with independent field inheritance</td></tr>
+            <tr><th>Storage</th><td>S3-compatible via Flysystem</td><td class="mono">^3.35</td><td>Container filesystems are replaced on every deploy; a production boot with an ephemeral attachment disk is refused outright</td></tr>
+            <tr><th>Runtime</th><td>nginx + PHP-FPM, Supervisor, Alpine</td><td class="mono">&mdash;</td><td>One image with three start commands, so the worker image cannot drift from the web image</td></tr>
+            <tr><th>Hosting</th><td>Railway</td><td class="mono">&mdash;</td><td>Declarative per-service definitions; TLS terminated at the edge</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Layers, and where the rules live</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Layer</th><th>Responsibility</th><th class="c">May it decide access?</th></tr></thead>
+          <tbody>
+            <tr><th class="mono">routes/</th><td>URL to component, coarse role middleware</td><td class="c">First line only</td></tr>
+            <tr><th class="mono">Http/Middleware</th><td>Role gate, active-account gate</td><td class="c">Coarse only</td></tr>
+            <tr><th class="mono">Livewire</th><td>Screen state and interaction</td><td class="c"><span class="no">Calls policies; holds no rules</span></td></tr>
+            <tr><th class="mono">Policies</th><td>Per-record authorization</td><td class="c"><span class="yes">Yes &mdash; single-record rules</span></td></tr>
+            <tr><th class="mono">Services</th><td>Readers, scopes, integrations</td><td class="c"><span class="yes">Yes &mdash; SQL-level scoping</span></td></tr>
+            <tr><th class="mono">Actions</th><td>One write each, with its own rules</td><td class="c"><span class="yes">Yes &mdash; field-level rules</span></td></tr>
+            <tr><th class="mono">Models</th><td>Relationships and query scopes</td><td class="c"><span class="yes">Yes &mdash; visibleTo() scopes</span></td></tr>
+            <tr><th class="mono">Support</th><td>Value objects, formatting, parsing</td><td class="c"><span class="no">No</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Request lifecycle</h3>
+      <div class="pipe">
+        <div class="step"><span class="st">Proxy</span><span class="sb">Trust proxies &mdash; Railway terminates TLS, so recover the real scheme and client IP</span></div>
+        <div class="step"><span class="st">Web group</span><span class="sb">Session, cookies, CSRF</span></div>
+        <div class="step"><span class="st">Session bind</span><span class="sb">The session is bound to the password hash it was created with</span></div>
+        <div class="step"><span class="st">Active check</span><span class="sb">A deactivated account is logged out on its very next request</span></div>
+        <div class="step"><span class="st">Role gate</span><span class="sb">Where present; plus password confirmation on administration screens</span></div>
+        <div class="step"><span class="st">Mount</span><span class="sb">Policy check &mdash; denying as 404 for anything a person must not know exists</span></div>
+        <div class="step"><span class="st">Render</span><span class="sb">Reader service &rarr; Eloquent scope &rarr; SQL with the viewer applied</span></div>
+        <div class="step"><span class="st">Output</span><span class="sb">Markdown rendered, sanitised, with viewer-aware ticket links</span></div>
+      </div>
+      <div class="note key">
+        <span class="lbl">Every Livewire interaction is a new HTTP request</span>
+        Components re-authorize on mount, on every action and on every render &mdash; they never
+        trust what the previous render decided. This is why the documentation screen re-resolves
+        its page through the finder on each render: Livewire rehydrates models by primary key,
+        which bypasses query scopes.
+      </div>
+
+      <h3>There is no workspace entity</h3>
+      <div class="prose tight">
+        <p>
+          Worth stating plainly, because it shapes everything else: <strong>there is no workspace
+          table and no tenant model</strong>. One deployment is one workspace. The unit of access
+          is the board, and almost everything that looks like a workspace-level setting is in fact
+          a board setting. The two genuine exceptions are the global AI settings &mdash; a single
+          row &mdash; and user administration.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================ 11 -->
+    <section class="sec" id="s11">
+      <span class="sec-num">11</span>
+      <h2>Security</h2>
+
+      <h3>Authentication</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Control</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><th>Method</th><td>Laravel session-based authentication, screens rebuilt as Livewire components</td></tr>
+            <tr><th>Password policy</th><td>At least <strong>12 characters</strong> with letters and numbers everywhere; in production additionally mixed case and <strong>checked against known breach corpora</strong></td></tr>
+            <tr><th>Hashing</th><td>bcrypt at 12 rounds; the attribute is cast <code>hashed</code>, so a plaintext value can never be stored in the clear</td></tr>
+            <tr><th>Login throttle</th><td>5 failed attempts, keyed on <strong>email <em>and</em> client IP</strong> &mdash; keying on the email alone would let one attacker lock every account out from a single address</td></tr>
+            <tr><th>Deactivated accounts</th><td>Refused <strong>even with correct credentials</strong>; the session is established then immediately invalidated</td></tr>
+            <tr><th>Session fixation</th><td>The session id is rotated on successful login</td></tr>
+            <tr><th>Password change</th><td><strong>Invalidates every other session</strong> for that account</td></tr>
+            <tr><th>Re-authentication</th><td>Required again inside a valid session for global AI settings, user administration, and board creation or editing</td></tr>
+            <tr><th>Registration</th><td>404 unless explicitly enabled; a self-registered account gets the least-privileged role</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note warn">
+        <span class="lbl">Not implemented</span>
+        Two-factor authentication, SSO / OAuth / SAML, and email verification (the column exists,
+        the flow does not). If any of these is a requirement for a customer, it is new work.
+      </div>
+
+      <h3>Secret handling</h3>
+      <div class="note key">
+        <span class="lbl">Enforced by construction, and asserted by a dedicated test</span>
+        No credential in this system is ever rendered back to a browser, written to a log line, or
+        included in an exception message.
+      </div>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Secret</th><th>Stored</th><th class="c">Write-only in the UI?</th></tr></thead>
+          <tbody>
+            <tr><th>Anthropic / OpenAI keys</th><td>Environment, <em>or</em> encrypted workspace row, <em>or</em> encrypted per board &mdash; read by one vault class and nothing else</td><td class="c"><span class="yes">Yes</span></td></tr>
+            <tr><th>Slack webhook URL</th><td><strong>Encrypted</strong> in the board settings JSON</td><td class="c"><span class="yes">Yes</span> &mdash; replaced, never read back</td></tr>
+            <tr><th>GitHub token and webhook secret</th><td>Environment only</td><td class="c">n/a</td></tr>
+            <tr><th>SMS provider credentials</th><td>Environment only</td><td class="c">n/a</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="prose tight">
+        <p>
+          Credential screens render <em>presence</em> and the last four characters, never the value;
+          the vault has no method that would return a key to a component. Somebody who gains access
+          to those screens can <strong>replace</strong> a credential &mdash; which is visible in the
+          rotation timestamp and the updating user &mdash; but cannot read one out. Decryption
+          failure degrades to &ldquo;not configured&rdquo; rather than throwing, so rotating the
+          application key makes a board stop posting to Slack instead of breaking every ticket save.
+        </p>
+        <p>
+          The GitHub token is <strong>deliberately weak</strong>: it needs exactly
+          <code>contents: write</code> to push a branch and <code>pull_requests: write</code> to
+          open one. It is never given merge rights, and the client has no merge method, so a future
+          phase that genuinely needs to merge has to add the capability and be reviewed for it.
+        </p>
+      </div>
+
+      <h3>Input and output</h3>
+      <div class="cards">
+        <div class="card"><span class="tag">Rendering</span><h5>One pipeline for all user prose</h5><p>Markdown to HTML with raw HTML stripped and unsafe link schemes rejected, then mentions highlighted and ticket references linked &mdash; <strong>but only for tickets the particular reader may open</strong>. Because steps two and three are viewer-dependent, nothing in this pipeline may be cached across viewers.</p></div>
+        <div class="card"><span class="tag">Editor</span><h5>An allow-list in both directions</h5><p>Browser to server, the posted document is attacker-controlled, so it is cleaned before the Markdown converter sees it &mdash; nothing hostile is stored, not even as inert text that would still surface in search results, board cards and AI prompts. An allow-list, because a deny-list has to anticipate whatever parser-confusion trick lands in browsers next year.</p></div>
+        <div class="card"><span class="tag">Model output</span><h5>Never rendered directly</h5><p>Charts, tables and KPI rows are validated into typed value objects before anything is drawn. There is no charting library receiving model-authored configuration, so there is no option in such a library that turns a string into a callback.</p></div>
+        <div class="card"><span class="tag">Uploads</span><h5>Two ceilings, two allow-lists</h5><p>Record attachments cap at 10&nbsp;MB and 20 per owner; AI conversation files at 20&nbsp;MB and 10 per conversation, and must pass <strong>both</strong> an extension allow-list and the detected MIME type. Stored paths are generated, never derived from the uploaded filename.</p></div>
+      </div>
+      <p class="cap">
+        Two absences in the AI allow-list are deliberate: <strong>SVG</strong>, because it is a
+        document that can carry script rather than a picture, and here an &ldquo;image&rdquo; is
+        decoded and sent to a vision model; and <strong>ZIP</strong>, a container whose contents
+        nothing has validated. Downloads never link straight at stored bytes &mdash; every request
+        is authorized against the owning record first, then redirected to a signed URL valid for
+        five minutes.
+      </p>
+
+      <h3>Webhook signature verification</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Property</th><th>Implementation</th></tr></thead>
+          <tbody>
+            <tr><th>Fail closed with no secret</th><td>With the secret unset, <em>every</em> delivery is rejected. There is no &ldquo;skip verification when unconfigured&rdquo; path</td></tr>
+            <tr><th>Verify the raw body</th><td>Never the parsed or re-encoded input &mdash; key order, unicode escaping and float formatting all differ after a round trip</td></tr>
+            <tr><th>Constant-time comparison</th><td>So the number of correct leading bytes cannot be walked out through timing</td></tr>
+            <tr><th>SHA-256 only</th><td>The legacy SHA-1 header is ignored. Accepting it would make the endpoint&rsquo;s real strength SHA-1&rsquo;s, because the attacker picks the header</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        Failures are deliberately indistinguishable: a missing secret, a missing header and a wrong
+        digest all return the same <code>401 Invalid signature.</code> This is the only CSRF-exempt
+        path in the application, and the exemption is replaced by something stronger &mdash; an
+        HMAC signature proves the request came from somebody holding the shared secret, whereas
+        CSRF only proves a request came from our own page.
+      </p>
+
+      <h3>Infrastructure controls</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Control</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>Storage durability enforced at boot &mdash; production refuses to start on a non-durable attachment disk, and <em>stats the mount</em> for a volume rather than trusting the name</td><td><span class="pill done">In place</span></td></tr>
+            <tr><td><code>X-Content-Type-Options</code>, <code>X-Frame-Options</code>, <code>Referrer-Policy</code>, server tokens off</td><td><span class="pill done">In place</span></td></tr>
+            <tr><td>HTTPS forced for generated URLs in production &mdash; without it, password-reset links would be <code>http://</code></td><td><span class="pill done">In place</span></td></tr>
+            <tr><td>Rate limiting on the webhook endpoint (300/min per IP) and the AI voice endpoints (30/min per user)</td><td><span class="pill done">In place</span></td></tr>
+            <tr><td>Content-Security-Policy header</td><td><span class="pill absent">Not set</span></td></tr>
+            <tr><td>Strict-Transport-Security header</td><td><span class="pill absent">Not set</span></td></tr>
+            <tr><td>Rate limit on the assistant&rsquo;s <em>text</em> endpoint &mdash; it is authenticated and budget-bounded, but a request limiter would still be worth adding</td><td><span class="pill absent">Not set</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note warn">
+        <span class="lbl">Two deployment settings to check before go-live</span>
+        <code>SESSION_SECURE_COOKIE</code> ships as <code>false</code>, which is correct for local
+        HTTP development and <strong>wrong for production</strong>. And the demo seeder contains
+        passwords in source, documented in the class as a deliberate demo trade-off &mdash; those
+        accounts must be changed before anything real lands.
+      </div>
+    </section>
+
+    <!-- ============================================ 12 -->
+    <section class="sec" id="s12">
+      <span class="sec-num">12</span>
+      <h2>Data model</h2>
+      <p class="deck">
+        MySQL in production, SQLite in memory for the test suite. 41 migrations, 25 models.
+      </p>
+
+      <h3>The tables that carry the rules</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Table</th><th>Why it matters</th></tr></thead>
+          <tbody>
+            <tr><th class="mono">board_members</th><td><strong>This table is the access-control list.</strong> Unique on <code>(board_id, user_id)</code>, with an audit column recording who granted access. Administrators are not implicit members &mdash; membership is a factual question, and the administrator bypass is an authorization one</td></tr>
+            <tr><th class="mono">tickets</th><td>Unique on <code>(board_id, number)</code>. The index on <code>(board_id, customer_visible)</code> is what makes the customer boundary cheap: the filter applied to almost every ticket read is a composite index seek rather than a scan</td></tr>
+            <tr><th class="mono">comments</th><td>Indexed on <code>(ticket_id, stream, created_at)</code>, leading with the scoping column so a stream-filtered read is an index range</td></tr>
+            <tr><th class="mono">doc_pages</th><td>Self-referencing parent, restricted on delete, slug unique per board</td></tr>
+            <tr><th class="mono">ticket_events</th><td><strong>Append-only.</strong> Carries the board and both column ids as dedicated indexed columns rather than only inside the JSON payload, precisely so flow metrics are one index range scan. A later migration backfilled them</td></tr>
+            <tr><th class="mono">attachments</th><td>Polymorphic with an <strong>enforced</strong> morph map, so an attachment pointing at a type nobody registered fails loudly instead of resolving to something unchecked</td></tr>
+            <tr><th class="mono">webhook_deliveries</th><td>Unique on <code>(source, delivery_id)</code> &mdash; the insert <em>is</em> the de-duplication claim, atomic across containers in a way that select-then-insert would not be</td></tr>
+            <tr><th class="mono">sms_messages</th><td>Unique on <code>(event, ticket_id, recipient)</code> &mdash; duplicate suppression enforced by the database rather than a cache, because the guarantee has to survive a cache flush and a race between two workers</td></tr>
+            <tr><th class="mono">ai_tool_invocations</th><td>The AI audit log: one row per tool call, successful or refused</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Referential integrity strategy</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Pattern</th><th>Used for</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><th class="mono">cascadeOnDelete</th><td>Board id on almost everything; ticket id on children</td><td>Deleting a board removes its entire graph</td></tr>
+            <tr><th class="mono">restrictOnDelete</th><td>A ticket&rsquo;s column; a page&rsquo;s parent</td><td>Prevents orphaning structure</td></tr>
+            <tr><th class="mono">nullOnDelete</th><td>Every authorship column and the assignee</td><td><strong>Deleting a user preserves the history they created</strong> &mdash; a ticket keeps existing with no creator rather than vanishing</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note warn">
+        <span class="lbl">Read a rollback before running one</span>
+        Several <code>down()</code> methods are destructive by necessity &mdash; restoring a
+        <code>NOT NULL</code> constraint requires removing the rows that violate it. The migration
+        that allowed workspace-scoped AI conversations deletes those rows on the way back down.
+      </div>
+    </section>
+
+    <!-- ============================================ 13 -->
+    <section class="sec" id="s13">
+      <span class="sec-num">13</span>
+      <h2>Deployment and operations</h2>
+      <p class="deck">
+        One Docker image, built in three stages, run as three Railway services with three different
+        start commands &mdash; so the worker image cannot drift from the web image.
+      </p>
+
+      <div class="cards">
+        <div class="card"><span class="tag">Service</span><h5>web</h5><p>Supervisor running PHP-FPM, nginx, and a queue worker dedicated to the <code>attachments</code> queue. Health-checked at <code>/health</code>.</p></div>
+        <div class="card"><span class="tag">Service</span><h5>worker</h5><p><code>queue:work --queue=ai,default</code>, three tries, restarted always. The <code>ai</code> queue is named explicitly and listed first &mdash; a bare <code>queue:work</code> listens only to <code>default</code> and would leave every AI run queued for ever.</p></div>
+        <div class="card"><span class="tag">Service</span><h5>reverb</h5><p>The WebSocket server, on its own public domain. <strong>One replica only</strong> &mdash; Reverb holds its connections in the memory of the process that accepted them, so a second replica would only reach half the clients.</p></div>
+      </div>
+
+      <h3>The three queues</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Queue</th><th>Carries</th><th>Runs in</th></tr></thead>
+          <tbody>
+            <tr><th class="mono">ai</th><td>Ticket runs</td><td>worker &mdash; a run takes minutes, and must never delay a broadcast</td></tr>
+            <tr><th class="mono">default</th><td>Broadcasts, in-app notifications, GitHub webhook processing, Slack, SMS</td><td>worker &mdash; millisecond work</td></tr>
+            <tr><th class="mono">attachments</th><td>AI file processing</td><td><strong>The web container</strong> &mdash; see below</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note key">
+        <span class="lbl">Why attachment processing runs in the web container</span>
+        The reason is the disk rather than the workload. The job opens the file that was just
+        uploaded, and on a deployment whose attachment disk is a Railway volume, a volume attaches
+        to <strong>exactly one service</strong> &mdash; so the upload request writes the file in the
+        web container and a worker in the other container asks its own mount and finds nothing.
+        Worse, a missing object is a <em>legitimate</em> condition in the reader, so the row settles
+        into <code>failed</code> with no exception and nothing in the log to chase. An S3-backed
+        deployment has no such constraint and can consolidate the queues.
+      </div>
+
+      <div class="note warn">
+        <span class="lbl">The single most common misconfiguration</span>
+        <strong>Without a queue worker, several features silently do nothing &mdash; and nothing
+        errors, because all of it is queued by design.</strong> Realtime updates never arrive, no
+        Slack message is posted, no SMS is sent, no pull request is ever linked to a ticket, and
+        every AI run stays queued for ever.
+      </div>
+
+      <h3>Scheduled housekeeping</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Schedule</th><th>Command</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td>Every 10 minutes</td><td class="mono">ai:reap-stalled</td><td>Recover runs stranded by a worker that died mid-run</td></tr>
+            <tr><td>Daily 03:15</td><td class="mono">workspace:prune</td><td>Webhook deliveries past 30 days; SMS records past 90 days, in chunks rather than one unbounded delete</td></tr>
+            <tr><td>Weekly</td><td class="mono">queue:prune-failed</td><td>Keep the failed-jobs table readable &mdash; 168 hours, long enough to investigate a Monday failure on the following Friday</td></tr>
+            <tr><td>Daily</td><td class="mono">auth:clear-resets</td><td>Expired password-reset tokens</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        Everything scheduled is housekeeping. Nothing a user waits for is scheduled, and nothing
+        here is required for the application to function &mdash; a deployment with no scheduler
+        works, it simply accumulates rows. The exception worth watching is the stalled-run reaper.
+        Failed jobs are <strong>not</strong> retried automatically, because blindly replaying a
+        batch would re-post internal notes and re-send messages.
+      </p>
+
+      <h3>Build-time versus run-time configuration</h3>
+      <div class="note warn">
+        <span class="lbl">The realtime client keys are build arguments, not runtime variables</span>
+        Vite inlines them at build time, and the client only constructs its connection when a key is
+        present. <strong>An image built without one ships a browser bundle that never subscribes to
+        anything</strong>, whatever the server is configured to broadcast &mdash; so changing one
+        requires a rebuild of the web image, not a restart. Only the <em>public</em> key belongs in
+        that stage; the app secret must never be passed there, because everything in it is readable
+        in the shipped JavaScript.
+      </div>
+      <p class="cap">
+        The application is configured by 180 environment variables. The entrypoint aborts if the
+        application key is unset, caches configuration, routes, views and events at boot, and
+        optionally runs migrations with an isolation lock.
+      </p>
+    </section>
+
+    <!-- ============================================ 14 -->
+    <section class="sec" id="s14">
+      <span class="sec-num">14</span>
+      <h2>Quality assurance</h2>
+
+      <div class="figures">
+        <div class="fig"><div class="v">1,718</div><div class="k">Tests passing</div></div>
+        <div class="fig"><div class="v">6,436</div><div class="k">Assertions</div></div>
+        <div class="fig"><div class="v">28</div><div class="k">Security test files</div></div>
+        <div class="fig"><div class="v">311s</div><div class="k">Full suite duration</div></div>
+        <div class="fig"><div class="v">3</div><div class="k">Failing &mdash; all test defects</div></div>
+      </div>
+
+      <h3>Three suites</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Suite</th><th class="c">Files</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><th>Unit</th><td class="c">16</td><td>Pure logic: enums, value objects, parsers, cost calculation</td></tr>
+            <tr><th>Feature</th><td class="c">90</td><td>End-to-end behaviour through routes and Livewire components</td></tr>
+            <tr><th>Security</th><td class="c">28</td><td><strong>Authorization and isolation, runnable alone as a fast CI gate</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        The security suite asserts the customer boundary directly: that internal tickets are
+        invisible and unwritable, that internal notes and their <em>count</em> are hidden, that the
+        documentation ancestor rule holds, that non-members get 404 rather than 403, that aggregates
+        and CSVs cannot leak internal figures, that the palette cannot surface unreachable rows, and
+        that no credential reaches a response, a log line or an exception message. On the AI side it
+        asserts conversation ownership, that a customer&rsquo;s assistant is read-only with staff
+        tools withheld, that proposals are authorized against the confirming person per field, and
+        that charts cannot aggregate hidden data. The suite <strong>never calls a real
+        provider</strong> &mdash; a fake provider scripts responses, and a second one asserts that a
+        code path does <em>not</em> reach a provider at all.
+      </p>
+
+      <h3>The three failures</h3>
+      <div class="note key">
+        <span class="lbl">All three are test defects, not application defects</span>
+        Two are pre-existing theme-rendering assertions. The third reads at a glance like a
+        customer-isolation failure and is not: the test creates 2 customer-visible and 5 internal
+        tickets, and <strong>the two assertions that matter both pass</strong> &mdash; the
+        customer&rsquo;s answer contains <code>(total 2)</code>, and the staff answer contains
+        <code>(total 7)</code>. The failing assertion is a belt-and-braces check that the digit
+        <code>7</code> appears nowhere in the customer&rsquo;s answer, so the hidden count could not
+        be recovered by subtraction &mdash; but the report header carries today&rsquo;s date, and
+        <code>2026-09-17</code> contains a 7. It therefore fails on roughly a third of calendar
+        days. The fix is to narrow the assertion to <code>(total 7)</code>, not to change any
+        application behaviour.
+      </div>
+
+      <h3>Gaps</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Gap</th><th>Note</th></tr></thead>
+          <tbody>
+            <tr><th>Browser / end-to-end tests</th><td><strong>None.</strong> Drag-and-drop, the editor, the command palette and theme switching are tested only at the server boundary</td></tr>
+            <tr><th>JavaScript unit tests</th><td><strong>None.</strong> The client modules are untested in isolation</td></tr>
+            <tr><th>CI pipeline</th><td><strong>Not present in the repository.</strong> A 139-file suite with a dedicated fast security gate exists, but nothing runs it automatically</td></tr>
+            <tr><th>Coverage thresholds, load tests, mutation testing</th><td>Coverage is configured but no threshold is enforced</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============================================ 15 -->
+    <section class="sec" id="s15">
+      <span class="sec-num">15</span>
+      <h2>Implementation status</h2>
+      <p class="deck">
+        The section to read before making a commitment to anybody about what Nexora does.
+      </p>
+
+      <h3>Partially implemented</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Capability</th><th>What exists</th><th>What is missing</th></tr></thead>
+          <tbody>
+            <tr><th>Apply-mode code generation</th><td>The whole pipeline: clone, branch, validate, commit, push, draft PR, with every refusal point</td><td>The driver <strong>defaults to unavailable</strong>. Needs the <code>claude_code</code> driver plus a key in the worker&rsquo;s environment</td></tr>
+            <tr><th>Repository cloning</th><td>Git client, checkout, context summarisation</td><td><strong>Defaults to off.</strong> Suggest mode then reasons from metadata and the ticket alone, and records that the working tree was unavailable</td></tr>
+            <tr><th>External knowledge lookup</th><td>An interface, a tool, configuration, and a refusing default</td><td><strong>No driver ships.</strong> Outside Project mode still works; what is absent is live third-party lookup. Adding one is a class plus a match arm</td></tr>
+            <tr><th>OpenAI model catalogue</th><td>A working adapter and provider selection</td><td>Context windows and pricing are not stated for OpenAI models, so they render blank and report no cost. Vision is opt-in per id</td></tr>
+            <tr><th>SMS delivery receipts</th><td>The callback URL may be configured</td><td><strong>No receiving endpoint is exposed.</strong> Setting it would produce retries at the provider</td></tr>
+            <tr><th>Email</th><td>Password reset works</td><td>No other transactional mail, and no email notification channel &mdash; notifications are in-app, Slack or SMS</td></tr>
+            <tr><th>Board archiving</th><td>The column and the query scope exist</td><td>No user interface to archive or restore a board</td></tr>
+            <tr><th>Ticket type</th><td>Stored, filterable, in the AI schemas</td><td>No workflow behaviour differs between a bug and a feature</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Not implemented</h3>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Capability</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><th>AI Standup Generator</th><td><strong>Verified absent by a repository-wide search</strong> &mdash; the only match is a test fixture filename. There is no standup service, command, component, route, view or job. The building blocks exist (activity and code-activity readers), so it is buildable, but nothing generates a standup today</td></tr>
+            <tr><th>REST / JSON API for third parties</th><td>No API routes, no token authentication, no specification. Integration is inbound webhook plus outbound HTTP client, not an API</td></tr>
+            <tr><th>Outbound webhooks from Nexora</th><td>Only Slack and SMS leave the application</td></tr>
+            <tr><th>Two-factor authentication, SSO, email verification</th><td>Not implemented</td></tr>
+            <tr><th>Documentation version history, page comments, collaborative editing, PDF export</th><td>Not implemented</td></tr>
+            <tr><th>Time tracking</th><td>An estimate is stored; nothing logs actual time</td></tr>
+            <tr><th>Sprints, iterations, epics, recurring tickets, templates, custom fields</th><td>Not implemented</td></tr>
+            <tr><th>Ticket import / export</th><td>Not implemented. Per-ticket CSV export is deliberately absent &mdash; the exports are aggregates</td></tr>
+            <tr><th>Multi-tenant organisations</th><td><strong>No workspace entity.</strong> One deployment is one workspace; the identifier service notes the two closures that would need to become organisation-aware</td></tr>
+            <tr><th>Browser tests, JavaScript tests, CI configuration</th><td>Not present</td></tr>
+            <tr><th>Content-Security-Policy and HSTS headers</th><td>Not set</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============================================ 16 -->
+    <section class="sec" id="s16">
+      <span class="sec-num">16</span>
+      <h2>Findings and next steps</h2>
+      <p class="deck">
+        Twelve items found while compiling this document. None is a functional defect in itself,
+        but each is worth an owner. They are ordered by how cheaply they can be closed against how
+        much risk they carry.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th style="width:30px">#</th><th>Finding</th><th>Suggested action</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">01</td><td><strong>Product naming is inconsistent.</strong> The runtime workspace name defaults to <em>Aqueduct Workspace</em> and the package is <code>aqueduct/workspace</code>, but the AI system prompt, source comments and one accessibility label say <em>Nexora</em>. A deployment that has not set the name presents as Aqueduct while its assistant calls itself Nexora</td><td>Decide the product name and set <code>WORKSPACE_NAME</code> and <code>WORKSPACE_SHORT_NAME</code> accordingly</td></tr>
+            <tr><td class="mono">02</td><td><strong>No version identifier anywhere.</strong> No git tag, no version field, no application constant</td><td>Adopt tags, and surface a version in <code>/health</code>. Support and rollback currently have no vocabulary</td></tr>
+            <tr><td class="mono">03</td><td><strong>No CI configuration in the repository.</strong> A 139-file suite with a dedicated fast security gate exists, but nothing runs it automatically</td><td>Run the security suite on every push and the full suite on merge. This is the single highest-value item on the list</td></tr>
+            <tr><td class="mono">04</td><td><strong>A date-sensitive assertion in the security suite</strong> fails on roughly a third of calendar days, for no real reason &mdash; and it fails in the suite people trust most</td><td>Narrow the assertion to <code>(total 7)</code> rather than the bare digit</td></tr>
+            <tr><td class="mono">05</td><td><strong>Two pre-existing theme test failures.</strong> Not a regression, but two permanently red tests</td><td>Fix or quarantine, so that &ldquo;green&rdquo; means green</td></tr>
+            <tr><td class="mono">06</td><td><strong><code>README.md</code> is empty.</strong> Two source files refer readers to &ldquo;the deployment notes in README.md&rdquo;, which do not exist</td><td>Populate it, or point it at this document</td></tr>
+            <tr><td class="mono">07</td><td><strong>The demo seeder contains passwords in source</strong>, documented as a deliberate demo trade-off</td><td>Change those accounts before anything real lands, as the class itself instructs</td></tr>
+            <tr><td class="mono">08</td><td><strong>No Content-Security-Policy or HSTS header.</strong> Two cheap defence-in-depth controls</td><td>Add both at nginx. HSTS in particular is near-free on a platform that already terminates TLS</td></tr>
+            <tr><td class="mono">09</td><td><strong><code>SESSION_SECURE_COOKIE</code> ships as false.</strong> Correct for local HTTP, wrong for production</td><td>Add it to a deployment checklist</td></tr>
+            <tr><td class="mono">10</td><td><strong>The default capability mode disagrees with itself</strong> &mdash; configuration says <code>agent</code>, the database column default says <code>observer</code>. Both are deliberate and documented, but a deployment&rsquo;s effective posture depends on whether a settings row exists</td><td>Decide one, or explain the interaction on the admin screen. A fresh deployment wanting the cautious posture should set the mode explicitly</td></tr>
+            <tr><td class="mono">11</td><td><strong>Ticket type has no behaviour.</strong> Stored and filterable, but nothing differs between a bug and a feature</td><td>Either give it behaviour or document it as a label</td></tr>
+            <tr><td class="mono">12</td><td><strong>Board archiving has no interface.</strong> The column and scope exist and nothing can reach them</td><td>Add the control, or remove the column</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note key">
+        <span class="lbl">What none of these are</span>
+        None of the twelve is a breach of the customer boundary, a data-loss risk or a functional
+        regression. The boundary is enforced in four overlapping layers and asserted by 28
+        dedicated security test files; the two most consequential items on this list are
+        operational &mdash; <strong>no CI pipeline</strong> and <strong>no version
+        identifier</strong> &mdash; and both are a day&rsquo;s work.
+      </div>
+    </section>
+
+    <!-- ============================================ 17 -->
+    <section class="sec" id="s17">
+      <span class="sec-num">17</span>
+      <h2>Glossary</h2>
+      <p class="deck">
+        The terms this product uses, in the sense it uses them.
+      </p>
+      <dl class="gloss">
+        <div><dt>Board</dt><dd>The unit of work, access and configuration. Everything hangs off one, and there is no entity above it.</dd></div>
+        <div><dt>Board member</dt><dd>An explicit row linking a person to a board. <strong>This is the access grant</strong>; administrators bypass it.</dd></div>
+        <div><dt>Ticket key</dt><dd>The human identifier &mdash; the board&rsquo;s prefix, a hyphen, the per-board number, as in <code>NL-42</code>. What GitHub branches and commits reference.</dd></div>
+        <div><dt>Customer</dt><dd>The security boundary of the product. May never observe internal content, on any board, including boards they belong to.</dd></div>
+        <div><dt>Staff</dt><dd>Administrators and team members together &mdash; the set that may see internal content.</dd></div>
+        <div><dt>Customer-visible</dt><dd>The positive visibility flag on a ticket or page. Defaults to false, so anything created by code that forgets to set it is internal.</dd></div>
+        <div><dt>Internal note</dt><dd>A comment in the internal stream. Customers cannot read it, count it, or detect that it exists.</dd></div>
+        <div><dt>Stream</dt><dd>Which conversation a comment belongs to: customer or internal.</dd></div>
+        <div><dt>Capability mode</dt><dd>The administrator&rsquo;s ceiling on what the AI may ever attempt: Observer, Operator or Agent.</dd></div>
+        <div><dt>AI Observer</dt><dd>The most restrictive mode. Reads and answers; writes nothing, not even an internal note &mdash; so no ticket run may start.</dd></div>
+        <div><dt>AI Operator</dt><dd>The middle mode. Proposes changes a person confirms, and permits manual suggest runs.</dd></div>
+        <div><dt>AI Agent</dt><dd>The most permissive mode. Adds unattended work: automatic runs, apply-mode pull requests, and reversible changes carried out without a confirmation step.</dd></div>
+        <div><dt>Chat mode</dt><dd>The asker&rsquo;s choice per conversation: Reading, Writing or Everything.</dd></div>
+        <div><dt>Knowledge scope</dt><dd>Where an answer may be sourced from: Project only (the default) or Outside Project, which adds general knowledge alongside the project and widens data access by nothing.</dd></div>
+        <div><dt>Proposal</dt><dd>A change the AI has <em>described</em>. A preview until a person confirms it &mdash; at which point it is re-resolved, re-authorized and executed through the ordinary action.</dd></div>
+        <div><dt>Run</dt><dd>One AI working session on one ticket. Suggest (posts an internal note) or apply (opens a draft pull request).</dd></div>
+        <div><dt>Tool</dt><dd>A read-only lookup the AI may call. Runs with the asking person as the viewer, and is audited whatever the outcome.</dd></div>
+        <div><dt>Draft (documentation)</dt><dd>The autosave buffer for a <em>published</em> page. Nothing renders it to a reader.</dd></div>
+        <div><dt>Slug</dt><dd>The URL identifier for a board or page. Primary keys are never exposed.</dd></div>
+        <div><dt>Workspace</dt><dd>The whole deployment. Not an entity &mdash; there is no workspace table.</dd></div>
+      </dl>
+    </section>
+
+    <!-- ============================================ COLOPHON -->
+    <footer class="colophon">
+      <p>
+        <strong>Provenance.</strong> Compiled by reading the repository at commit
+        <code>30bfc83</code>: all 19 configuration files, every route, all 25 models, all 41
+        migrations, all 8 policies, all 27 enums, the key actions and services across AI, GitHub,
+        Slack, SMS, statistics, search and attachments, all 35 Livewire components, the Blade and
+        JavaScript trees, the container and platform configuration, and the test inventory.
+      </p>
+      <p>
+        The full test suite was executed during compilation &mdash; 1,718 passed, 3 failed, 6,436
+        assertions in 311 seconds &mdash; and each failure was reproduced and diagnosed
+        individually. Every permission claim was derived from middleware, policies, actions, query
+        scopes or a tool&rsquo;s own availability method, never assumed. One claim in an early
+        draft, that login was not rate limited, was found to be wrong on verification and
+        corrected. No application code was modified in the production of this document.
+      </p>
+      <p style="color:var(--ink-3)">
+        Nexora &mdash; The Next Way to Work Together &middot; Complete System Documentation &middot;
+        17 September 2026 &middot; Proprietary and confidential
+      </p>
+    </footer>
+
+  </main>
+</div>
+
+<script>
+(function () {
+  var links = Array.prototype.slice.call(document.querySelectorAll('#toc a'));
+  var byId = {};
+  links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+  var sections = Array.prototype.slice.call(document.querySelectorAll('.sec'));
+  if (!('IntersectionObserver' in window) || !sections.length) return;
+
+  var visible = new Set();
+  function paint() {
+    var best = null;
+    sections.forEach(function (s) { if (visible.has(s.id) && !best) best = s.id; });
+    links.forEach(function (a) { a.classList.remove('on'); });
+    if (best && byId[best]) byId[best].classList.add('on');
+  }
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) visible.add(e.target.id); else visible.delete(e.target.id);
+    });
+    paint();
+  }, { rootMargin: '-10% 0px -70% 0px', threshold: 0 });
+  sections.forEach(function (s) { io.observe(s); });
+})();
+</script>

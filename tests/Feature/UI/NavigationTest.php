@@ -37,9 +37,9 @@ class NavigationTest extends TestCase
 
         $labels = array_column(Breadcrumbs::ticket($ticket->load('board')), 'label');
 
-        // Dashboard / Boards / NutriLens / NL / NL-1 — every level above the
-        // ticket is still named, which is the whole point of the change.
-        $this->assertSame(['Dashboard', 'Boards', 'NutriLens', 'NL', $ticket->key()], $labels);
+        // Dashboard / Boards / NutriLens / NL-1 — every level above the ticket
+        // is still named, which is the whole point of the change.
+        $this->assertSame(['Dashboard', 'Boards', 'NutriLens', $ticket->key()], $labels);
     }
 
     public function test_only_the_last_item_is_marked_as_the_current_page(): void
@@ -55,16 +55,53 @@ class NavigationTest extends TestCase
             ->assertSeeInOrder(['Dashboard', 'Boards', 'NutriLens'], escape: false);
     }
 
-    public function test_the_ticket_prefix_is_an_identifier_rather_than_a_second_link_to_the_board(): void
+    /**
+     * A board appears in a trail once, under its own name.
+     *
+     * The prefix used to follow it as a chip of its own, which on a ticket put
+     * "NL" immediately before "NL-1" and on a board's settings put it before a
+     * word it had nothing to do with. It is an identifier, and it is already in
+     * the key — a trail is for places, and the only place here is the board.
+     */
+    public function test_the_board_appears_once_and_the_prefix_is_not_a_level(): void
     {
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team], ['name' => 'NutriLens', 'ticket_prefix' => 'NL']);
         $ticket = $this->ticketOn($board, $team);
 
+        foreach ([
+            'a ticket' => Breadcrumbs::ticket($ticket->load('board')),
+            'the board' => Breadcrumbs::board($board),
+            'a board screen' => Breadcrumbs::boardChild($board, 'Integrations'),
+            'a new ticket' => Breadcrumbs::newTicket($board),
+        ] as $what => $trail) {
+            $labels = array_column($trail, 'label');
+
+            $this->assertNotContains('NL', $labels, "The prefix is still a level on {$what}.");
+            $this->assertSame(1, count(array_keys($labels, 'NutriLens', true)));
+        }
+
+        // And the board is named by a link to itself, which is the one thing
+        // the chip beside it could never be.
         $trail = collect(Breadcrumbs::ticket($ticket->load('board')));
 
-        $this->assertNull($trail->firstWhere('label', 'NL')['href']);
         $this->assertSame(route('boards.show', $board), $trail->firstWhere('label', 'NutriLens')['href']);
+    }
+
+    /**
+     * On the board's own page the trail ends at the board, so that is what is
+     * announced as the current page. It used to end at the prefix chip, which
+     * meant a screen reader said the current page was "NL".
+     */
+    public function test_the_board_page_names_itself_as_the_current_page(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team], ['name' => 'NutriLens', 'ticket_prefix' => 'NL']);
+
+        $trail = Breadcrumbs::board($board);
+        $last = $trail[array_key_last($trail)];
+
+        $this->assertSame('NutriLens', $last['label']);
     }
 
     public function test_a_documentation_trail_names_every_ancestor(): void

@@ -14,6 +14,12 @@
     --}}
     <x-app.theme-boot :preference="auth()->user()?->theme_preference" />
 
+    {{--
+        And the panel widths, for the same reason and in the same breath. Only
+        on this layout: the sign-in pages have neither panel to size.
+    --}}
+    <x-app.panel-boot />
+
     <x-app.favicons />
 
     <link rel="preconnect" href="https://fonts.bunny.net">
@@ -47,17 +53,46 @@
             <nav> inside scroll on its own; `self-start` is what makes `sticky`
             work at all here, since a flex item otherwise stretches to the full
             height of the row and has nothing to stick within.
+
+            The width is a custom property rather than a utility so somebody can
+            drag it — see resources/js/panel-resize.js. `--nav-width` has a real
+            default in resources/css/app.css, so this column is 16rem with no
+            JavaScript at all, exactly as it was before.
+
+            The handle is a sibling here rather than part of the sidebar
+            component, because that component is rendered twice: once in this
+            column and once inside the off-canvas drawer above. A handle inside
+            it would put two separators in the document, both claiming the same
+            `aria-controls` target, one of them in a drawer that cannot be
+            resized.
         --}}
-        <div class="hidden w-64 shrink-0 lg:sticky lg:top-0 lg:flex lg:h-dvh lg:self-start">
+        <div
+            id="app-navigation"
+            class="hidden shrink-0 lg:sticky lg:top-0 lg:flex lg:h-dvh lg:w-[var(--nav-width)] lg:self-start"
+        >
             <x-app.sidebar />
+
+            <x-app.resize-handle
+                panel="nav"
+                label="Resize navigation"
+                controls="app-navigation"
+                side="right"
+            />
         </div>
 
         {{--
             `app-content` is what the AI panel insets on desktop. The panel is
             fixed and never participates in layout, so one CSS rule on <body>
             shifts this column instead — see resources/js/ai-panel.js.
+
+            That class now carries the column's padding transition too, which
+            used to be a `transition-[padding]` utility here. It had to move
+            into the stylesheet so that a panel drag can suspend it: a cascade
+            layer beats specificity, and a rule in `components` cannot out-rank
+            a utility whatever its selector. The reasoning is written out beside
+            the rule in resources/css/app.css.
         --}}
-        <div class="app-content flex min-w-0 flex-1 flex-col transition-[padding] duration-200">
+        <div class="app-content flex min-w-0 flex-1 flex-col">
             <x-app.topbar :title="$title ?? null" />
 
             <main class="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">

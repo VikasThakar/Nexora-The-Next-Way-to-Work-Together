@@ -96,13 +96,20 @@ import './board-column'
 import './drag-navigation'
 
 /*
+ * Somewhere to drop files, as the `dropZone` Alpine component. Used by the
+ * board's inline quick add, which has no editor to drop into; the rich editor
+ * handles its own drops in ./editor. Both tell a file drag from a card drag by
+ * looking for 'Files' in the drag payload — see ./drop-zone.
+ */
+import './drop-zone'
+
+/*
  * Spoken conversation with the assistant, as the `aiVoice` Alpine component.
  * Records a turn, hands it to the server to transcribe, asks the ordinary
  * assistant, and plays the answer back — see ./ai-voice for the state machine
  * and for why no vendor credential ever reaches the browser.
  */
 import './ai-voice'
-
 
 /*
  * Files by drop, paste or picker, as the `fileDrop` Alpine component. The
@@ -111,3 +118,13 @@ import './ai-voice'
  * on those surfaces — see ./file-drop.
  */
 import './file-drop'
+
+/*
+ * The handles on the two edges of the shell, as the `panelResize` Alpine
+ * component: the navigation on the left and the assistant on the right. Both
+ * widths are CSS custom properties on <html>, so a drag re-runs CSS and nothing
+ * else — see ./panel-resize, and see
+ * components/app/panel-boot.blade.php for the half that restores them before
+ * the page paints.
+ */
+import './panel-resize'

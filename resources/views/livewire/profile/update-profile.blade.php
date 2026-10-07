@@ -5,12 +5,14 @@
 <div>
     <x-ui.page-header
         title="Profile"
-        description="Your account details and password."
+        description="Your picture, account details and password."
         :trail="\App\Support\Breadcrumbs::settings('Profile')"
     />
 
     <div class="grid max-w-4xl gap-6 lg:grid-cols-3">
         <div class="space-y-6 lg:col-span-2">
+            <livewire:profile.update-avatar />
+
             <x-ui.card title="Details">
                 <form wire:submit="save" class="space-y-5">
                     <x-ui.field label="Name" for="name" :error="$errors->first('name')" required>

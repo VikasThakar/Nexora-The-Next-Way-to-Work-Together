@@ -196,7 +196,9 @@ class ManageBoard extends Component
     /** @return Collection<int, User> */
     public function assignableUsers(): Collection
     {
-        return User::query()->active()->orderBy('name')->get(['id', 'name', 'email', 'role']);
+        // The avatar columns are named because the picker renders a picture;
+        // omitting them from a constrained select raises under strict mode.
+        return User::query()->active()->orderBy('name')->get(['id', 'name', 'email', 'role', 'avatar_path', 'avatar_disk']);
     }
 
     public function render()

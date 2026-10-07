@@ -316,24 +316,37 @@
                         <div class="px-2 pb-2">
                             @if ($quickAddColumnId === $column->id)
                                 {{--
-                                    The card is a drop target and a paste
-                                    target. A screenshot dropped on it, or
-                                    pasted into the title, becomes a file on
-                                    the ticket about to be created — see
-                                    quickAddFiles on the component and the
-                                    fileDrop component in
-                                    resources/js/file-drop.js.
+                                    The card is itself the drop target, so a
+                                    screenshot can be dragged anywhere onto it
+                                    rather than at a separate strip.
+
+                                    `dropZone` ignores any drag that is not
+                                    carrying files, which is what keeps a ticket
+                                    being dragged across this column from
+                                    highlighting it or swallowing the drop — see
+                                    resources/js/drop-zone.js.
                                 --}}
-                                <form
-                                    wire:submit="quickAdd"
-                                    x-data="fileDrop"
-                                    x-on:dragenter.prevent="dragEnter($event)"
-                                    x-on:dragover.prevent
-                                    x-on:dragleave.prevent="dragLeave($event)"
-                                    x-on:drop.prevent="drop($event)"
-                                    class="rounded-lg border bg-surface p-2 shadow-sm transition"
-                                    x-bind:class="dragging ? 'border-brand-500 bg-brand-50/60 ring-2 ring-brand-500/20' : 'border-brand-300'"
-                                >
+                                <form wire:submit="quickAdd"
+                                      x-data="dropZone({ property: 'quickAddUploads', maxFiles: {{ (int) config('attachments.max_per_owner') }} })"
+                                      x-on:dragenter="enter($event)"
+                                      x-on:dragover="over_($event)"
+                                      x-on:dragleave="leave($event)"
+                                      x-on:drop="drop($event)"
+                                      x-on:paste="paste($event)"
+                                      {{--
+                                          Escape belongs to the whole card, not
+                                          to the title box. It used to sit on the
+                                          textarea, which was nearly the whole of
+                                          the focusable surface while everything
+                                          else was collapsed; now that priority,
+                                          type, assignee and the date are always
+                                          on the card, that would have been one
+                                          control out of a dozen where the key
+                                          still worked.
+                                      --}}
+                                      x-on:keydown.escape="$wire.cancelQuickAdd()"
+                                      :class="over && 'ring-2 ring-brand-400 ring-offset-1 ring-offset-surface'"
+                                      class="relative rounded-lg border border-brand-300 bg-surface p-2 shadow-sm transition">
                                     {{--
                                         Enter creates the ticket; Shift-Enter is
                                         left alone so a title can wrap. This is
@@ -349,93 +362,140 @@
                                         aria-label="Ticket title"
                                         class="w-full resize-none border-0 p-1 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-0 focus:outline-none"
                                         @keydown.enter.prevent="$wire.quickAdd()"
-                                        @keydown.escape="$wire.cancelQuickAdd()"
-                                        x-on:paste="paste($event)"
                                     ></textarea>
 
                                     @error('quickAddTitle')
                                         <p class="px-1 pb-1 text-xs text-rose-600">{{ $message }}</p>
                                     @enderror
 
-                                    <input
-                                        type="file"
-                                        multiple
-                                        x-ref="picker"
-                                        wire:model="quickAddUploads"
-                                        class="sr-only"
-                                        tabindex="-1"
-                                        aria-label="Attach files to the new ticket"
-                                    >
-
-                                    <div x-show="uploading" x-cloak class="px-1 pb-1">
-                                        <div class="h-1 w-full overflow-hidden rounded-full bg-slate-200">
-                                            <div class="h-full rounded-full bg-brand-500 transition-all" x-bind:style="`width: ${progress}%`"></div>
-                                        </div>
-                                    </div>
-
-                                    @error('quickAddUploads.*')
-                                        <p class="px-1 pb-1 text-xs text-rose-600">{{ $message }}</p>
-                                    @enderror
-                                    @error('quickAddUploads')
-                                        <p class="px-1 pb-1 text-xs text-rose-600">{{ $message }}</p>
-                                    @enderror
-
-                                    @if ($quickAddFilePreviews !== [])
-                                        {{-- Pictures as pictures, even here. --}}
-                                        <ul class="flex flex-wrap gap-1.5 px-1 pb-2" aria-label="Files to attach">
-                                            @foreach ($quickAddFilePreviews as $index => $file)
-                                                <li wire:key="qa-file-{{ $column->id }}-{{ $index }}-{{ md5($file['name']) }}"
-                                                    class="group relative overflow-hidden rounded-md border border-slate-200 bg-surface">
-                                                    @if ($file['image'] && $file['url'])
-                                                        <img src="{{ $file['url'] }}" alt="{{ $file['name'] }}" class="block h-16 w-20 object-cover" loading="lazy">
+                                    {{-- Files dropped on the card, before the ticket exists. --}}
+                                    @if ($quickAddAttachments->isNotEmpty())
+                                        <ul class="flex flex-wrap gap-1.5 px-1 pb-2" role="list">
+                                            @foreach ($quickAddAttachments as $draft)
+                                                <li wire:key="qa-draft-{{ $draft->id }}" class="group relative">
+                                                    @if ($draft->isImage())
+                                                        <img src="{{ route('attachments.show', $draft) }}"
+                                                             alt="{{ $draft->filename }}"
+                                                             title="{{ $draft->filename }}"
+                                                             class="h-12 w-12 rounded border border-slate-200 object-cover">
                                                     @else
-                                                        <span class="flex h-16 w-28 items-center px-2 text-[11px] leading-tight text-slate-600" title="{{ $file['name'] }}">
-                                                            <span class="line-clamp-3 break-all">{{ $file['name'] }}</span>
+                                                        <span title="{{ $draft->filename }}"
+                                                              class="flex h-12 w-12 items-center justify-center rounded border border-slate-200 bg-slate-100 text-[10px] font-semibold text-slate-600">
+                                                            {{ strtoupper(pathinfo($draft->filename, PATHINFO_EXTENSION) ?: 'FILE') }}
                                                         </span>
                                                     @endif
 
                                                     <button type="button"
-                                                            wire:click="removeQuickAddFile({{ $index }})"
-                                                            class="absolute top-0.5 right-0.5 rounded-full bg-slate-900/70 p-0.5 text-white opacity-0 transition group-hover:opacity-100 focus:opacity-100"
-                                                            aria-label="Remove {{ $file['name'] }}">
-                                                        <svg class="size-3" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                                                        </svg>
+                                                            wire:click="removeQuickAddUpload({{ $draft->id }})"
+                                                            class="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-surface text-xs leading-none text-slate-500 shadow-sm transition hover:bg-rose-50 hover:text-rose-600"
+                                                            aria-label="Remove {{ $draft->filename }}">
+                                                        &times;
                                                     </button>
                                                 </li>
                                             @endforeach
                                         </ul>
                                     @endif
 
+                                    @error('quickAddUploads.*')
+                                        <p class="px-1 pb-1 text-xs text-rose-600">{{ $message }}</p>
+                                    @enderror
+
+                                    {{--
+                                        The drop hint doubles as the file button,
+                                        so the gesture is discoverable for anyone
+                                        who would not think to drag onto a card —
+                                        and reachable by keyboard, which a drop
+                                        target never is.
+                                    --}}
+                                    <div class="flex items-center gap-2 px-1 pb-1">
+                                        <input type="file" x-ref="input" x-on:change="chosen($event)" multiple class="hidden"
+                                               accept="{{ collect(config('attachments.allowed_mimes'))->map(fn ($e) => '.'.$e)->implode(',') }}">
+
+                                        <button type="button" x-on:click="choose()"
+                                                class="text-xs text-slate-500 transition hover:text-slate-800">
+                                            <span x-show="!uploading">Drop files here, or browse</span>
+                                            <span x-show="uploading" x-cloak>Uploading&hellip;</span>
+                                        </button>
+
+                                        <span class="text-xs text-slate-400">up to {{ $maxAttachmentMb }} MB</span>
+                                    </div>
+
+                                    <p x-show="error" x-cloak x-text="error" class="px-1 pb-1 text-xs text-rose-600"></p>
+
+                                    {{--
+                                        Everything a ticket can be given, in view.
+
+                                        This used to be five full-width form
+                                        controls behind a "Details" button. The
+                                        button bought nothing — the fields were
+                                        collapsed with `hidden`, so they stayed
+                                        in the document and stayed bound the
+                                        whole time, and a card filed without
+                                        opening them still submitted a type and
+                                        a priority. All it did was cost a click
+                                        and keep the options from anybody who
+                                        never pressed it.
+
+                                        What replaces it is about the same height
+                                        as the panel it replaces — this buys
+                                        discoverability, not space, and the card
+                                        is taller than the collapsed state most
+                                        people saw. What it does buy is that the
+                                        controls now show their own values
+                                        instead of naming them in a grey box:
+                                        the priority is the same coloured dot
+                                        the card will wear, and the type is
+                                        three words.
+
+                                        One wrapping strip rather than a grid.
+                                        The column is a fixed 20rem at every
+                                        viewport, so there is no breakpoint to
+                                        design for — the row simply wraps when
+                                        a board has long member names.
+                                    --}}
                                     @if ($canQuickAddDetails)
-                                        <div
-                                            @class([
-                                                'space-y-2 border-t border-slate-100 pt-2',
-                                                'hidden' => ! $quickAddExpanded,
-                                            ])
-                                            id="quick-add-details-{{ $column->id }}"
-                                        >
-                                            <div class="grid grid-cols-2 gap-1.5">
-                                                <label class="sr-only" for="qa-type-{{ $column->id }}">Type</label>
-                                                <select id="qa-type-{{ $column->id }}" wire:model="quickAddType"
-                                                        class="w-full rounded border-slate-200 py-1 text-xs text-slate-700 focus:border-brand-400 focus:ring-brand-500/30">
-                                                    @foreach ($typeOptions as $option)
-                                                        <option value="{{ $option->value }}">{{ $option->label() }}</option>
-                                                    @endforeach
-                                                </select>
+                                        <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-slate-100 px-1 pt-2">
+                                            <x-ui.choice
+                                                :options="$priorityOptions"
+                                                :selected="$quickAddPriority"
+                                                name="qa-priority-{{ $column->id }}"
+                                                id-prefix="qa-priority-{{ $column->id }}"
+                                                legend="Priority"
+                                                model="quickAddPriority"
+                                                variant="dot"
+                                                :show-selected="true"
+                                            />
 
-                                                <label class="sr-only" for="qa-priority-{{ $column->id }}">Priority</label>
-                                                <select id="qa-priority-{{ $column->id }}" wire:model="quickAddPriority"
-                                                        class="w-full rounded border-slate-200 py-1 text-xs text-slate-700 focus:border-brand-400 focus:ring-brand-500/30">
-                                                    @foreach ($priorityOptions as $option)
-                                                        <option value="{{ $option->value }}">{{ $option->label() }}</option>
-                                                    @endforeach
-                                                </select>
-                                            </div>
+                                            <x-ui.choice
+                                                :options="$typeOptions"
+                                                :selected="$quickAddType"
+                                                name="qa-type-{{ $column->id }}"
+                                                id-prefix="qa-type-{{ $column->id }}"
+                                                legend="Type"
+                                                model="quickAddType"
+                                                variant="pill"
+                                            />
 
+                                            {{--
+                                                Assignee and due date stay native
+                                                and stay a <select> and a date
+                                                field, for the reason given in
+                                                components/ai/chat-mode-picker:
+                                                a hand-built picker would owe the
+                                                design system keyboard handling
+                                                and screen-reader semantics it
+                                                does not otherwise need, and a
+                                                board's membership has no upper
+                                                bound to lay out. What changes is
+                                                only how heavy they look —
+                                                auto-width and borderless until
+                                                they are pointed at, so they read
+                                                as part of the card rather than
+                                                as a form inside it.
+                                            --}}
                                             <label class="sr-only" for="qa-assignee-{{ $column->id }}">Assignee</label>
                                             <select id="qa-assignee-{{ $column->id }}" wire:model="quickAddAssigneeId"
-                                                    class="w-full rounded border-slate-200 py-1 text-xs text-slate-700 focus:border-brand-400 focus:ring-brand-500/30">
+                                                    class="max-w-full rounded border border-transparent bg-transparent py-0.5 pr-6 pl-1 text-xs text-slate-600 transition hover:border-slate-300 hover:text-slate-900 focus:border-brand-400 focus:ring-brand-500/30">
                                                 <option value="">Unassigned</option>
                                                 @foreach ($assignableMembers as $member)
                                                     <option value="{{ $member->id }}">{{ $member->name }}</option>
@@ -444,54 +504,35 @@
 
                                             <label class="sr-only" for="qa-due-{{ $column->id }}">Due date</label>
                                             <input type="date" id="qa-due-{{ $column->id }}" wire:model="quickAddDueDate"
-                                                   class="w-full rounded border-slate-200 py-1 text-xs text-slate-700 focus:border-brand-400 focus:ring-brand-500/30">
-
-                                            @error('quickAddDueDate')
-                                                <p class="text-xs text-rose-600">{{ $message }}</p>
-                                            @enderror
-
-                                            @if ($boardLabels->isNotEmpty())
-                                                <div class="flex flex-wrap gap-1" role="group" aria-label="Labels">
-                                                    @foreach ($boardLabels as $label)
-                                                        <button
-                                                            type="button"
-                                                            wire:click="toggleQuickAddLabel({{ $label->id }})"
-                                                            aria-pressed="{{ in_array($label->id, $quickAddLabelIds, true) ? 'true' : 'false' }}"
-                                                            @class([
-                                                                'inline-flex rounded-full transition',
-                                                                'opacity-100 ring-2 ring-slate-900 ring-offset-1 ring-offset-surface' => in_array($label->id, $quickAddLabelIds, true),
-                                                                'opacity-50 hover:opacity-100' => ! in_array($label->id, $quickAddLabelIds, true),
-                                                            ])
-                                                        >
-                                                            <x-ui.label-chip :label="$label" />
-                                                        </button>
-                                                    @endforeach
-                                                </div>
-                                            @endif
+                                                   class="max-w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-slate-600 transition hover:border-slate-300 hover:text-slate-900 focus:border-brand-400 focus:ring-brand-500/30">
                                         </div>
+
+                                        @error('quickAddDueDate')
+                                            <p class="px-1 text-xs text-rose-600">{{ $message }}</p>
+                                        @enderror
+
+                                        @if ($boardLabels->isNotEmpty())
+                                            <div class="flex flex-wrap gap-1 px-1 pt-1.5" role="group" aria-label="Labels">
+                                                @foreach ($boardLabels as $label)
+                                                    <button
+                                                        type="button"
+                                                        wire:click="toggleQuickAddLabel({{ $label->id }})"
+                                                        aria-pressed="{{ in_array($label->id, $quickAddLabelIds, true) ? 'true' : 'false' }}"
+                                                        @class([
+                                                            'inline-flex rounded-full transition',
+                                                            'opacity-100 ring-2 ring-slate-900 ring-offset-1 ring-offset-surface' => in_array($label->id, $quickAddLabelIds, true),
+                                                            'opacity-50 hover:opacity-100' => ! in_array($label->id, $quickAddLabelIds, true),
+                                                        ])
+                                                    >
+                                                        <x-ui.label-chip :label="$label" />
+                                                    </button>
+                                                @endforeach
+                                            </div>
+                                        @endif
                                     @endif
 
                                     <div class="flex items-center gap-2 pt-1">
                                         <x-ui.button type="submit" size="sm">Add</x-ui.button>
-
-                                        <button type="button"
-                                                x-on:click="choose()"
-                                                class="rounded p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
-                                                title="Attach files"
-                                                aria-label="Attach files to the new ticket">
-                                            <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" />
-                                            </svg>
-                                        </button>
-
-                                        @if ($canQuickAddDetails)
-                                            <x-ui.button type="button" variant="ghost" size="sm"
-                                                         wire:click="toggleQuickAddDetails"
-                                                         aria-expanded="{{ $quickAddExpanded ? 'true' : 'false' }}"
-                                                         aria-controls="quick-add-details-{{ $column->id }}">
-                                                {{ $quickAddExpanded ? 'Fewer' : 'Details' }}
-                                            </x-ui.button>
-                                        @endif
 
                                         <x-ui.button type="button" variant="ghost" size="sm" wire:click="cancelQuickAdd">
                                             Cancel

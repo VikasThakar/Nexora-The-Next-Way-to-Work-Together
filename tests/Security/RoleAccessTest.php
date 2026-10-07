@@ -70,11 +70,71 @@ class RoleAccessTest extends TestCase
             ->get(route('boards.create'))->assertOk();
     }
 
-    public function test_administration_routes_require_a_recently_confirmed_password(): void
+    /**
+     * Re-authentication is off by default.
+     *
+     * The delivery team administers boards and accounts as ordinary work, and
+     * a prompt on every visit is friction paid many times a day. An
+     * administrator with a valid session goes straight through.
+     */
+    public function test_administration_routes_do_not_ask_for_the_password_again_by_default(): void
     {
+        $this->assertFalse(config('workspace.require_password_confirmation'));
+
+        $this->actingAs($this->admin())
+            ->get(route('users.index'))
+            ->assertOk();
+
+        $this->actingAs($this->admin())
+            ->get(route('boards.create'))
+            ->assertOk();
+
+        $this->actingAs($this->admin())
+            ->get(route('admin.ai'))
+            ->assertOk();
+    }
+
+    /**
+     * And it still works when a deployment wants it.
+     *
+     * The control is switched off, not deleted — the screen it guards hardest
+     * is user administration, which is the privilege-escalation path. A
+     * deployment that has to answer for that turns the variable on and gets the
+     * behaviour back without a code change, so this asserts the switch rather
+     * than assuming it.
+     */
+    public function test_re_authentication_can_be_required_by_configuration(): void
+    {
+        config(['workspace.require_password_confirmation' => true]);
+
         $this->actingAs($this->admin())
             ->get(route('users.index'))
             ->assertRedirect(route('password.confirm'));
+
+        // And a session that has confirmed recently still passes.
+        $this->actingAs($this->admin())->withConfirmedPassword()
+            ->get(route('users.index'))
+            ->assertOk();
+    }
+
+    /**
+     * Switching it off grants nobody anything.
+     *
+     * The guarantee that matters: this decides whether an administrator is
+     * asked to prove it is still them, never whether somebody may be there at
+     * all. With re-authentication off, a team member is still refused.
+     */
+    public function test_turning_re_authentication_off_does_not_widen_who_may_administer(): void
+    {
+        $this->assertFalse(config('workspace.require_password_confirmation'));
+
+        foreach ([UserRole::Team, UserRole::Customer] as $role) {
+            $user = $this->userWithRole($role);
+
+            $this->actingAs($user)->get(route('users.index'))->assertForbidden();
+            $this->actingAs($user)->get(route('boards.create'))->assertForbidden();
+            $this->actingAs($user)->get(route('admin.ai'))->assertForbidden();
+        }
     }
 
     #[DataProvider('nonAdminRoles')]

@@ -74,7 +74,10 @@ class Members extends Component
             ->active()
             ->whereDoesntHave('boardMemberships', fn ($query) => $query->where('board_id', $this->board->getKey()))
             ->orderBy('name')
-            ->get(['id', 'name', 'email', 'role']);
+            // The avatar columns are named because the member picker renders a
+            // picture; omitting them from a constrained select raises under
+            // strict mode rather than quietly querying for them.
+            ->get(['id', 'name', 'email', 'role', 'avatar_path', 'avatar_disk']);
     }
 
     public function render()

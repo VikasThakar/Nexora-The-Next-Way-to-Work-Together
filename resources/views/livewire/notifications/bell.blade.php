@@ -24,7 +24,19 @@
         </svg>
 
         @if ($unread > 0)
-            <span class="absolute -top-0.5 -right-0.5 inline-flex min-w-4 items-center justify-center rounded-full bg-danger-solid px-1 text-[10px] font-semibold text-white">
+            {{-- The brand accent, not the danger one. A count of waiting
+                 notifications is not an error, and red is what this product
+                 spends on destructive buttons; wearing it permanently in the
+                 top bar is what makes a bell read as an alarm. Blue is also
+                 already the colour of an unread row in the dropdown below.
+
+                 `brand-solid` rather than `brand-600`: the 600 shade is
+                 remapped for dark mode so link text lifts off a dark ground,
+                 which here would put white text on a pale disc. The solid
+                 token is the one app.css reserves for exactly this -- a
+                 saturated ground carrying white, identical in both
+                 appearances and measured at 5.09:1. --}}
+            <span class="absolute -top-0.5 -right-0.5 inline-flex min-w-4 items-center justify-center rounded-full bg-brand-solid px-1 text-[10px] font-semibold text-white">
                 {{ $unread >= \App\Services\NotificationReader::WINDOW ? \App\Services\NotificationReader::WINDOW.'+' : $unread }}
             </span>
         @endif

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\ConfirmPasswordWhenRequired;
 use App\Http\Middleware\EnsureUserHasRole;
 use App\Http\Middleware\EnsureUserIsActive;
 use Illuminate\Foundation\Application;
@@ -44,6 +45,18 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'role' => EnsureUserHasRole::class,
+
+            /*
+             * Replaces the framework's `password.confirm`.
+             *
+             * The alias is overridden rather than a new one introduced, so the
+             * route definitions keep naming the control they have always named
+             * and there is exactly one place that decides whether it runs. It
+             * is off by default — see config/workspace.php and
+             * ConfirmPasswordWhenRequired for why, and for what it does not
+             * relax.
+             */
+            'password.confirm' => ConfirmPasswordWhenRequired::class,
         ]);
 
         /*

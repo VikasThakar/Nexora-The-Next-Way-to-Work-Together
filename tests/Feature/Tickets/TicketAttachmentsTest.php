@@ -149,7 +149,7 @@ class TicketAttachmentsTest extends TestCase
 
         $this->assertTrue(
             $allowed->isSuccessful() || $allowed->isRedirect(),
-            'An authorized viewer must receive the file, got '.$allowed->status()
+            'An authorized viewer must receive the file, got '.$allowed->getStatusCode()
         );
     }
 

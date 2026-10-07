@@ -262,8 +262,8 @@
         <x-ui.card title="Security" description="Your sign-in and this workspace's safeguards.">
             <div class="space-y-4 text-sm text-slate-600">
                 <p>
-                    Your name, email and password are on your profile. Changing your password signs out
-                    your other sessions.
+                    Your picture, name, email and password are on your profile. Changing your password
+                    signs out your other sessions.
                 </p>
                 @if ($canAdminister)
                     <p class="text-xs text-slate-500">

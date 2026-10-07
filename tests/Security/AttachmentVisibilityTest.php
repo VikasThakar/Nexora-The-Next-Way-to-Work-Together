@@ -55,7 +55,7 @@ class AttachmentVisibilityTest extends TestCase
 
         $this->assertTrue(
             $allowed->isSuccessful() || $allowed->isRedirect(),
-            'The delivery team must still receive the file, got '.$allowed->status()
+            'The delivery team must still receive the file, got '.$allowed->getStatusCode()
         );
     }
 

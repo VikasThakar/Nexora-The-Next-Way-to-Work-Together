@@ -46,10 +46,30 @@
         x-transition:leave="transition ease-in duration-150"
         x-transition:leave-start="translate-x-0"
         x-transition:leave-end="translate-x-full"
+        id="ai-panel"
         role="complementary"
         aria-label="Workspace AI"
-        class="fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-slate-200 bg-surface-raised shadow-xl sm:max-w-md lg:max-w-[28rem]"
+        {{--
+            The desktop width is a custom property so the edge can be dragged —
+            see resources/js/panel-resize.js. The same property is what the
+            content column's gutter in resources/css/app.css is made of, so the
+            room made for this panel and the panel itself can no longer disagree
+            with each other. Below `lg` it is a sheet and neither applies.
+        --}}
+        class="fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-slate-200 bg-surface-raised shadow-xl sm:max-w-md lg:max-w-[var(--ai-panel-width)]"
     >
+        {{--
+            The grab edge, on the boundary with the application. Inside the
+            panel, so it exists only while the panel is open and goes away with
+            it.
+        --}}
+        <x-app.resize-handle
+            panel="ai"
+            label="Resize Workspace AI"
+            controls="ai-panel"
+            side="left"
+        />
+
         {{-- Header ------------------------------------------------------ --}}
         <header class="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
             <div class="min-w-0">
@@ -81,8 +101,9 @@
                         check when the assistant declines to answer something.
 
                         Wrapping, because these are two controls of unrelated
-                        width in a drawer that is 28rem on desktop and the full
-                        viewport on a phone.
+                        width in a drawer that is the full viewport on a phone
+                        and, on desktop, whatever width the person has dragged
+                        it to.
                     --}}
                     <div class="mt-1.5 flex flex-wrap items-center gap-2">
                         <x-ai.mode-badge

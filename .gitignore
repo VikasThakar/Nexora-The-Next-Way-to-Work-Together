@@ -24,3 +24,10 @@ Homestead.yaml
 Thumbs.db
 /database/*.sqlite
 /database/*.sqlite-journal
+
+# Documentation build tooling (docs/)
+/docs/build/node_modules
+/docs/build/package-lock.json
+/docs/build/render.html
+/docs/build/render-web.html
+/docs/build/preview

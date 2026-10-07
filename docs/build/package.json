@@ -1,0 +1,1 @@
+{"name":"nexora-docs-build","private":true,"type":"module","description":"Offline PDF generator for the Nexora system documentation.","dependencies":{"markdown-it":"^15.0.2","pagedjs":"^0.4.3","puppeteer-core":"^25.11.0"}}

@@ -30,10 +30,35 @@ return [
 
     'disks' => [
 
+        /*
+         * `serve` is off, and it matters.
+         *
+         * With it on, Laravel registers its own route at /storage/{path} for
+         * every local-driver disk and lets that disk hand out signed links to
+         * it. Two things go wrong here, and the first is the one that bites:
+         *
+         *   `local` and `volume` are both local disks and both claim the same
+         *   /storage/{path} URI, so whichever is declared second replaces the
+         *   first in the route collection. `storage.local` stops existing, and
+         *   a disk that still claims it can produce a signed URL then produces
+         *   one pointing at a route that is gone.
+         *
+         *   and even where it resolves, that route is the wrong way to serve an
+         *   attachment. App\Http\Controllers\AttachmentController is the only
+         *   thing that authorizes a download against the record owning the file
+         *   — see AttachmentPolicy — and it is also where the inline-versus-
+         *   download decision and the nosniff header live. Laravel's route
+         *   knows about none of that, so a second way in would be a second
+         *   answer to "who may read this file".
+         *
+         * Off, therefore, on both local disks: there is exactly one way to
+         * reach an attachment, and it is the authorized one. Nothing in this
+         * application links at /storage/{path}.
+         */
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
-            'serve' => true,
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],
@@ -95,8 +120,10 @@ return [
          */
         'volume' => [
             'driver' => 'local',
+            // Off for the same reason as `local` above — and more pressingly,
+            // because this disk holds every attachment on a volume deployment.
+            'serve' => false,
             'root' => env('ATTACHMENT_VOLUME_PATH', '/data'),
-            'serve' => true,
             'throw' => true,
             'report' => false,
         ],

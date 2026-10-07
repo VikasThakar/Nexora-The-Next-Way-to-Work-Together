@@ -41,6 +41,62 @@ class AttachmentStorage
      */
     public function store(UploadedFile $file, Model $owner, Board $board, ?User $uploader = null): Attachment
     {
+        $attachment = $this->put($file, $board, $uploader);
+
+        $attachment->attachable()->associate($owner);
+        $attachment->save();
+
+        return $attachment;
+    }
+
+    /**
+     * Store a file that has nothing to belong to yet.
+     *
+     * The creation-form case: a screenshot dropped into a ticket that will not
+     * exist until Save is pressed. The bytes are written exactly as they are for
+     * any other attachment — same disk, same generated path, same per-board
+     * layout — and only the owner is missing, so adoption later is one column
+     * rather than a move.
+     *
+     * An uploader is required rather than optional here, and that is the whole
+     * security model of a draft: with no owner to delegate to, AttachmentPolicy
+     * has nothing but this column to decide who may read the file. A null would
+     * be a row nobody owns and anybody could claim.
+     */
+    public function storeDraft(UploadedFile $file, Board $board, User $uploader): Attachment
+    {
+        $attachment = $this->put($file, $board, $uploader);
+
+        $attachment->save();
+
+        return $attachment;
+    }
+
+    /**
+     * Give a draft the owner it was uploaded for.
+     *
+     * Deliberately not a general "move this file to that record": it refuses
+     * anything that is not still a draft, so a replayed request cannot re-point
+     * a file that already belongs to a ticket somewhere else. Who is allowed to
+     * ask is decided one level up, by App\Actions\Attachments\AdoptDraftAttachments.
+     */
+    public function adopt(Attachment $attachment, Model $owner): Attachment
+    {
+        if (! $attachment->isDraft()) {
+            return $attachment;
+        }
+
+        $attachment->attachable()->associate($owner);
+        $attachment->save();
+
+        return $attachment;
+    }
+
+    /**
+     * Write the bytes and build the row, without deciding what owns it.
+     */
+    private function put(UploadedFile $file, Board $board, ?User $uploader): Attachment
+    {
         $disk = $this->disk();
 
         $extension = Str::lower($file->getClientOriginalExtension());
@@ -50,7 +106,7 @@ class AttachmentStorage
 
         $file->storeAs(dirname($path), basename($path), ['disk' => $disk]);
 
-        $attachment = new Attachment([
+        return new Attachment([
             'board_id' => $board->getKey(),
             'disk' => $disk,
             'path' => $path,
@@ -59,11 +115,6 @@ class AttachmentStorage
             'size' => $file->getSize() ?: 0,
             'uploaded_by_id' => $uploader?->getKey(),
         ]);
-
-        $attachment->attachable()->associate($owner);
-        $attachment->save();
-
-        return $attachment;
     }
 
     /**
@@ -125,40 +176,86 @@ class AttachmentStorage
     }
 
     /**
-     * A short-lived link for an S3-compatible disk, or null when the disk
-     * cannot produce one (local development), in which case the caller streams
-     * the file through the application instead.
+     * A short-lived link for a remote disk, or null when the bytes should be
+     * streamed through the application instead.
+     *
+     * The question this asks is **"is the file somewhere else?"**, and it is
+     * deliberately answered from the configured driver rather than from
+     * `providesTemporaryUrls()`.
+     *
+     * Those are not the same question, and assuming they were is what broke
+     * this method. `providesTemporaryUrls()` answers "can this adapter build a
+     * URL", and Laravel's local driver can: with `'serve' => true` it issues a
+     * signed link to its own `storage.{disk}` route. So a local disk said yes,
+     * the controller redirected, and the redirect pointed at a route that is
+     * not registered — because `local` and `volume` are both local disks that
+     * claim the same `/storage/{path}` URI, and the one declared second
+     * silently replaces the first in the route collection. Every attachment
+     * download on a local deployment raised RouteNotFoundException.
+     *
+     * Serving an attachment from that route would be wrong even where it
+     * resolves. App\Http\Controllers\AttachmentController is the only thing
+     * that authorizes a download against the record owning the file, and it is
+     * also where the inline-versus-download decision and the `nosniff` header
+     * live. Laravel's route knows about none of that. The redirect exists for
+     * exactly one reason — bytes that live in a bucket should not be dragged
+     * through PHP — and a local disk has nothing to gain from it, because PHP
+     * is already serving the request.
+     *
+     * A remote disk that cannot produce a link degrades to streaming rather
+     * than failing the download. A misconfigured bucket is somebody's afternoon;
+     * a 500 on every image in every ticket is everybody's.
      */
     public function temporaryUrl(Attachment $attachment): ?string
     {
-        $disk = Storage::disk($attachment->disk);
+        return $this->temporaryUrlFor($attachment->disk, $attachment->path);
+    }
 
-        if (! $disk->providesTemporaryUrls()) {
+    /**
+     * The same decision, for a file that is not an attachment row.
+     *
+     * Profile pictures are stored outside this table but on the same disk, and
+     * they need this answered identically — see
+     * App\Http\Controllers\UserAvatarController. Sharing the method rather than
+     * the reasoning is the point: this is the second caller, and the bug
+     * described above is exactly the kind a second implementation reintroduces.
+     */
+    public function temporaryUrlFor(?string $disk, ?string $path): ?string
+    {
+        if (! filled($disk) || ! filled($path) || $this->isLocal($disk)) {
             return null;
         }
 
-        /*
-         * A disk that claims it can issue a URL and then cannot streams instead.
-         *
-         * Laravel's local driver says yes whenever the disk is configured with
-         * `serve`, and the URL it issues points at a route named after the
-         * disk. Two served local disks (`local` and `volume` in
-         * config/filesystems.php) share one URI, so the second registration
-         * silently replaces the first's route name and the other disk's URL
-         * throws "route not defined" — which made every attachment on a
-         * development install a 500. The bytes come out of the same disk
-         * either way; the redirect only ever bought anything for an object
-         * store, so falling back to the stream is the right answer, not an
-         * error page.
-         */
         try {
-            return $disk->temporaryUrl(
-                $attachment->path,
+            $filesystem = Storage::disk($disk);
+
+            if (! $filesystem->providesTemporaryUrls()) {
+                return null;
+            }
+
+            return $filesystem->temporaryUrl(
+                $path,
                 now()->addMinutes((int) config('attachments.url_ttl_minutes', 5))
             );
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            report($e);
+
             return null;
         }
+    }
+
+    /**
+     * Does this disk keep its bytes on the machine serving the request?
+     *
+     * Read from configuration rather than by inspecting the adapter, because an
+     * adapter can be swapped for a fake in a test while the disk it stands in
+     * for is still conceptually remote — `Storage::fake('s3')` installs a local
+     * driver, and a test asserting the redirect branch needs that branch to be
+     * chosen by what the deployment says the disk is.
+     */
+    private function isLocal(string $disk): bool
+    {
+        return config("filesystems.disks.{$disk}.driver") === 'local';
     }
 
     /**

@@ -56,10 +56,20 @@ class User extends Authenticatable
      * App\Enums\ThemePreference::default(). Tests\Feature\Theme\
      * ThemePreferenceTest asserts the two agree.
      *
+     * The avatar columns are here for the same reason and it bites harder:
+     * strict mode is on outside production, so reading an attribute a model
+     * never retrieved raises rather than returning null. Without these, every
+     * screen that rendered an avatar for a user who had just been created —
+     * registration, an administrator adding an account, every factory in the
+     * test suite — would throw MissingAttributeException for a column that
+     * exists and is simply null.
+     *
      * @var array<string, mixed>
      */
     protected $attributes = [
         'theme_preference' => 'light',
+        'avatar_path' => null,
+        'avatar_disk' => null,
     ];
 
     /** @return array<string, string> */
@@ -80,6 +90,49 @@ class User extends Authenticatable
              */
             'theme_preference' => ThemePreference::class,
         ];
+    }
+
+    // ---------------------------------------------------------------------
+    // Profile picture
+    // ---------------------------------------------------------------------
+
+    /*
+     * `avatar_path` and `avatar_disk` are deliberately not in $fillable, for
+     * the same reason `role` and `theme_preference` are not: a storage key must
+     * never be writable through an array that arrived from a request. The only
+     * things that set them are App\Actions\Users\UpdateAvatar and RemoveAvatar,
+     * and the only bytes they ever point at were written by
+     * App\Services\AvatarStorage from an image this application re-encoded.
+     */
+
+    public function hasAvatar(): bool
+    {
+        return filled($this->avatar_path);
+    }
+
+    /**
+     * Where this person's picture is served from, or null when there is none.
+     *
+     * Addressed by user rather than by storage key, so the route can authorize:
+     * App\Policies\UserPolicy::viewAvatar decides who may fetch it, and a
+     * storage URL would decide nothing.
+     *
+     * The `v` parameter is a short digest of the stored path, and it is what
+     * makes replacement visible. The route is stable per user, so without it a
+     * browser that has cached one picture would keep showing it after somebody
+     * uploaded another — and the person who just changed their photograph is
+     * the one most certain to be looking.
+     */
+    public function avatarUrl(): ?string
+    {
+        if (! $this->hasAvatar()) {
+            return null;
+        }
+
+        return route('users.avatar', [
+            'user' => $this,
+            'v' => substr(sha1((string) $this->avatar_path), 0, 8),
+        ]);
     }
 
     // ---------------------------------------------------------------------

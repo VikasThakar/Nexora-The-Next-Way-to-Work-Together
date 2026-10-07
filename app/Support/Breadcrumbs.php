@@ -21,10 +21,12 @@ use Illuminate\Support\Collection;
  *
  *     ['label' => 'Boards', 'href' => '/boards', 'mono' => false]
  *
- * `href` of null makes an item inert. That is used for one thing on purpose —
- * the ticket-prefix chip ("NL"). A prefix identifies the board, it is not a
- * place you can go, and giving it the board's URL would put two links to the
- * same page next to each other in every ticket trail.
+ * `href` of null makes an item inert, which is right for two kinds of item: the
+ * page you are already on, and a label that names something rather than
+ * pointing somewhere — a ticket's key, "New ticket", "Board settings".
+ *
+ * `mono` sets the label in the monospace face. Only identifiers use it, which
+ * in practice means a ticket key.
  *
  * Rendering, including which item counts as the current page, belongs to
  * resources/views/components/ui/breadcrumbs.blade.php. Nothing here decides how
@@ -57,7 +59,19 @@ final class Breadcrumbs
     }
 
     /**
-     * The board itself, followed by its ticket prefix as an inert chip.
+     * The board.
+     *
+     * Just the board. Its ticket prefix used to follow as an inert chip, and it
+     * earned nothing anywhere it appeared: on a ticket the trail read
+     * "Nexora Dashboard / NX / NX-9", where the chip is the first half of the
+     * key standing immediately beside it, and on a board's own screens it read
+     * "Nexora Dashboard / NX / Integrations", where it says nothing at all. On
+     * the board page itself it was worse than noise — being last, it took
+     * `aria-current="page"`, so the trail announced the current page as "NX"
+     * rather than as the board's name.
+     *
+     * The prefix still identifies a ticket. It does that in the ticket's key,
+     * which is where it belongs and where it is still rendered.
      *
      * @return list<array{label: string, href: string|null, mono: bool}>
      */
@@ -66,7 +80,6 @@ final class Breadcrumbs
         return [
             ...self::boards(),
             self::item($board->name, route('boards.show', $board)),
-            self::item($board->ticket_prefix, null, mono: true),
         ];
     }
 

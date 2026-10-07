@@ -8,11 +8,8 @@ use App\Enums\TicketPriority;
 use App\Enums\TicketType;
 use App\Livewire\Boards\Show as BoardShow;
 use App\Livewire\Tickets\Show;
-use App\Models\Attachment;
 use App\Models\Ticket;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -66,8 +63,8 @@ class QuickAddTicketTest extends TestCase
         Livewire::actingAs($team)
             ->test(BoardShow::class, ['board' => $board])
             ->call('startQuickAdd', $column->id)
-            ->call('toggleQuickAddDetails')
-            ->assertSet('quickAddExpanded', true)
+            // Nothing to open: every field is on the card from the moment it
+            // appears. There used to be a `toggleQuickAddDetails` call here.
             ->set('quickAddTitle', 'Login screen rejects valid passwords')
             ->set('quickAddType', TicketType::Bug->value)
             ->set('quickAddPriority', TicketPriority::Critical->value)
@@ -99,13 +96,11 @@ class QuickAddTicketTest extends TestCase
         Livewire::actingAs($team)
             ->test(BoardShow::class, ['board' => $board])
             ->call('startQuickAdd', $column->id)
-            ->call('toggleQuickAddDetails')
             ->set('quickAddTitle', 'First')
             ->set('quickAddType', TicketType::Bug->value)
             ->call('quickAdd')
-            // Same column, still expanded, title cleared.
+            // Same column, title cleared.
             ->assertSet('quickAddColumnId', $column->id)
-            ->assertSet('quickAddExpanded', true)
             ->assertSet('quickAddTitle', '')
             // The per-ticket choices reset, so the next card does not silently
             // inherit the last one's assignee or due date.
@@ -213,9 +208,14 @@ class QuickAddTicketTest extends TestCase
             // Asserted on the controls' own ids rather than on their labels:
             // "Unassigned" also appears in the board's assignee filter, and a
             // word-level assertion would pass or fail for the wrong reason.
+            //
+            // The id prefixes were kept across the redesign precisely so this
+            // assertion kept meaning what it meant. `quick-add-details-` is
+            // gone with the disclosure it named, and `qa-priority-` — now a row
+            // of radios rather than a <select> — stands in its place.
             ->assertDontSee('qa-assignee-')
             ->assertDontSee('qa-type-')
-            ->assertDontSee('quick-add-details-');
+            ->assertDontSee('qa-priority-');
     }
 
     /**
@@ -333,145 +333,8 @@ class QuickAddTicketTest extends TestCase
         $this->assertSame(TicketType::Task, $ticket->refresh()->type);
     }
 
-    // -----------------------------------------------------------------
-    // Files on the card
-    // -----------------------------------------------------------------
-
-    /**
-     * A screenshot dropped on the quick-add card is on the ticket it creates,
-     * and — because it is a picture — in the description where it can be
-     * seen, not only in the attachments panel.
-     */
-    public function test_files_dropped_on_the_card_are_attached_and_pictures_are_embedded(): void
-    {
-        Storage::fake('local');
-
-        $team = $this->teamMember();
-        $board = $this->boardWithColumns([$team]);
-        $column = $this->columnNamed($board, 'Backlog');
-
-        $component = Livewire::actingAs($team)
-            ->test(BoardShow::class, ['board' => $board])
-            ->call('startQuickAdd', $column->id)
-            ->set('quickAddUploads', [UploadedFile::fake()->image('crash.png')])
-            ->assertHasNoErrors()
-            // Moved out of the transient property and kept.
-            ->assertSet('quickAddUploads', [])
-            ->assertCount('quickAddFiles', 1)
-            // A second choice adds to the first rather than replacing it.
-            ->set('quickAddUploads', [UploadedFile::fake()->create('console.log', 2, 'text/plain')])
-            ->assertCount('quickAddFiles', 2)
-            ->assertSee('crash.png');
-
-        // Nothing stored until there is a ticket.
-        $this->assertSame(0, Attachment::query()->count());
-
-        $component
-            ->set('quickAddTitle', 'App crashes on launch')
-            ->call('quickAdd')
-            ->assertHasNoErrors()
-            ->assertSet('quickAddFiles', []);
-
-        $ticket = Ticket::query()->where('title', 'App crashes on launch')->sole();
-
-        $this->assertEqualsCanonicalizing(
-            ['crash.png', 'console.log'],
-            $ticket->attachments()->pluck('filename')->all()
-        );
-
-        $image = $ticket->attachments()->where('filename', 'crash.png')->sole();
-        $log = $ticket->attachments()->where('filename', 'console.log')->sole();
-
-        $this->assertStringContainsString('![crash.png]('.route('attachments.show', $image).')', (string) $ticket->description_md);
-        $this->assertStringContainsString('[console.log]('.route('attachments.show', $log).')', (string) $ticket->description_md);
-
-        $this->assertSame(2, $ticket->events()->where('type', 'attachment_changed')->count());
-
-        // And the card on the board now carries the picture.
-        $component->assertSeeHtml(route('attachments.show', $image));
-    }
-
-    public function test_a_file_can_be_taken_off_the_card_before_adding(): void
-    {
-        Storage::fake('local');
-
-        $team = $this->teamMember();
-        $board = $this->boardWithColumns([$team]);
-        $column = $this->columnNamed($board, 'Backlog');
-
-        Livewire::actingAs($team)
-            ->test(BoardShow::class, ['board' => $board])
-            ->call('startQuickAdd', $column->id)
-            ->set('quickAddUploads', [UploadedFile::fake()->image('one.png'), UploadedFile::fake()->image('two.png')])
-            ->call('removeQuickAddFile', 0)
-            ->assertCount('quickAddFiles', 1)
-            ->set('quickAddTitle', 'One picture')
-            ->call('quickAdd')
-            ->assertHasNoErrors();
-
-        $this->assertSame(['two.png'], Ticket::query()->sole()->attachments()->pluck('filename')->all());
-    }
-
-    public function test_the_card_applies_the_same_upload_rules_as_everywhere_else(): void
-    {
-        Storage::fake('local');
-
-        $team = $this->teamMember();
-        $board = $this->boardWithColumns([$team]);
-        $column = $this->columnNamed($board, 'Backlog');
-
-        Livewire::actingAs($team)
-            ->test(BoardShow::class, ['board' => $board])
-            ->call('startQuickAdd', $column->id)
-            ->set('quickAddUploads', [UploadedFile::fake()->create('payload.exe', 4)])
-            ->assertHasErrors('quickAddUploads.*')
-            ->assertCount('quickAddFiles', 0);
-    }
-
-    public function test_cancelling_the_card_drops_the_files(): void
-    {
-        Storage::fake('local');
-
-        $team = $this->teamMember();
-        $board = $this->boardWithColumns([$team]);
-        $column = $this->columnNamed($board, 'Backlog');
-
-        Livewire::actingAs($team)
-            ->test(BoardShow::class, ['board' => $board])
-            ->call('startQuickAdd', $column->id)
-            ->set('quickAddUploads', [UploadedFile::fake()->image('one.png')])
-            ->assertCount('quickAddFiles', 1)
-            ->call('cancelQuickAdd')
-            ->assertSet('quickAddFiles', []);
-
-        $this->assertSame(0, Attachment::query()->count());
-    }
-
-    /**
-     * A customer may raise a request with a screenshot: the card takes the
-     * files, CreateTicket applies its own rules to everything else.
-     */
-    public function test_a_customer_can_attach_a_screenshot_to_a_quick_added_request(): void
-    {
-        Storage::fake('local');
-
-        $customer = $this->customer();
-        $board = $this->boardWithColumns([$customer]);
-        $column = $this->columnNamed($board, 'Backlog');
-
-        Livewire::actingAs($customer)
-            ->test(BoardShow::class, ['board' => $board])
-            ->call('startQuickAdd', $column->id)
-            ->set('quickAddUploads', [UploadedFile::fake()->image('what-i-see.png')])
-            ->assertHasNoErrors()
-            ->set('quickAddTitle', 'The page is blank')
-            ->call('quickAdd')
-            ->assertHasNoErrors();
-
-        $ticket = Ticket::query()->sole();
-
-        $this->assertTrue($ticket->customer_visible);
-        $this->assertSame(1, $ticket->attachments()->count());
-        $this->assertStringContainsString('![what-i-see.png]', (string) $ticket->description_md);
-    }
+    // Files on the card are covered next door, in
+    // tests/Feature/Boards/QuickAddAttachmentTest.php. The same behaviours
+    // were asserted here against the staged-upload design this branch
+    // replaced with drafts; they moved rather than went away.
 }

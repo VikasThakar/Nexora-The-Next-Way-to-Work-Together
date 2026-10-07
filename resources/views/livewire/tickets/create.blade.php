@@ -70,14 +70,14 @@
                                            :invalid="$errors->has('descriptionMd')">{{ $descriptionMd }}</x-ui.textarea>
                         @else
                             {{--
-                                The uploader is on, and what it feeds is a
-                                staging area rather than the attachments
-                                table: there is no ticket to own a row until
-                                this form is saved, so the files wait as
-                                Livewire temporary uploads and the editor shows
-                                a preview URL. save() stores them against the
-                                new ticket and rewrites the URLs — see
-                                EditsRichText::attachStaged().
+                                Files dropped, pasted or chosen here are stored
+                                straight away as drafts — rows with no owner yet
+                                — and adopted by the ticket when this form is
+                                saved. An inline image therefore points at
+                                route('attachments.show') from the moment it
+                                appears, so the description never has to have its
+                                URLs rewritten afterwards. See
+                                App\Livewire\Concerns\CollectsDraftAttachments.
                             --}}
                             <div wire:key="rich-new-ticket">
                                 <x-ui.rich-editor
@@ -91,45 +91,43 @@
                             @error('pendingUploads.*')
                                 <p class="mt-1 text-xs text-rose-600">{{ $message }}</p>
                             @enderror
-                            @error('stagedUploads')
-                                <p class="mt-1 text-xs text-rose-600">{{ $message }}</p>
-                            @enderror
                         @endif
                     </x-ui.field>
 
-                    @if ($stagedFiles !== [])
+                    @if ($draftAttachments->isNotEmpty())
                         {{--
-                            What will be attached when the ticket is created.
-
-                            Pictures as pictures. A screenshot has already been
-                            placed in the description above; this strip is the
-                            complete list, so a recording or a log file — which
-                            the editor cannot show inline — is still visibly
-                            on its way onto the ticket.
+                            Images dropped into the editor are already visible in
+                            the description above. This list is what makes a PDF
+                            or a log file visible at all, and what gives any of
+                            them a way back out before the ticket exists.
                         --}}
-                        <div>
-                            <p class="mb-2 text-xs font-medium text-slate-600">Attached when the ticket is created</p>
-                            <ul class="flex flex-wrap gap-2">
-                                @foreach ($stagedFiles as $index => $file)
-                                    <li wire:key="staged-{{ $index }}-{{ md5($file['name']) }}"
-                                        class="group relative overflow-hidden rounded-lg border border-slate-200 bg-surface">
-                                        @if ($file['image'] && $file['url'])
-                                            <img src="{{ $file['url'] }}" alt="{{ $file['name'] }}"
-                                                 class="block h-24 w-32 object-cover" loading="lazy">
+                        <div class="mt-4 border-t border-slate-200 pt-4">
+                            <h3 class="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                                Attached to this ticket
+                            </h3>
+
+                            <ul class="mt-2 space-y-1.5" role="list">
+                                @foreach ($draftAttachments as $draft)
+                                    <li wire:key="draft-{{ $draft->id }}"
+                                        class="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+                                        @if ($draft->isImage())
+                                            <img src="{{ route('attachments.show', $draft) }}"
+                                                 alt=""
+                                                 class="h-8 w-8 shrink-0 rounded object-cover">
                                         @else
-                                            <div class="flex h-24 w-40 flex-col justify-center gap-1 px-3">
-                                                <span class="truncate text-xs font-medium text-slate-800" title="{{ $file['name'] }}">{{ $file['name'] }}</span>
-                                                <span class="text-[11px] text-slate-500">{{ $file['size'] }}</span>
-                                            </div>
+                                            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-slate-200 text-[10px] font-semibold text-slate-600">
+                                                {{ strtoupper(pathinfo($draft->filename, PATHINFO_EXTENSION) ?: 'FILE') }}
+                                            </span>
                                         @endif
 
+                                        <span class="min-w-0 flex-1 truncate text-sm text-slate-700">{{ $draft->filename }}</span>
+                                        <span class="shrink-0 text-xs text-slate-400">{{ $draft->humanSize() }}</span>
+
                                         <button type="button"
-                                                wire:click="removeStaged({{ $index }})"
-                                                class="absolute top-1 right-1 rounded-full bg-slate-900/70 p-1 text-white opacity-0 transition group-hover:opacity-100 focus:opacity-100"
-                                                aria-label="Remove {{ $file['name'] }}">
-                                            <svg class="size-3" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                                            </svg>
+                                                wire:click="removeDraftAttachment({{ $draft->id }})"
+                                                class="shrink-0 rounded px-1.5 py-0.5 text-xs text-slate-500 transition hover:bg-slate-200 hover:text-slate-800"
+                                                aria-label="Remove {{ $draft->filename }}">
+                                            Remove
                                         </button>
                                     </li>
                                 @endforeach

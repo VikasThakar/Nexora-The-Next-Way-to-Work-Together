@@ -46,7 +46,7 @@
                         <tr wire:key="user-{{ $user->id }}" class="transition hover:bg-slate-50">
                             <td class="px-5 py-3">
                                 <div class="flex items-center gap-3">
-                                    <x-ui.avatar :name="$user->name" size="sm" />
+                                    <x-ui.avatar :user="$user" size="sm" />
                                     <div class="min-w-0">
                                         <p class="truncate font-medium text-slate-900">{{ $user->name }}</p>
                                         <p class="truncate text-xs text-slate-500">{{ $user->email }}</p>

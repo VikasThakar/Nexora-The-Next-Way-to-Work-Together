@@ -62,7 +62,7 @@
     <div class="min-w-0 flex-1">
         <div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
             <p class="min-w-0 text-sm text-slate-600">
-                <x-ui.avatar :name="$actorName" size="sm" class="mr-1.5 -mt-0.5 align-middle" />
+                <x-ui.avatar :user="$activity->actor" :name="$actorName" size="sm" class="mr-1.5 -mt-0.5 align-middle" />
                 <span class="font-medium text-slate-900">{{ $actorName }}</span>
                 {{ $activity->description }}
             </p>

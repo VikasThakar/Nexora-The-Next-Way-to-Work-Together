@@ -4,13 +4,15 @@ declare(strict_types=1);
 
 namespace App\Livewire\Tickets;
 
-use App\Actions\Tickets\AttachFilesToTicket;
+use App\Actions\Attachments\AdoptDraftAttachments;
 use App\Actions\Tickets\CreateTicket;
 use App\Enums\TicketPriority;
 use App\Enums\TicketType;
 use App\Livewire\Concerns\EditsRichText;
+use App\Models\Attachment;
 use App\Models\Board;
 use App\Models\Ticket;
+use App\Services\AttachmentStorage;
 use App\Support\Markdown;
 use App\Support\RichText\RichText;
 use Illuminate\Validation\Rule;
@@ -72,7 +74,7 @@ class Create extends Component
     }
 
     /**
-     * The board files are filed under once the ticket exists.
+     * The board files dropped into this form are filed under.
      */
     protected function uploadBoard(): Board
     {
@@ -80,16 +82,47 @@ class Create extends Component
     }
 
     /**
-     * There is no ticket to attach to yet, so files dropped into the editor
-     * are staged — see EditsRichText::$stagedUploads — and stored against the
-     * ticket the moment save() has created it.
+     * Files may be dropped here before the ticket exists.
+     *
+     * There is no owner to authorize against yet, so what stands in its place is
+     * the check this component already makes on mount and again on save: this
+     * person may create a ticket on this board. Somebody who cannot file a
+     * ticket here never reaches a form that would take their screenshot.
+     *
+     * Re-asked rather than remembered from mount(), because a Livewire action is
+     * a fresh request and board membership can be revoked between the two.
      */
-    protected function stagesUploads(): bool
+    protected function allowsDraftUploads(): bool
     {
-        return true;
+        return auth()->user()?->can('create', [Ticket::class, $this->board]) === true;
     }
 
-    public function save(CreateTicket $createTicket, RichText $rich, AttachFilesToTicket $attach)
+    /**
+     * Drop a file that was attached before the ticket was filed.
+     *
+     * Only reachable while the form is still open, which is the window in which
+     * a draft exists at all. The trait re-resolves the id against this uploader
+     * and this board, so a tampered one removes nothing.
+     */
+    public function removeDraftAttachment(int $attachmentId, AttachmentStorage $storage): void
+    {
+        $this->authorize('create', [Ticket::class, $this->board]);
+
+        $draft = $this->draftAttachments()->firstWhere('id', $attachmentId);
+
+        if (! $draft instanceof Attachment) {
+            return;
+        }
+
+        $storage->delete($draft);
+
+        $this->draftAttachmentIds = array_values(array_filter(
+            $this->draftAttachmentIds,
+            fn (int $id): bool => $id !== $attachmentId,
+        ));
+    }
+
+    public function save(CreateTicket $createTicket, RichText $rich, AdoptDraftAttachments $adopt)
     {
         $this->authorize('create', [Ticket::class, $this->board]);
 
@@ -124,18 +157,20 @@ class Create extends Component
         ], auth()->user());
 
         /*
-         * The files that were waiting for this ticket to exist.
+         * The files that were dropped in while this form was open now have the
+         * ticket they were always meant for.
          *
-         * Stored now, against the new ticket, and the description rewritten
-         * from the editor's preview URLs to the authorized attachment route.
-         * Saved quietly, because the observer has just announced the
-         * creation and this is part of the same act.
+         * After creation rather than inside it: CreateTicket is called from the
+         * board, from this form and from a confirmed AI proposal, and only this
+         * one has drafts to hand over. Giving the action an attachment argument
+         * would make every caller think about files, and make a failed adoption
+         * able to roll back a filed ticket.
+         *
+         * Any inline image already points at route('attachments.show') for
+         * these rows, so the description needs no rewriting — adoption changes
+         * who may read the file, not where it lives.
          */
-        if ($this->stagedUploads !== []) {
-            $ticket->description_md = $this->attachStaged($ticket, (string) $validated['descriptionMd'], $attach);
-
-            $ticket->saveQuietly();
-        }
+        $this->adoptDraftUploads($ticket, $adopt);
 
         session()->flash('status', $ticket->key().' created.');
 
@@ -161,8 +196,11 @@ class Create extends Component
             // same split, so hiding it here is presentation, not security.
             'isStaff' => $user->isStaff(),
             'firstColumnName' => $this->board->columns()->ordered()->value('name'),
+            // Files already dropped in. Images embedded in the description show
+            // there too; this list is what makes a PDF or a log file visible,
+            // and what gives any of them a way back out before the ticket exists.
+            'draftAttachments' => $this->draftAttachments(),
             'canAttachInEditor' => $this->canAttachInEditor(),
-            'stagedFiles' => $this->stagedFiles(),
         ])->title('New ticket');
     }
 }

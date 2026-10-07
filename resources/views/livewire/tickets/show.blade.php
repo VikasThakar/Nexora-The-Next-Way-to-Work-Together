@@ -248,7 +248,7 @@
                         @else
                             <div class="flex items-center gap-2 py-1">
                                 @if ($ticket->assignee)
-                                    <x-ui.avatar :name="$ticket->assignee->name" size="sm" />
+                                    <x-ui.avatar :user="$ticket->assignee" size="sm" />
                                     <span class="text-sm text-slate-700">{{ $ticket->assignee->name }}</span>
                                 @else
                                     <span class="text-sm text-slate-400">Unassigned</span>

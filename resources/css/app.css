@@ -37,6 +37,30 @@
  */
 html {
     font-size: 93.75%; /* 15px where the browser default is 16px */
+
+    /*
+     * How wide the two resizable panels are.
+     *
+     * Declared here rather than in `@theme` because `@theme` is for design
+     * tokens that generate utilities, and these are two layout values that a
+     * script overwrites at runtime. They live on `html` for the same reason
+     * the font size does: it is outside every Livewire morph region, so an
+     * inline override survives a wire:navigate that replaces <body>.
+     *
+     * These are the *defaults* — the widths the product shipped with before
+     * the panels could be dragged. A stored preference arrives as an inline
+     * style on this same element, which wins on specificity, and is applied
+     * before the first paint by components/app/panel-boot.blade.php. Keeping
+     * real values here is what makes the layout correct with no JavaScript at
+     * all, and what makes clearing site data a reset rather than a collapse.
+     *
+     * Read by three places, which is the point: the sidebar column in
+     * layouts/app.blade.php, the assistant's <aside>, and the content gutter
+     * further down this file. That last pair used to be the same number typed
+     * twice, and had to be kept in agreement by hand.
+     */
+    --nav-width: 16rem;
+    --ai-panel-width: 28rem;
 }
 
 /*
@@ -397,11 +421,63 @@ html.dark {
      * sheet, so there is nothing to inset.
      *
      * The class is toggled on <body> by resources/js/ai-panel.js.
+     *
+     * The width is read from the same custom property the panel itself is
+     * sized by, so the gutter cannot drift from the thing it is making room
+     * for — including while somebody is dragging the panel's edge.
      */
     @media (min-width: 64rem) {
         body.ai-panel-open .app-content {
-            padding-right: 28rem;
+            padding-right: var(--ai-panel-width);
         }
+    }
+
+    /*
+     * The content column glides when the assistant opens and closes.
+     *
+     * This was a `transition-[padding] duration-200` utility in the layout, and
+     * it had to move here. Suspending it during a drag (below) is a rule in this
+     * layer, the utility lives in `utilities`, and a cascade layer beats
+     * specificity outright — so the suspension could never have won while the
+     * transition itself was a utility, however specific its selector. With both
+     * in one layer, specificity decides again and the more specific rule wins.
+     *
+     * Worth knowing in general: a `body.x .y` rule written in this block loses
+     * to any utility on `.y`. The `body.sorting` rules further down have never
+     * hit it only because nothing they target carries a competing utility.
+     */
+    .app-content {
+        transition: padding 200ms var(--default-transition-timing-function);
+    }
+
+    /*
+     * A panel edge being dragged.
+     *
+     * The same job `body.sorting` does for a card drag: the pointer spends the
+     * drag out over the page rather than on the handle, so the cursor and the
+     * no-selection rule have to be set on the document.
+     *
+     * `!important` on a universal selector is not something to reach for
+     * casually, and it is the right tool exactly here. Every `cursor-pointer`
+     * and `select-text` in the product is a utility, so a layered rule cannot
+     * out-rank them — and this needs to out-rank all of them, for the second or
+     * two the class is on the body and no other interaction is possible.
+     *
+     * The transition rule is the one a card drag does not need. Left alone, the
+     * 200ms glide above makes the content column lag a fifth of a second behind
+     * the pointer, which reads as a broken layout rather than as an animation.
+     *
+     * Set on <body> by resources/js/panel-resize.js.
+     */
+    body.resizing-panel,
+    body.resizing-panel * {
+        cursor: col-resize !important;
+        -webkit-user-select: none !important;
+        user-select: none !important;
+    }
+
+    body.resizing-panel .app-content {
+        transition: none;
     }
 
     /*

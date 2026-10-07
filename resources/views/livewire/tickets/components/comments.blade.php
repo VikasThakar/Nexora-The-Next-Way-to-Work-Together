@@ -95,7 +95,17 @@
                     <li wire:key="comment-{{ $comment->id }}" class="flex gap-3">
                         @php $automated = in_array($comment->id, $automatedIds, true); @endphp
 
-                        <x-ui.avatar :name="$automated ? 'AI' : ($comment->author?->name ?? '?')" size="sm" class="mt-0.5" />
+                        {{--
+                            No user for an automated turn, and none for an author
+                            whose account has since been removed — both keep the
+                            initials disc the literal name produces.
+                        --}}
+                        <x-ui.avatar
+                            :user="$automated ? null : $comment->author"
+                            :name="$automated ? 'AI' : ($comment->author?->name ?? '?')"
+                            size="sm"
+                            class="mt-0.5"
+                        />
 
                         <div @class([
                             'min-w-0 flex-1 rounded-lg border px-3 py-2.5',

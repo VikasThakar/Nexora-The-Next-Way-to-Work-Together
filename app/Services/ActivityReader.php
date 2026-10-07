@@ -61,7 +61,10 @@ class ActivityReader
         int $perPage = 25,
     ): LengthAwarePaginator {
         return $this->query($user, $filters)
-            ->with(['actor:id,name,email,role,deactivated_at', 'board:id,name,slug,ticket_prefix'])
+            // avatar_path and avatar_disk are named because the feed renders the
+            // actor's picture. A constrained select that omits them does not
+            // fall back to a query — under strict mode it raises.
+            ->with(['actor:id,name,email,role,deactivated_at,avatar_path,avatar_disk', 'board:id,name,slug,ticket_prefix'])
             ->latestFirst()
             ->paginate($perPage);
     }

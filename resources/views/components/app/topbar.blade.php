@@ -83,7 +83,7 @@
                 :aria-expanded="open"
                 aria-haspopup="true"
             >
-                <x-ui.avatar :name="$user?->name ?? '?'" />
+                <x-ui.avatar :user="$user" :name="$user?->name ?? '?'" />
                 <svg class="size-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
                 </svg>

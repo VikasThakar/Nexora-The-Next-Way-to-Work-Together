@@ -43,6 +43,40 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Re-authentication on administration screens
+    |--------------------------------------------------------------------------
+    |
+    | Whether reaching board creation, user administration or the global AI
+    | settings asks for the password again inside an already valid session.
+    |
+    | Off by default. The delivery team configures boards and accounts as part
+    | of ordinary work, and a prompt on every visit is friction paid many times
+    | a day against a threat it only partly addresses: it protects a session
+    | somebody else has got hold of, and does nothing about the far more common
+    | case of an account whose password is known.
+    |
+    | What it is worth is narrow but real, so the control is kept rather than
+    | deleted. The screen it guards hardest is user administration, because that
+    | is the privilege-escalation path — somebody at an unlocked laptop, or
+    | holding a stolen session cookie, can promote themselves to administrator
+    | or create an account of their own. A deployment that cares about that, or
+    | that has to answer to an auditor who does, turns this on and gets the
+    | behaviour back without a code change.
+    |
+    | Read at request time rather than baked into the route definitions, so
+    | changing it takes effect on the next request rather than on the next
+    | `route:cache`. See App\Http\Middleware\ConfirmPasswordWhenRequired.
+    |
+    | What this does NOT relax: the role middleware still blocks the request,
+    | and every policy and gate behind it is untouched. This decides only
+    | whether an administrator is asked to prove it is still them.
+    |
+    */
+
+    'require_password_confirmation' => (bool) env('REQUIRE_PASSWORD_CONFIRMATION', false),
+
+    /*
+    |--------------------------------------------------------------------------
     | Board defaults
     |--------------------------------------------------------------------------
     |

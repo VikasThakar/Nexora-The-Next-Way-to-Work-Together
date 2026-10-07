@@ -141,7 +141,23 @@ document.addEventListener('alpine:init', () => {
 document.addEventListener('alpine:init', () => {
     const store = window.Alpine.store('aiPanel')
 
-    window.Alpine.effect(() => {
-        document.body.classList.toggle('ai-panel-open', store.open)
-    })
+    const gutter = () => document.body.classList.toggle('ai-panel-open', store.open)
+
+    window.Alpine.effect(gutter)
+
+    /*
+     * And again after a navigation, because the effect will not do it.
+     *
+     * wire:navigate replaces <body> wholesale, which takes the class with it.
+     * The effect's only reactive dependency is `store.open`, and that has not
+     * changed — the panel is inside @persist and is still open — so nothing
+     * re-runs it. The result was a panel left overlapping the content column
+     * with no room made for it, until the next time somebody opened or closed
+     * it.
+     *
+     * The same shape as the appearance re-assert in resources/js/theme.js, and
+     * for the same underlying reason: a full-page swap takes anything written
+     * outside a Livewire component with it.
+     */
+    document.addEventListener('livewire:navigated', gutter)
 })
