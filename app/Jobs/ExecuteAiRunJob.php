@@ -392,6 +392,39 @@ class ExecuteAiRunJob implements ShouldQueue
      */
     private function applyNote(AiRun $run, array $outcome): string
     {
+        /*
+         * A run that deliberately changed nothing gets its own note.
+         *
+         * It is not a failure and it is not a pull request, so it is told as
+         * what it is: the runtime looked at the ticket, decided it could not
+         * implement it safely, and said why. That explanation is the whole
+         * value of the run — it is usually "this ticket needs acceptance
+         * criteria" — so it leads rather than being buried under empty counts.
+         */
+        if ($outcome['no_changes'] ?? false) {
+            $lines = [
+                '**Apply-mode run made no changes.**',
+                '',
+                'The coding runtime read the ticket and chose not to change any files. '
+                .'That is a deliberate outcome rather than a failure: it is asked to decline '
+                .'rather than guess when a ticket is too vague, needs a product decision, or '
+                .'would require a change it was told not to make.',
+                '',
+                'Nothing was committed and no pull request was opened.',
+            ];
+
+            $summary = trim($outcome['result']->summary);
+
+            if ($summary !== '') {
+                $lines[] = '';
+                $lines[] = '### Why';
+                $lines[] = '';
+                $lines[] = $summary;
+            }
+
+            return implode("\n", $lines);
+        }
+
         $lines = [
             '**Apply-mode run opened a draft pull request.**',
             '',
