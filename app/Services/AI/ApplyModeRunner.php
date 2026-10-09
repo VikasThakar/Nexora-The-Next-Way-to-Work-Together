@@ -45,14 +45,11 @@ use Symfony\Component\Process\Process;
  *                          and the generated name would collide with it.
  *   never merges           PullRequestClient has no merge method. The
  *                          capability does not exist in this codebase.
- *   never fakes success    a failed validation command or an unavailable
- *                          runtime raise, the run is recorded as failed, and an
- *                          internal note says which step stopped it. No pull
- *                          request is ever opened for work that did not happen.
- *                          An empty diff is the one case that is not a fault:
- *                          step 6 returns early with the runtime's own
- *                          explanation, because declining a ticket it cannot
- *                          implement safely is behaviour the brief asks for.
+ *   never fakes success    an empty diff, a failed validation command or an
+ *                          unavailable runtime all raise. The run is recorded
+ *                          as failed and an internal note says which step
+ *                          stopped it. No pull request is opened for work that
+ *                          did not happen.
  *
  * The failure order matters too: validation runs *before* the push, so a change
  * that does not build never becomes a branch on the remote.
@@ -70,19 +67,14 @@ class ApplyModeRunner
     ) {}
 
     /**
-     * `pull_request_url` is null and `no_changes` true when the runtime
-     * deliberately changed nothing — see step 6. Every other key is still
-     * present so callers need no second shape to read.
-     *
      * @return array{
      *     result: CodeChangeResult,
      *     branch: string,
      *     base: string,
-     *     pull_request_url: string|null,
+     *     pull_request_url: string,
      *     changed_files: list<string>,
      *     diffstat: string,
-     *     validation: list<array{command: string, passed: bool}>,
-     *     no_changes: bool
+     *     validation: list<array{command: string, passed: bool}>
      * }
      */
     public function run(AiRun $run, Ticket $ticket, BoardRepository $repository): array
@@ -174,42 +166,7 @@ class ApplyModeRunner
         //    runtime that reports work it did not do is a real failure mode, and
         //    this is what stops it becoming an empty pull request.
         if (! $this->git->hasChanges($path)) {
-            /*
-             * An empty diff is an outcome, not a failure.
-             *
-             * The brief this run was given says so in as many words: if the
-             * ticket is too vague, needs a product decision, or would require a
-             * change the runtime was told not to make, it must make NO changes
-             * and explain why — "an empty result with a clear explanation is a
-             * good outcome; a plausible-looking guess is not".
-             *
-             * This used to throw, which meant the one behaviour the prompt
-             * explicitly asks for was recorded as a red failure, and the
-             * explanation — sitting right here in $result->summary — was
-             * discarded with it. Somebody then read "the coding runtime finished
-             * but changed no files" and had no way to learn that their ticket
-             * simply needed acceptance criteria.
-             *
-             * Nothing is lost by returning instead. No branch was pushed, no
-             * pull request was opened, and the workspace is cleaned up by the
-             * caller exactly as before. What changes is only that the run is
-             * reported as what it was, carrying the reason.
-             *
-             * A runtime that genuinely broke does not reach here: it exits
-             * non-zero and ClaudeCodeGenerator raises before this point.
-             */
-            $this->stages->record($run, AiRunStage::Finished, ['no_changes' => true]);
-
-            return [
-                'result' => $result,
-                'branch' => $branch,
-                'base' => $base,
-                'pull_request_url' => null,
-                'changed_files' => [],
-                'diffstat' => '',
-                'validation' => [],
-                'no_changes' => true,
-            ];
+            throw CodeGenerationException::noChanges();
         }
 
         $changedFiles = $this->git->changedFiles($path);
@@ -249,7 +206,6 @@ class ApplyModeRunner
             'changed_files' => $changedFiles,
             'diffstat' => $diffstat,
             'validation' => $validation,
-            'no_changes' => false,
         ];
     }
 

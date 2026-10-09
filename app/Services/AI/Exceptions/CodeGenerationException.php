@@ -47,4 +47,12 @@ class CodeGenerationException extends RuntimeException
             ."request was opened. Output:\n".mb_substr($output, 0, 2000)
         );
     }
+
+    public static function noChanges(): self
+    {
+        return new self(
+            'The coding runtime finished but changed no files. Nothing was committed, and no '
+            .'pull request was opened.'
+        );
+    }
 }

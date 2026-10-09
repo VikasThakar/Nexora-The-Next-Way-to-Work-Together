@@ -10,7 +10,6 @@ use App\Enums\AiRunStatus;
 use App\Enums\CommentStream;
 use App\Jobs\ExecuteAiRunJob;
 use App\Models\AiRun;
-use App\Models\BoardRepository;
 use App\Models\Comment;
 use App\Models\Ticket;
 use App\Services\AI\AiRunWorkspace;
@@ -20,8 +19,6 @@ use App\Services\AI\CodeGeneration\CodeChangeResult;
 use App\Services\AI\CodeGeneration\UnavailableCodeChangeGenerator;
 use App\Services\AI\Exceptions\AiProviderException;
 use App\Services\AI\Exceptions\AiWorkspaceException;
-use App\Services\AI\Git\GitClient;
-use App\Services\AI\Git\RepositoryCheckout;
 use App\Services\AI\TicketAnalysisService;
 use App\Services\GitHub\PullRequestClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -268,143 +265,6 @@ class ApplyModeTest extends TestCase
         $methods = get_class_methods(PullRequestClient::class);
 
         $this->assertSame(['isConfigured', 'open'], array_values($methods));
-    }
-
-    /**
-     * Declining a ticket is an outcome, not a failure.
-     *
-     * The brief an apply run is given tells the runtime, in as many words, to
-     * make no changes and explain why when a ticket is too vague or needs a
-     * product decision — "an empty result with a clear explanation is a good
-     * outcome; a plausible-looking guess is not".
-     *
-     * This used to be recorded as a red failure with a fixed message, and the
-     * explanation was discarded on the way. Somebody looking at the ticket was
-     * told the runtime "changed no files" and given no way to learn that what it
-     * actually wanted was acceptance criteria. Both halves are asserted here:
-     * the run completes, and the reason survives into the note.
-     */
-    public function test_a_run_that_deliberately_changes_nothing_completes_and_keeps_the_reason(): void
-    {
-        $this->fakeAiProvider();
-
-        config(['github.token' => 'ghp_'.str_repeat('a', 36)]);
-
-        $checkout = storage_path('app/testing-empty-checkout');
-        File::ensureDirectoryExists($checkout);
-
-        $this->app->instance(RepositoryCheckout::class, new class($checkout) extends RepositoryCheckout
-        {
-            public function __construct(private readonly string $path) {}
-
-            public function require(AiRun $run, BoardRepository $repository): string
-            {
-                return $this->path;
-            }
-
-            public function authenticatedUrl(BoardRepository $repository): string
-            {
-                return 'https://x@github.com/acme/platform.git';
-            }
-        });
-
-        // A clean tree: the runtime ran, and chose to edit nothing.
-        $this->app->instance(GitClient::class, new class extends GitClient
-        {
-            public function __construct() {}
-
-            public function configureIdentity(string $directory, string $name, string $email): void {}
-
-            public function createBranch(string $directory, string $branch): void {}
-
-            public function hasChanges(string $directory): bool
-            {
-                return false;
-            }
-        });
-
-        // Opening one would be the bug this guards against.
-        $this->app->instance(PullRequestClient::class, new class extends PullRequestClient
-        {
-            public function isConfigured(): bool
-            {
-                return true;
-            }
-
-            public function open(
-                BoardRepository $repository,
-                string $head,
-                string $base,
-                string $title,
-                string $body,
-                bool $draft = true,
-            ): array {
-                throw new \RuntimeException('No pull request may be opened when nothing changed.');
-            }
-        });
-
-        $reason = 'This ticket does not say where the screen lives, who may see it, '
-            .'or how the values are stored. Those are product decisions, so I made no changes.';
-
-        $this->app->instance(CodeChangeGeneratorInterface::class, new class($reason) implements CodeChangeGeneratorInterface
-        {
-            public function __construct(private readonly string $reason) {}
-
-            public function name(): string
-            {
-                return 'test';
-            }
-
-            public function isAvailable(): bool
-            {
-                return true;
-            }
-
-            public function unavailableReason(): ?string
-            {
-                return null;
-            }
-
-            public function generate(
-                AiRun $run,
-                Ticket $ticket,
-                string $checkoutPath,
-                string $brief
-            ): CodeChangeResult {
-                return new CodeChangeResult(summary: $this->reason, metadata: ['runtime' => 'test']);
-            }
-        });
-
-        $team = $this->teamMember();
-        $board = $this->boardWithColumns([$team]);
-        $repository = $this->repositoryOn($board);
-        $ticket = $this->ticketOn($board, $team);
-
-        $run = AiRun::factory()->forTicket($ticket)->manual($team)->apply()->create([
-            'board_repository_id' => $repository->id,
-            'repository' => $repository->repository_name,
-        ]);
-
-        $this->runJob($run);
-
-        $run->refresh();
-
-        // Completed, not failed. This is the whole point.
-        $this->assertSame(AiRunStatus::Completed, $run->status);
-
-        // And nothing was invented on the way: no branch reached the remote and
-        // no pull request exists.
-        $this->assertNull($run->pull_request_url);
-
-        $comment = Comment::query()->sole();
-
-        $this->assertSame(CommentStream::Internal, $comment->stream);
-        $this->assertStringContainsString('made no changes', $comment->body_md);
-
-        // The reason is the reason the run was worth anything.
-        $this->assertStringContainsString($reason, $comment->body_md);
-
-        File::deleteDirectory($checkout);
     }
 
     private function runJob(AiRun $run): void
