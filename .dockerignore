@@ -12,6 +12,7 @@ storage/framework/cache/data/*
 storage/framework/sessions/*
 storage/framework/views/*
 storage/app/public/*
+storage/*.key
 bootstrap/cache/*.php
 .env
 .env.*

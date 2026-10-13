@@ -41,5 +41,16 @@
              developer has in .env. Without this, AI_CODE_DRIVER=claude_code
              locally makes ApplyModeTest fail against a correct application. -->
         <env name="AI_CODE_DRIVER" value="unavailable"/>
+        <!-- Pinned for the same reason. Production reports in Europe/Stockholm;
+             a test that needs a zone sets it itself. -->
+        <env name="WORKSPACE_DEFAULT_TIMEZONE" value="UTC"/>
+        <!-- The remote MCP server's defaults: on, the supported AI clients
+             only, and no Passport keys from .env (tests generate their own;
+             see Tests\Support\InteractsWithMcp). -->
+        <env name="MCP_SERVER_ENABLED" value="true"/>
+        <env name="MCP_REDIRECT_DOMAINS" value="https://claude.ai,https://claude.com,https://chatgpt.com,http://localhost"/>
+        <env name="MCP_RATE_LIMIT" value="60"/>
+        <env name="PASSPORT_PRIVATE_KEY" value=""/>
+        <env name="PASSPORT_PUBLIC_KEY" value=""/>
     </php>
 </phpunit>

@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Notifications\Channels\SlackWebhookChannel;
 use App\Observers\CommentObserver;
 use App\Observers\TicketObserver;
+use App\Observers\UserObserver;
 use App\Policies\AiRunPolicy;
 use App\Policies\AiSessionPolicy;
 use App\Policies\AttachmentPolicy;
@@ -70,6 +71,7 @@ use App\Services\SMS\ElksSmsProvider;
 use App\Services\SMS\LogSmsProvider;
 use App\Services\SMS\SmsProviderInterface;
 use App\Services\SMS\UnavailableSmsProvider;
+use Carbon\CarbonInterval;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -82,6 +84,8 @@ use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Laravel\Mcp\Server\Registrar;
+use Laravel\Passport\Passport;
 use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
@@ -90,6 +94,14 @@ class AppServiceProvider extends ServiceProvider
     {
         // Singleton so per-request membership lookups are memoised once per user.
         $this->app->singleton(BoardAccess::class);
+
+        /*
+         * Passport's device-code grant (the "enter this code on your TV" flow)
+         * is on by default and registers /oauth/device*. Nothing here uses it,
+         * and an unused way to obtain a token is attack surface. Set in
+         * register() because Passport reads it when it loads its routes.
+         */
+        Passport::$deviceCodeGrantEnabled = false;
 
         $this->registerAiServices();
         $this->registerSmsProvider();
@@ -320,6 +332,7 @@ class AppServiceProvider extends ServiceProvider
         $this->configurePasswords();
         $this->configureUrls();
         $this->configureRateLimiting();
+        $this->configureOAuth();
         $this->configureNotificationChannels();
         $this->configureTemporaryUploads();
         $this->assertAttachmentStorageIsDurable();
@@ -406,6 +419,10 @@ class AppServiceProvider extends ServiceProvider
         // nothing else — the in-app fan-out lives in PostComment, which knows
         // about mentions and participants.
         Comment::observe(CommentObserver::class);
+
+        // Revokes a person's OAuth tokens (their connected AI apps) when their
+        // password changes or their account is deactivated.
+        User::observe(UserObserver::class);
     }
 
     /**
@@ -590,6 +607,53 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute((int) config('ai.voice.rate_limit', 30))
                 ->by((string) ($request->user()?->getAuthIdentifier() ?? $request->ip() ?? 'unknown'));
         });
+
+        /*
+         * `mcp` is per person: one connected AI client looping on a tool
+         * should slow down that connection without touching anybody else's.
+         * `mcp-oauth` covers discovery and client registration, which have no
+         * user yet; it is per IP and generous, because every Claude or ChatGPT
+         * user reaches us from the same few vendor addresses.
+         */
+        RateLimiter::for('mcp', function (Request $request): Limit {
+            return Limit::perMinute((int) config('mcp.server.rate_limit', 60))
+                ->by('mcp:'.($request->user()?->getAuthIdentifier() ?? $request->ip() ?? 'unknown'));
+        });
+
+        RateLimiter::for('mcp-oauth', function (Request $request): Limit {
+            return Limit::perMinute((int) config('mcp.server.oauth_rate_limit', 120))
+                ->by('mcp-oauth:'.($request->ip() ?? 'unknown'));
+        });
+    }
+
+    /**
+     * OAuth for the remote MCP server (routes/ai.php).
+     *
+     * Claude and ChatGPT only connect to remote servers through OAuth, so the
+     * person signs in on Nexora's own login page and approves the client, and
+     * the client receives a token that stands for them. The settings below are
+     * the ones Passport's defaults get wrong for that use:
+     *
+     *   lifetimes  Passport issues one-year tokens by default. An access token
+     *              here lasts an hour and is refreshed silently; a connection
+     *              left unused for a month has to sign in again.
+     *   scope      one scope, `mcp:use`, which the MCP route requires. It is
+     *              also the default, so a client that asks for no scope still
+     *              gets a token that works there — and nothing else.
+     *   consent    Nexora's own screen, in Nexora's layout, naming the client
+     *              and where it will send the person back to.
+     */
+    private function configureOAuth(): void
+    {
+        Passport::tokensExpireIn(CarbonInterval::minutes(max(5, (int) config('mcp.server.access_token_minutes', 60))));
+        Passport::refreshTokensExpireIn(CarbonInterval::days(max(1, (int) config('mcp.server.refresh_token_days', 30))));
+
+        Passport::tokensCan([
+            Registrar::OAUTH_SCOPE => 'Read the boards, tickets, documentation and statistics you can see in Nexora',
+        ]);
+        Passport::defaultScopes([Registrar::OAUTH_SCOPE]);
+
+        Passport::authorizationView(fn (array $parameters) => view('mcp.authorize', $parameters));
     }
 
     private function configureUrls(): void

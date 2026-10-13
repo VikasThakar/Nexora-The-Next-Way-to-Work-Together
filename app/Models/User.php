@@ -14,9 +14,20 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Passport\Contracts\OAuthenticatable;
+use Laravel\Passport\HasApiTokens;
 
-class User extends Authenticatable
+/**
+ * OAuthenticatable because the remote MCP server signs people in with OAuth:
+ * Claude or ChatGPT sends them to Nexora's own login page, and the access
+ * token it gets back stands for this user and nobody else. The token carries
+ * no permissions of its own — every tool still reads through this user's
+ * board membership and role, exactly as the web app does.
+ */
+class User extends Authenticatable implements OAuthenticatable
 {
+    use HasApiTokens;
+
     /** @use HasFactory<UserFactory> */
     use HasFactory;
 

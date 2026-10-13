@@ -6,6 +6,7 @@ use App\Http\Middleware\EnsureUserIsActive;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 use Illuminate\Session\Middleware\AuthenticateSession;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -78,5 +79,19 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->redirectUsersTo(fn () => route('dashboard'));
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        /*
+         * The remote MCP endpoint and its OAuth discovery and registration
+         * routes are called by machines, and always answer in JSON.
+         *
+         * This matters most for the very first request a client makes: an
+         * unauthenticated POST /mcp must come back as a 401 (which laravel/mcp
+         * decorates with the WWW-Authenticate header that starts the OAuth
+         * flow). Left to the default, a client that sends an unusual Accept
+         * header would be redirected to the login page instead, and Claude or
+         * ChatGPT would report that it could not reach the server.
+         */
+        $exceptions->shouldRenderJsonWhen(
+            fn (Request $request, Throwable $e): bool => $request->is('mcp', 'oauth/register', '.well-known/*')
+                || $request->expectsJson()
+        );
     })->create();
