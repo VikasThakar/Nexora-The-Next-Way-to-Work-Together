@@ -57,6 +57,7 @@ use App\Services\AI\Tools\GetDocumentationPageTool;
 use App\Services\AI\Tools\GetRepositoryTool;
 use App\Services\AI\Tools\GetStatisticsTool;
 use App\Services\AI\Tools\GetTicketTool;
+use App\Services\AI\Tools\ListCompletedTicketsTool;
 use App\Services\AI\Tools\SearchDocumentationTool;
 use App\Services\AI\Tools\SearchExternalKnowledgeTool;
 use App\Services\AI\Tools\SearchTicketsTool;
@@ -216,6 +217,7 @@ class AppServiceProvider extends ServiceProvider
             GetDocumentationPageTool::class,
             GetRepositoryTool::class,
             GetCodeActivityTool::class,
+            ListCompletedTicketsTool::class,
             /*
              * The one tool that reads nothing in this application.
              *
