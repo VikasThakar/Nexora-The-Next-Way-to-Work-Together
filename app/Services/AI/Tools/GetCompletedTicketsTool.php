@@ -44,11 +44,11 @@ use Illuminate\Support\Collection;
  * as well, because this tool prints keys and titles and a list of names is the
  * last place to rely on a single filter.
  */
-class ListCompletedTicketsTool implements AiToolContract
+class GetCompletedTicketsTool implements AiToolContract
 {
     use ResolvesWorkspaceSubjects;
 
-    public const NAME = 'list_completed_tickets';
+    public const NAME = 'get_completed_tickets';
 
     /** Lines returned at most, whatever the model asks for. */
     private const MAX_RESULTS = 100;

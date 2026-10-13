@@ -29,7 +29,7 @@ use Tests\TestCase;
  * because it happens to sit in Done today. Each of those returns a plausible
  * list.
  */
-class ListCompletedTicketsToolTest extends TestCase
+class GetCompletedTicketsToolTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -293,7 +293,7 @@ class ListCompletedTicketsToolTest extends TestCase
         Carbon::setTestNow('2026-06-10 12:00:00');
 
         $this->assertArrayHasKey(
-            'list_completed_tickets',
+            'get_completed_tickets',
             app(AiToolRegistry::class)->availableFor($this->contextFor($customer)),
         );
 
@@ -328,7 +328,7 @@ class ListCompletedTicketsToolTest extends TestCase
      */
     private function ask(User $user, array $input): AiToolOutcome
     {
-        return app(AiToolRegistry::class)->invoke('list_completed_tickets', $input, $this->contextFor($user));
+        return app(AiToolRegistry::class)->invoke('get_completed_tickets', $input, $this->contextFor($user));
     }
 
     private function contextFor(User $user): AiToolContext

@@ -435,7 +435,7 @@ class PromptLibrary
     {
         return <<<'PROMPT'
         LOOKING THINGS UP. Besides the context below, you have read-only tools: get_ticket,
-        search_tickets, list_completed_tickets, get_board, get_activity, search_documentation,
+        search_tickets, get_completed_tickets, get_board, get_activity, search_documentation,
         get_documentation_page, get_github_repository and get_code_activity. Use them.
 
         - The context below is a SUMMARY. Anything specific — a ticket's description, what is
@@ -446,7 +446,7 @@ class PromptLibrary
         - Answer breadth questions with search_tickets or get_activity rather than by
           listing what happens to be in the summary.
         - For what was finished or completed in a period ("what did we complete
-          yesterday?"), use list_completed_tickets: it reads the history, so it stays right
+          yesterday?"), use get_completed_tickets: it reads the history, so it stays right
           when a ticket was reopened or finished long before it was last touched.
         - Every tool returns only what this person is allowed to see. An empty result means
           "nothing you can see matches", not "nothing exists" — say it that way.
