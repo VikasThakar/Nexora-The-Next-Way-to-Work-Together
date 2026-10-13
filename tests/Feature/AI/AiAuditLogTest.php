@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\AI;
 
 use App\Enums\AiCapabilityMode;
+use App\Enums\AiToolChannel;
 use App\Livewire\Ai\Assistant;
 use App\Models\AiToolInvocation;
 use App\Models\Board;
@@ -85,6 +86,43 @@ class AiAuditLogTest extends TestCase
         // Its size, not its contents.
         $this->assertGreaterThan(0, (int) $row->result_characters);
         $this->assertStringNotContainsString('Recorded ticket', (string) $row->message);
+
+        $this->assertSame(AiToolChannel::Assistant->value, $row->channel);
+    }
+
+    /**
+     * The remote MCP server calls the same tools with no chat session and no
+     * board in context. Its rows must still say who asked and where from.
+     */
+    public function test_a_lookup_from_an_external_client_is_recorded_without_a_session(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $ticket = $this->ticketOn($board, $team, ['title' => 'Asked about over MCP']);
+
+        app(AiToolRegistry::class)->invoke(
+            'get_ticket',
+            ['ticket' => $ticket->key()],
+            new AiToolContext(
+                user: $team,
+                scope: AiContextScope::workspace(),
+                session: null,
+                mode: AiCapabilityMode::Observer,
+                staff: true,
+                channel: AiToolChannel::Mcp,
+            ),
+        );
+
+        $row = AiToolInvocation::query()->sole();
+
+        $this->assertSame('get_ticket', $row->tool);
+        $this->assertSame(AiToolChannel::Mcp->value, $row->channel);
+        $this->assertSame(AiToolInvocation::OUTCOME_OK, $row->outcome);
+        $this->assertNull($row->ai_session_id);
+        $this->assertNull($row->ai_chat_message_id);
+        $this->assertNull($row->board_id);
+        $this->assertSame((int) $team->getKey(), (int) $row->user_id);
+        $this->assertSame($ticket->key(), $row->target);
     }
 
     /**

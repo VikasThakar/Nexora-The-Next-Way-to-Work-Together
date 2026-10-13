@@ -200,6 +200,7 @@ class AiToolRegistry
             note: $outcome->note,
             resultCharacters: $outcome->characters(),
             durationMs: $durationMs,
+            channel: $context->channel->value,
         );
     }
 }
