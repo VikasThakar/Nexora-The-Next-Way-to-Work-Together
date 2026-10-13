@@ -277,6 +277,34 @@ class FlowMetricsTest extends TestCase
         $this->assertSame('—', $flow->cycleTime($scope)->medianLabel());
     }
 
+    /**
+     * Two scopes, one after the other, on one service instance.
+     *
+     * The first scope below is a temporary: it is freed as soon as the call
+     * returns, and PHP hands its object id to the next object created. A memo
+     * keyed by that id gave the second board the first board's closures — a
+     * wrong number with nothing about it that looks wrong.
+     */
+    public function test_closures_are_never_shared_between_scopes_even_when_an_object_id_is_reused(): void
+    {
+        $team = $this->teamMember();
+        $outsider = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $this->boardWithColumns([$outsider]);
+
+        Carbon::setTestNow('2026-06-01 09:00:00');
+        $ticket = $this->ticketOn($board, $team);
+        $this->moveTo($ticket, $board, 'Done', $team);
+
+        Carbon::setTestNow('2026-06-10 12:00:00');
+
+        $flow = app(FlowMetrics::class);
+
+        $this->assertCount(1, $flow->closures($this->scope($team)));
+        $this->assertCount(0, $flow->closures($this->scope($outsider)));
+        $this->assertCount(1, $flow->closures($this->scope($team)));
+    }
+
     protected function tearDown(): void
     {
         Carbon::setTestNow();
