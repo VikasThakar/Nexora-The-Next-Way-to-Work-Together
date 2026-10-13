@@ -5,19 +5,28 @@ declare(strict_types=1);
 namespace App\Notifications;
 
 use Illuminate\Auth\Notifications\ResetPassword as BaseResetPassword;
+use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
-use Illuminate\Queue\InteractsWithQueue;
 
 /**
  * Queued password reset mail.
  *
  * Queued so a slow or unavailable SMTP provider cannot hold a web request
- * open. With QUEUE_CONNECTION=sync (local default) behaviour is unchanged.
+ * open. With QUEUE_CONNECTION=sync it is sent inline instead.
+ *
+ * `Queueable` is the trait a queued NOTIFICATION needs: it declares the
+ * $connection, $queue and $delay properties NotificationSender reads while
+ * dispatching. `InteractsWithQueue` — the trait for a queued JOB — declares
+ * none of them, and using it here turned every reset request into a 500 the
+ * moment the notification was queued. Notification::fake() never queues
+ * anything, so only a test that lets the real sender run can see this;
+ * tests/Feature/Auth/PasswordResetTest.php and
+ * tests/Unit/QueuedNotificationsTest.php both do.
  */
 class ResetPassword extends BaseResetPassword implements ShouldQueue
 {
-    use InteractsWithQueue;
+    use Queueable;
 
     /** @var int */
     public $tries = 3;

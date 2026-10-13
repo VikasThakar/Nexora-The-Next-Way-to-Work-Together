@@ -6,6 +6,12 @@
         </p>
     </div>
 
+    @if ($status)
+        <div class="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">
+            {{ $status }}
+        </div>
+    @endif
+
     <form wire:submit="sendResetLink" class="space-y-5">
         <x-ui.field label="Email address" for="email" :error="$errors->first('email')" required>
             <x-ui.input id="email" type="email" autocomplete="username" required autofocus wire:model="email" :invalid="$errors->has('email')" />
