@@ -15,7 +15,8 @@ Livewire components rather than taken from a starter kit.
 | Password confirmation | `GET /confirm-password` | `Livewire\Auth\ConfirmPassword` | Implemented |
 | Email verification | — | — | **Not implemented** (column exists, no flow) |
 | Two-factor authentication | — | — | **Not implemented** |
-| SSO / OAuth / SAML | — | — | **Not implemented** |
+| SSO / SAML (signing in to Nexora with another identity provider) | — | — | **Not implemented** |
+| OAuth authorization server, for AI clients | `GET /oauth/authorize` | Laravel Passport + `resources/views/mcp/authorize.blade.php` | **Implemented** — used only by the remote MCP server; see below |
 
 ### Registration is off by default
 
@@ -75,6 +76,25 @@ middleware. Reaching them asks for the password again even inside a valid sessio
 - `/admin/ai` — global AI settings, which hold provider credentials
 - `/admin/users` — user administration, which is the privilege-escalation path
 - `/boards/create` and `/boards/{board}/edit` — board creation and identity
+
+### OAuth for the remote MCP server
+
+Nexora is an OAuth 2.1 **authorization server** for one purpose: letting a person connect an
+AI client (Claude, ChatGPT) to the read-only MCP endpoint at `/mcp`. It is not a way to sign
+in to Nexora — that is still the login form above — and a token grants nothing beyond the
+MCP tools, which read with the token's user as the viewer.
+
+| Property | Value |
+|---|---|
+| Implementation | Laravel Passport, discovery and registration routes from laravel/mcp |
+| Client registration | Dynamic (RFC 7591), public clients; redirect URIs only on `MCP_REDIRECT_DOMAINS` (Claude, ChatGPT, loopback) |
+| Grant | Authorization code with PKCE `S256` only; the device-code grant is switched off |
+| Scope | `mcp:use`, required by `/mcp` and granted by default |
+| Access token | 60 minutes (`MCP_ACCESS_TOKEN_MINUTES`) |
+| Refresh token | 30 days (`MCP_REFRESH_TOKEN_DAYS`), rotated on every use |
+| Consent | `resources/views/mcp/authorize.blade.php`: names the client and the host it returns to; warns on loopback redirects |
+| Revocation | Access, refresh and auth codes revoked when the user is deactivated or their password changes (`App\Observers\UserObserver`); a deactivated user's request is a `401` |
+| Keys | `PASSPORT_PRIVATE_KEY` / `PASSPORT_PUBLIC_KEY`; rotating them disconnects every client |
 
 ## Authorization
 
@@ -145,12 +165,14 @@ digest all return the same `401 Invalid signature.`
 
 ## Rate limiting
 
-Two named limiters, protecting different things.
+Four named limiters, protecting different things.
 
 | Limiter | Applies to | Keyed on | Default | Why |
 |---|---|---|---|---|
 | `github-webhooks` | `POST /webhooks/github` | Client IP | 300/min (`GITHUB_WEBHOOK_RATE_LIMIT`) | The only unauthenticated route that can enqueue work. Rejected requests never reach signature verification and never touch the database |
 | `ai-voice` | `POST /ai/voice/listen`, `GET /ai/messages/{id}/speech` | Signed-in user id | 30/min (`AI_VOICE_RATE_LIMIT`) | Transcription and speech synthesis are billed per call and are the only AI surface a browser can trigger in a loop without a person typing |
+| `mcp` | `POST /mcp` | Token's user id | 60/min (`MCP_RATE_LIMIT`) | One connected AI client looping on a tool slows down that connection only |
+| `mcp-oauth` | OAuth discovery and `POST /oauth/register` | Client IP | 120/min (`MCP_OAUTH_RATE_LIMIT`) | Unauthenticated by design; generous because every Claude or ChatGPT user arrives from the same vendor addresses |
 
 The login form carries a third limiter of its own, inside `Livewire\Auth\Login`:
 

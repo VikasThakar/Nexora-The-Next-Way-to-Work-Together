@@ -63,6 +63,16 @@ Schedule::command('ai:reap-stalled')
     ->everyTenMinutes()
     ->withoutOverlapping()
     ->onOneServer();
+/*
+ * OAuth tokens and authorization codes from the remote MCP server that have
+ * expired or been revoked (routes/ai.php). Every Claude or ChatGPT connection
+ * leaves a refresh-token chain behind it; this keeps the tables to the live
+ * ones. Nothing here disconnects anybody — a live token is never touched.
+ */
+Schedule::command('passport:purge')
+    ->dailyAt('03:30')
+    ->onOneServer();
+
 // Expired password-reset tokens and batch records.
 Schedule::command('auth:clear-resets')->daily()->onOneServer();
 Schedule::command('queue:prune-batches')->daily()->onOneServer();

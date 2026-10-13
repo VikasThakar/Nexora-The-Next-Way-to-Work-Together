@@ -1,11 +1,39 @@
 # HTTP Endpoints and Webhooks
 
 > [!IMPORTANT]
-> **Nexora exposes no public REST or JSON API for third parties.** There are no API routes,
-> no `routes/api.php`, no token authentication and no OpenAPI specification. Everything below
-> is either a browser route, an inbound webhook, or a small number of controller endpoints the
-> application's own front end calls. Integration is therefore **inbound webhook plus outbound
-> HTTP client**, not an API.
+> **Nexora exposes no general REST or JSON API for third parties.** There is no
+> `routes/api.php` and no OpenAPI specification. The one machine-facing interface is the
+> **remote MCP server** at `POST /mcp`: AI clients such as Claude and ChatGPT call it with an
+> OAuth token on behalf of one signed-in person, read-only, under that person's in-app
+> permissions. Everything else below is a browser route, an inbound webhook, or a small number
+> of controller endpoints the application's own front end calls.
+
+## Remote MCP server — `POST /mcp`
+
+Defined in `routes/ai.php`, which laravel/mcp loads **outside** the `web` group: no session,
+no CSRF, a bearer token on every request. `MCP_SERVER_ENABLED=false` removes every route in
+this section.
+
+| Route | Purpose | Authentication | Limit |
+|---|---|---|---|
+| `POST /mcp` | MCP JSON-RPC: `initialize`, `tools/list`, `tools/call` | Passport token (`auth:api`), scope `mcp:use`, active user | `throttle:mcp` — per person |
+| `GET` / `DELETE /mcp` | Always `405` (no server-initiated stream) | — | — |
+| `GET /.well-known/oauth-protected-resource[/mcp]` | RFC 9728 metadata: `resource` is exactly `https://<host>/mcp` | Public | `throttle:mcp-oauth` — per IP |
+| `GET /.well-known/oauth-authorization-server[/…]` | RFC 8414 metadata: endpoints, S256 PKCE, scope | Public | `throttle:mcp-oauth` |
+| `POST /oauth/register` | Dynamic client registration (RFC 7591), public clients only, redirect URIs limited to `config('mcp.redirect_domains')` | Public | `throttle:mcp-oauth` |
+| `GET /oauth/authorize` | Nexora's login if needed, then the consent screen (`resources/views/mcp/authorize.blade.php`) | Web session | — |
+| `POST` / `DELETE /oauth/authorize` | Approve / deny | Web session + CSRF | — |
+| `POST /oauth/token` | Code exchange (PKCE S256) and refresh-token rotation | Client | Passport's own |
+
+**The handshake.** An unauthenticated `POST /mcp` is always a JSON `401` with
+`WWW-Authenticate: Bearer realm="mcp", resource_metadata="…/.well-known/oauth-protected-resource/mcp"`,
+whatever the client sends in `Accept` — `bootstrap/app.php` forces JSON rendering for these
+paths, because a redirect to the login page here is what makes a client report that it
+"couldn't reach the server".
+
+**The tools** are the in-app assistant's read tools, through `AiToolRegistry::invoke()` — see
+section 9 for what each reads and who gets it. Every call writes an `ai_tool_invocations` row
+with `channel = mcp`.
 
 ## Inbound webhook — GitHub
 
