@@ -8,6 +8,8 @@ use App\Enums\AiToolChannel;
 use App\Models\AiToolInvocation;
 use App\Services\AI\Tools\SearchTicketsTool;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Mcp\Enums\MetaKey;
+use Laravel\Mcp\Enums\RequestHeader;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\InteractsWithMcp;
 use Tests\TestCase;
@@ -100,6 +102,48 @@ class McpEndpointTest extends TestCase
         $this->assertSame('Nexora', $response->json('result.serverInfo.name'));
         $this->assertStringContainsString('Europe/Stockholm', (string) $response->json('result.instructions'));
         $this->assertStringContainsString('read-only', (string) $response->json('result.instructions'));
+    }
+
+    /**
+     * Clients on the 2026-07-28 protocol skip the handshake: every request
+     * carries its protocol version in _meta and mirrors the method (and the
+     * tool name) in headers. Claude and ChatGPT move to it on their own
+     * schedule, so the endpoint has to answer both generations.
+     */
+    public function test_a_client_on_the_newest_protocol_can_discover_list_and_call_without_a_handshake(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $this->ticketOn($board, $team, ['title' => 'Found on the newest protocol']);
+
+        $this->mcpAs($team);
+
+        $meta = [
+            MetaKey::PROTOCOL_VERSION->value => '2026-07-28',
+            MetaKey::CLIENT_CAPABILITIES->value => (object) [],
+            MetaKey::CLIENT_INFO->value => ['name' => 'test', 'version' => '1'],
+        ];
+        $headers = static fn (string $method, ?string $name = null): array => array_filter([
+            RequestHeader::PROTOCOL_VERSION->value => '2026-07-28',
+            RequestHeader::METHOD->value => $method,
+            RequestHeader::NAME->value => $name,
+        ]);
+
+        $discover = $this->mcp('server/discover', ['_meta' => $meta], $headers('server/discover'))->assertOk();
+        $this->assertContains('2026-07-28', $discover->json('result.supportedVersions'));
+        $this->assertStringContainsString('read-only', (string) $discover->json('result.instructions'));
+
+        $tools = $this->mcp('tools/list', ['_meta' => $meta], $headers('tools/list'))->assertOk();
+        $this->assertContains('search_tickets', array_column($tools->json('result.tools') ?? [], 'name'));
+
+        $call = $this->mcp('tools/call', [
+            '_meta' => $meta,
+            'name' => 'search_tickets',
+            'arguments' => ['query' => 'newest'],
+        ], $headers('tools/call', 'search_tickets'))->assertOk();
+
+        $this->assertFalse($call->json('result.isError') ?? false);
+        $this->assertStringContainsString('Found on the newest protocol', (string) $call->json('result.content.0.text'));
     }
 
     // -----------------------------------------------------------------

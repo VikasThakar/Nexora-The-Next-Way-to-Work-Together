@@ -166,13 +166,15 @@ class McpOAuthTest extends TestCase
         parse_str((string) parse_url((string) $location, PHP_URL_QUERY), $returned);
         $this->assertSame('state-from-claude', $returned['state'] ?? null);
 
-        // Exchange the code, as Claude does: form-encoded, with the verifier.
+        // Exchange the code, as Claude does: form-encoded, with the verifier
+        // and the RFC 8707 resource it wants the token for.
         $tokens = $this->post('/oauth/token', [
             'grant_type' => 'authorization_code',
             'client_id' => $clientId,
             'redirect_uri' => self::CLAUDE_CALLBACK,
             'code_verifier' => $verifier,
             'code' => $returned['code'],
+            'resource' => url('/mcp'),
         ])->assertOk()->json();
 
         $this->assertSame('Bearer', $tokens['token_type']);
@@ -191,6 +193,7 @@ class McpOAuthTest extends TestCase
             'grant_type' => 'refresh_token',
             'refresh_token' => $tokens['refresh_token'],
             'client_id' => $clientId,
+            'resource' => url('/mcp'),
         ])->assertOk()->json();
 
         $this->assertNotSame($tokens['refresh_token'], $refreshed['refresh_token']);
@@ -200,6 +203,36 @@ class McpOAuthTest extends TestCase
             'refresh_token' => $tokens['refresh_token'],
             'client_id' => $clientId,
         ])->assertStatus(400)->assertJsonPath('error', 'invalid_grant');
+    }
+
+    /**
+     * ChatGPT may leave the scope out and relies on the server's default; it
+     * sends the resource on both the authorization and the token request.
+     */
+    public function test_a_request_without_a_scope_gets_a_working_mcp_token(): void
+    {
+        $user = $this->teamMember();
+        $this->boardWithColumns([$user]);
+
+        $callback = 'https://chatgpt.com/connector/oauth/abc123';
+        $clientId = $this->register('ChatGPT', $callback);
+        [$verifier, $query] = $this->authorizationQuery($clientId, $callback);
+        unset($query['scope']);
+
+        $code = $this->approve($user, $clientId, $query);
+
+        $tokens = $this->post('/oauth/token', [
+            'grant_type' => 'authorization_code',
+            'client_id' => $clientId,
+            'redirect_uri' => $callback,
+            'code_verifier' => $verifier,
+            'code' => $code,
+            'resource' => url('/mcp'),
+        ])->assertOk()->json();
+
+        $this->app['auth']->forgetGuards();
+
+        $this->mcp('tools/list', [], ['Authorization' => 'Bearer '.$tokens['access_token']])->assertOk();
     }
 
     public function test_a_wrong_pkce_verifier_gets_no_token(): void
