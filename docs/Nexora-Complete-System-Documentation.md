@@ -437,7 +437,7 @@ Derived from `TicketPolicy`, `App\Actions\Tickets\CreateTicket` and `UpdateTicke
 | See an internal ticket | Yes | Member only | **Never** |
 | Create a ticket | Yes | Yes | **Yes** — with the constraints below |
 | Choose the column at creation | Yes | Yes | **No** — always the first column |
-| Set visibility at creation | Yes (defaults to internal) | Yes (defaults to internal) | **No** — always customer-visible |
+| Set visibility at creation | Yes (defaults to customer-visible) | Yes (defaults to customer-visible) | **No** — always customer-visible |
 | Assign at creation | Yes | Yes | **No** — always unassigned |
 | Edit a ticket raised by somebody else | Yes | Yes | **No** |
 | Edit a ticket they raised themselves | Yes | Yes | **Yes** — restricted fields |
@@ -1163,7 +1163,7 @@ a migration or a backfill.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `default_content_is_internal` | `true` | New content on the board is internal unless stated otherwise |
+| `new_tickets_visible_to_customers` | `true` (`WORKSPACE_NEW_TICKETS_VISIBLE`) | A ticket staff create starts visible to the board's customers: the starting value of the box on the New ticket form and in quick add, and the most visible an assistant-created ticket can be |
 | `customers_can_comment` | `true` | Whether customers who are members may post to the customer conversation |
 | `timezone` | `UTC` | The board's own day, used for daily AI run caps and statistics |
 | `ai.*` | see section 10 | Model, provider, capability mode, project context, auto-run policy, per-board credentials |
@@ -1302,6 +1302,10 @@ The human key is `PREFIX-NUMBER` — `AQD-42` — built from the board's `ticket
 > code that forgets to set it is internal rather than exposed. It is deliberately **not
 > mass-assignable**: only `App\Actions\Tickets\*` can set it, which is where the rule "a
 > customer may never create or reveal an internal ticket" lives and is tested.
+>
+> The screens that create tickets — the New ticket form, quick add and the assistant — pass a
+> value explicitly, starting from the board's `new_tickets_visible_to_customers` setting (true by
+> default). The column's `false` is the fail-closed backstop for code that does not choose.
 
 ## Ticket numbering
 
@@ -1343,7 +1347,7 @@ matter which screen — or which AI proposal — calls it:
 
 | Rule | Customer | Staff |
 |---|---|---|
-| Visibility | **Always customer-visible** | Defaults to internal |
+| Visibility | **Always customer-visible** | Defaults to customer-visible (the board's `new_tickets_visible_to_customers`); untick for internal work |
 | Column | **Always the board's first column** | Any column on this board |
 | Assignee | **Always unassigned** | Any assignable member |
 | Estimate | Not settable | Settable |
@@ -1854,7 +1858,8 @@ of their project, with no signal that it happened.
      v
   +----------------------------------------------------------------+
   |  ANSWER          RichResponseParser -> prose / table / chart /  |
-  |                  KPI blocks, plus AT MOST ONE proposal          |
+  |                  KPI blocks, plus AT MOST ONE proposal (a batch |
+  |                  of new tickets counts as one)                  |
   |                                                                  |
   |  A proposal is a PREVIEW. It becomes a change only when         |
   |  ExecuteChatAction re-resolves it, authorizes it against the    |
@@ -2036,13 +2041,14 @@ details.
 
 ## Write tools: propose, then confirm
 
-Seven action types (`App\Enums\AiActionType`), each exposed to the model as
+Eight action types (`App\Enums\AiActionType`), each exposed to the model as
 `propose_<name>`. The prefix is deliberate: the name itself tells the model that calling it
 does not perform the action.
 
 | Action | Destructive? | Notes |
 |---|---|---|
-| `propose_create_ticket` | No | Sets every field at once — title, description, priority, type, assignee, column, labels |
+| `propose_create_ticket` | No | Sets every field at once — title, description, priority, type, assignee, column, labels, and `customer_visible: false` to keep it internal |
+| `propose_create_tickets` | No | Several new tickets on one board, up to 30 per call; one preview, all or none |
 | `propose_update_ticket` | No | Re-assign, move column, re-prioritise, re-label, edit title or body |
 | `propose_comment_ticket` | No | Staff comments default to the **internal** stream |
 | `propose_create_doc_page` | No | New pages are **always internal** until somebody publishes them separately |
@@ -2053,10 +2059,12 @@ does not perform the action.
 ### What the schemas deliberately cannot express
 
 > [!IMPORTANT]
-> **No schema carries `customer_visible` for a ticket, and no path here sets it.** No request
-> through the chat can be the thing that publishes internal work to a client; that stays with
-> the people and the screens that already authorize it. Likewise there is no field that can
-> name a viewer, a user id, a column id, a label id or a visibility.
+> **Visibility can only be narrowed, and only at creation.** The create schemas carry
+> `customer_visible`, but a new ticket is never more visible than the board's
+> `new_tickets_visible_to_customers` default, so nothing said in a conversation can publish work a
+> board keeps internal. No update schema names visibility: publishing an existing ticket stays with
+> the people and the screens that already authorize it. There is no field that can name a viewer,
+> a user id, a column id or a label id.
 
 Assignees, columns and labels are named **in words** — "Alex Round", "In Progress", "bug" —
 rather than by id. That is what the model has to work with, since it is repeating what
@@ -2113,8 +2121,30 @@ why, rather than getting a moved card, a dropped assignee and a vague error.
 `SyncTicketLabels`, `PostComment`, `DeleteTicket`, `CreatePage`, `UpdatePage`. Every rule
 those own still applies, and there is no second, weaker path into the same tables.
 
-**Exactly one proposal per turn is kept.** A preview showing two changes invites confirming
-both while reading one.
+**One proposal per turn is kept** — a preview showing two unrelated changes invites
+confirming both while reading one — **with one exception: new tickets.** "Break this plan into
+tickets" is one request, so `propose_create_tickets` carries up to `AI_CHAT_MAX_TICKETS_PER_REPLY`
+(30) tickets in one call, and any ticket creations the model splits across several calls in a
+turn are merged into that one proposal for one board. Its preview lists every ticket; its
+button reads *Create N tickets*; under AI Agent it runs at once, like a single ticket.
+
+- **All or none.** Every ticket is authorized and resolved first, writing nothing; one refusal
+  (an unknown column, an assignee not on the board) fails the batch with "Ticket 3 ("…"): …
+  Nothing was created." Then they are created in order, so the numbers follow the list.
+- **Said, not hidden.** Tickets past the cap, or addressed to another board, are left out with a
+  note on the card. A reply cut off by the output ceiling becomes a *failed* action saying so,
+  never a Confirm button for nothing. Turns that may propose changes get
+  `AI_CHAT_MAX_OUTPUT_TOKENS_WRITING` (16,000) so a long list fits.
+- **Once only.** `ExecuteChatAction::handle()` takes a per-message cache lock and re-reads the
+  row before checking its state, so two tabs or a double click cannot create a batch twice.
+- **The model learns outcomes.** Each question's reference data ends with *EARLIER CHANGES IN THIS
+  CONVERSATION* — what was created (keys and titles), discarded, refused or still waiting — so
+  "continue with the rest" neither repeats nor skips tickets.
+
+**Visibility of new tickets.** A ticket the assistant creates starts from the board's default
+(`new_tickets_visible_to_customers`, visible unless the board says otherwise) — the same default as
+the New ticket form. The proposal can narrow it (`customer_visible: false` for staff-only work) and
+never widen it. Changing an existing ticket's visibility is not available to the assistant.
 
 Re-checking the capability mode at confirmation time is not theoretical: a person can have a
 preview on screen when an administrator switches the workspace to Observer, and the confirm
@@ -4062,6 +4092,7 @@ has to decide about, grouped by concern.
 | `WORKSPACE_NAME` | `Aqueduct Workspace` | Sidebar and transactional mail. **Set to `Nexora` to brand the product as Nexora** |
 | `WORKSPACE_SHORT_NAME` | `Aqueduct` | Page-title suffix |
 | `WORKSPACE_DEFAULT_TIMEZONE` | `UTC` | Default board timezone; also where "today" and "yesterday" are cut for statistics and MCP answers. Production: `Europe/Stockholm` |
+| `WORKSPACE_NEW_TICKETS_VISIBLE` | `true` | Whether tickets staff create start visible to the board's customers (form, quick add, assistant). A board can override it |
 | `ALLOW_PUBLIC_REGISTRATION` | `false` | Self-service sign-up. Registrants get the `customer` role |
 
 ## Session and security
@@ -4145,6 +4176,8 @@ has to decide about, grouped by concern.
 | `AI_CHAT_HISTORY` | `20` | Turns replayed |
 | `AI_CHAT_MAX_OUTPUT_TOKENS` | `4000` | |
 | `AI_CHAT_MAX_OUTPUT_TOKENS_OUTSIDE` | `8000` | Outside Project scope |
+| `AI_CHAT_MAX_OUTPUT_TOKENS_WRITING` | `16000` | A turn that may propose changes, so a batch of tickets is not cut off |
+| `AI_CHAT_MAX_TICKETS_PER_REPLY` | `30` | Most tickets one `propose_create_tickets` call may carry |
 | `AI_CHAT_STREAM_TIME_LIMIT` | `360` | Must exceed `AI_REQUEST_TIMEOUT` |
 | `AI_CHAT_CONTEXT_TICKETS` / `_PAGES` / `_EVENTS` | `60` / `40` / `40` | Board context depth |
 | `AI_CHAT_CONTEXT_BOARDS` / `_BOARD_TICKETS` | `12` / `6` | Workspace context breadth |
@@ -5211,13 +5244,15 @@ way to join one yourself.
 ## The one thing to get right
 
 > [!IMPORTANT]
-> **Everything you create is internal by default.** A ticket you raise, a comment you write
-> and a documentation page you add are all invisible to the customer until somebody
-> deliberately publishes them.
+> **A ticket you raise is visible to the board's customers by default; comments and pages are
+> not.** On the New ticket form and in quick add, "Visible to the customer" starts ticked —
+> **untick it for internal work** (the form says how many customers would see the ticket). The
+> assistant follows the same default and makes a ticket internal when you ask it to.
 >
-> That is the correct default and you should rely on it — but it also means **the customer
-> sees nothing until you decide they should.** Publishing is a deliberate act, it is
-> staff-only, and it is recorded in the timeline.
+> A comment you write and a documentation page you add are internal until somebody deliberately
+> publishes them. Publishing an existing ticket or page is staff-only and recorded in the
+> timeline. A board can keep new tickets internal by default through its
+> `new_tickets_visible_to_customers` setting.
 
 The reverse also holds: a ticket a **customer** raises is always customer-visible, always
 lands in the first column, and is never pre-assigned.
@@ -5520,6 +5555,7 @@ for inbound GitHub deliveries.
   Answer: prose + a table of the three overdue tickets
           + ONE proposal: propose_create_ticket
             { title: "Chase NL-31 …", board: nutrilens, priority: high }
+          (several new tickets are one proposal too: propose_create_tickets)
         |
         v
   Screen shows a PREVIEW and a Confirm button          ← Operator: nothing written yet
@@ -5533,7 +5569,8 @@ for inbound GitHub deliveries.
     • Gate: TicketPolicy::create, against the CONFIRMING person
     • call CreateTicket — the ordinary action, with all its own rules
         v
-  NL-57 exists. Internal by default. ticket_created event. Observer fans out.
+  NL-57 exists. Visible to customers unless the board or the request says internal.
+  ticket_created event. Observer fans out.
 ```
 
 Under **AI Agent** the preview step is skipped for this reversible action and the ticket is

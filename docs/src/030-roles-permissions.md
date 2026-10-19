@@ -99,7 +99,7 @@ Derived from `TicketPolicy`, `App\Actions\Tickets\CreateTicket` and `UpdateTicke
 | See an internal ticket | Yes | Member only | **Never** |
 | Create a ticket | Yes | Yes | **Yes** — with the constraints below |
 | Choose the column at creation | Yes | Yes | **No** — always the first column |
-| Set visibility at creation | Yes (defaults to internal) | Yes (defaults to internal) | **No** — always customer-visible |
+| Set visibility at creation | Yes (defaults to customer-visible) | Yes (defaults to customer-visible) | **No** — always customer-visible |
 | Assign at creation | Yes | Yes | **No** — always unassigned |
 | Edit a ticket raised by somebody else | Yes | Yes | **No** |
 | Edit a ticket they raised themselves | Yes | Yes | **Yes** — restricted fields |

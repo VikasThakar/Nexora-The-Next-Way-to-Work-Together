@@ -691,7 +691,7 @@ html { scroll-behavior: smooth; }
             <tr><td>See an internal ticket</td><td class="c"><span class="yes">Yes</span></td><td class="c">Member only</td><td class="c"><span class="never">Never</span></td></tr>
             <tr><td>Create a ticket</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span>, constrained</td></tr>
             <tr><td>Choose the column at creation</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="never">Always first column</span></td></tr>
-            <tr><td>Set visibility at creation</td><td class="c">Defaults internal</td><td class="c">Defaults internal</td><td class="c"><span class="never">Always customer-visible</span></td></tr>
+            <tr><td>Set visibility at creation</td><td class="c">Defaults customer-visible</td><td class="c">Defaults customer-visible</td><td class="c"><span class="never">Always customer-visible</span></td></tr>
             <tr><td>Assign at creation</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="never">Always unassigned</span></td></tr>
             <tr><td>Edit a ticket raised by somebody else</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="no">No</span></td></tr>
             <tr><td>Change assignee, estimate or customer visibility</td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="yes">Yes</span></td><td class="c"><span class="never">Silently dropped</span></td></tr>
@@ -1125,7 +1125,7 @@ html { scroll-behavior: smooth; }
         </p>
       </div>
       <div class="pipe">
-        <div class="step"><span class="st">Step 1</span><span class="sb">Model emits one proposal. Exactly one is kept per turn &mdash; a preview showing two changes invites confirming both while reading one</span></div>
+        <div class="step"><span class="st">Step 1</span><span class="sb">Model emits one proposal. One is kept per turn &mdash; a preview showing two unrelated changes invites confirming both while reading one &mdash; except new tickets: up to 30 of them are one proposal, previewed as a list and created all or none</span></div>
         <div class="step"><span class="st">Step 2</span><span class="sb">Under Operator: a preview and a Confirm button. Under Agent: reversible actions are carried out immediately</span></div>
         <div class="step"><span class="st">Step 3</span><span class="sb">The target is re-resolved from the stored proposal, through readers that apply visibility</span></div>
         <div class="step"><span class="st">Step 4</span><span class="sb">The capability mode is re-checked &mdash; a preview can be on screen when an administrator lowers it</span></div>
@@ -1134,10 +1134,11 @@ html { scroll-behavior: smooth; }
       </div>
       <div class="note key">
         <span class="lbl">What the schemas deliberately cannot express</span>
-        <strong>No schema carries <code>customer_visible</code>, and no path here sets it.</strong>
-        No request through the chat can be the thing that publishes internal work to a client.
-        Likewise there is no field that can name a viewer, a user id, a column id, a label id or a
-        visibility. Assignees, columns and labels are named <em>in words</em> &mdash; &ldquo;Alex
+        <strong>Visibility can only be narrowed, and only at creation.</strong>
+        A new ticket starts from the board&rsquo;s default (customer-visible unless the board says
+        otherwise) and the assistant may make it internal, never more visible than that. Publishing an
+        existing ticket is not reachable from the chat. There is no field that can name a viewer, a
+        user id, a column id or a label id. Assignees, columns and labels are named <em>in words</em> &mdash; &ldquo;Alex
         Round&rdquo;, &ldquo;In Progress&rdquo;, &ldquo;bug&rdquo; &mdash; because a name has to be
         <em>resolved</em>, and that is the step where the resolver can refuse an assignee who is
         not on the board and ask which of two matching columns was meant.

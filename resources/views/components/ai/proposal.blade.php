@@ -33,6 +33,17 @@
 
     @php
         $destructive = $type?->isDestructive() === true;
+
+        // A batch of new tickets is one proposal with a list as its preview,
+        // and its button says how many will be created.
+        $batch = $type === \App\Enums\AiActionType::CreateTickets;
+        $batchTickets = $batch ? array_values(array_filter((array) ($input['tickets'] ?? []), 'is_array')) : [];
+        $confirmLabel = $batch
+            ? 'Create '.count($batchTickets).' '.\Illuminate\Support\Str::plural('ticket', count($batchTickets))
+            : ($type?->confirmLabel() ?? 'Confirm');
+
+        // What was left out of this proposal and why — said on the card.
+        $notes = array_values(array_filter((array) ($action['notes'] ?? []), 'is_string'));
     @endphp
 
     <div @class([
@@ -53,13 +64,59 @@
         ])>
             @if ($state === \App\Models\AiChatMessage::ACTION_CONFIRMED)
                 {{ $type?->label() ?? 'Action' }}
+            @elseif ($batch && $batchTickets !== [])
+                Proposed: {{ $confirmLabel }}@if (filled($input['board'] ?? null)) on {{ $input['board'] }}@endif
             @else
                 Proposed: {{ $type?->label() ?? 'unknown action' }}
             @endif
         </p>
 
+        @if ($batch && $batchTickets !== [])
+            {{--
+                The preview of a batch: every ticket, in the order it will be
+                numbered, with what was asked for it. Descriptions fold away so
+                thirty tickets still read as a list.
+            --}}
+            <ol class="mt-2 max-h-96 list-decimal space-y-2 overflow-y-auto pl-5 text-xs">
+                @foreach ($batchTickets as $entry)
+                    @php
+                        $meta = array_filter([
+                            is_string($entry['type'] ?? null) ? $entry['type'] : null,
+                            is_string($entry['priority'] ?? null) ? $entry['priority'].' priority' : null,
+                            is_string($entry['column'] ?? null) ? 'in '.$entry['column'] : null,
+                            is_string($entry['assignee'] ?? null) ? 'for '.$entry['assignee'] : null,
+                            is_array($entry['labels'] ?? null) && $entry['labels'] !== []
+                                ? implode(', ', array_filter($entry['labels'], 'is_string')) : null,
+                            is_array($entry['attachment_ids'] ?? null) && $entry['attachment_ids'] !== []
+                                ? count($entry['attachment_ids']).' '.\Illuminate\Support\Str::plural('file', count($entry['attachment_ids'])) : null,
+                        ]);
+                    @endphp
+
+                    <li class="text-slate-700">
+                        <span class="font-medium text-slate-800">{{ \Illuminate\Support\Str::limit((string) ($entry['title'] ?? 'Untitled'), 200) }}</span>
+                        @if (($entry['customer_visible'] ?? true) === false)
+                            <x-ui.internal-badge />
+                        @endif
+
+                        @if ($meta !== [])
+                            <span class="block text-slate-500">{{ implode(' · ', $meta) }}</span>
+                        @endif
+
+                        @if (filled($entry['description_md'] ?? null) && is_string($entry['description_md']))
+                            <details class="mt-0.5">
+                                <summary class="cursor-pointer text-slate-500 hover:text-slate-700">Description</summary>
+                                <p class="mt-1 whitespace-pre-wrap">{{ \Illuminate\Support\Str::limit($entry['description_md'], 1200) }}</p>
+                            </details>
+                        @endif
+                    </li>
+                @endforeach
+            </ol>
+        @endif
+
         {{-- The preview. Everything the model proposed, so what is
-             being confirmed is visible before confirming it. --}}
+             being confirmed is visible before confirming it. A batch has its
+             own list above instead. --}}
+        @unless ($batch)
         @php
             // The files a proposal names, looked up so the preview shows
             // pictures and names rather than numbers. Scoped to what this
@@ -134,6 +191,11 @@
                 @endif
             @endforeach
         </dl>
+        @endunless
+
+        @foreach ($notes as $note)
+            <p class="mt-2 text-xs text-amber-800">{{ $note }}</p>
+        @endforeach
 
         @if ($state === \App\Models\AiChatMessage::ACTION_PROPOSED)
             @if ($confirming && $confirming->id === $message->id)
@@ -176,12 +238,18 @@
                     </div>
                 @else
                     <p class="mt-3 text-xs font-medium text-brand-900">
-                        Confirm this change? It will be made now, as you, and recorded in the
-                        ticket or page history.
+                        @if ($batch)
+                            Create all {{ count($batchTickets) }} now, as you? If any one of them cannot be
+                            created, none are, and you will see which one and why.
+                        @else
+                            Confirm this change? It will be made now, as you, and recorded in the
+                            ticket or page history.
+                        @endif
                     </p>
                     <div class="mt-2 flex flex-wrap items-center gap-2">
-                        <x-ui.button type="button" size="sm" wire:click="confirm">
-                            {{ $type?->confirmLabel() ?? 'Confirm' }}
+                        <x-ui.button type="button" size="sm" wire:click="confirm"
+                                     wire:loading.attr="disabled" wire:target="confirm">
+                            {{ $confirmLabel }}
                         </x-ui.button>
                         <x-ui.button type="button" size="sm" variant="ghost" wire:click="cancelConfirming">
                             Not yet
@@ -212,9 +280,24 @@
             <p class="mt-2 text-xs text-emerald-800">
                 {{ $action['result']['label'] ?? 'Done.' }}
                 @if (! empty($action['result']['url']))
-                    &middot; <a href="{{ $action['result']['url'] }}" wire:navigate class="underline">Open</a>
+                    &middot; <a href="{{ $action['result']['url'] }}" wire:navigate class="underline">{{ $batch ? 'Open board' : 'Open' }}</a>
                 @endif
             </p>
+
+            {{-- Every ticket a batch created, each one link away. --}}
+            @if (is_array($action['result']['items'] ?? null) && $action['result']['items'] !== [])
+                <ul class="mt-1.5 flex flex-wrap gap-1.5">
+                    @foreach ($action['result']['items'] as $item)
+                        @continue(! is_array($item) || empty($item['url']))
+                        <li>
+                            <a href="{{ $item['url'] }}" wire:navigate title="{{ $item['title'] ?? '' }}"
+                               class="inline-flex rounded border border-emerald-200 bg-surface px-1.5 py-0.5 font-mono text-[11px] text-emerald-900 hover:underline">
+                                {{ $item['key'] ?? 'Open' }}
+                            </a>
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
         @elseif ($state === \App\Models\AiChatMessage::ACTION_DISCARDED)
             <p class="mt-2 text-xs text-slate-500">Discarded. Nothing was changed.</p>
         @elseif ($state === \App\Models\AiChatMessage::ACTION_FAILED)

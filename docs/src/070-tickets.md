@@ -24,6 +24,10 @@ The human key is `PREFIX-NUMBER` — `AQD-42` — built from the board's `ticket
 > code that forgets to set it is internal rather than exposed. It is deliberately **not
 > mass-assignable**: only `App\Actions\Tickets\*` can set it, which is where the rule "a
 > customer may never create or reveal an internal ticket" lives and is tested.
+>
+> The screens that create tickets — the New ticket form, quick add and the assistant — pass a
+> value explicitly, starting from the board's `new_tickets_visible_to_customers` setting (true by
+> default). The column's `false` is the fail-closed backstop for code that does not choose.
 
 ## Ticket numbering
 
@@ -65,7 +69,7 @@ matter which screen — or which AI proposal — calls it:
 
 | Rule | Customer | Staff |
 |---|---|---|
-| Visibility | **Always customer-visible** | Defaults to internal |
+| Visibility | **Always customer-visible** | Defaults to customer-visible (the board's `new_tickets_visible_to_customers`); untick for internal work |
 | Column | **Always the board's first column** | Any column on this board |
 | Assignee | **Always unassigned** | Any assignable member |
 | Estimate | Not settable | Settable |

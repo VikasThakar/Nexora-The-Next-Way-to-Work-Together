@@ -309,11 +309,19 @@ class AiChatSecurityTest extends TestCase
         $this->assertSame('Renamed', $ticket->refresh()->title);
     }
 
-    public function test_the_chat_cannot_publish_a_ticket_to_a_customer(): void
+    /**
+     * The assistant can narrow a new ticket's visibility, never widen it.
+     *
+     * On a board whose tickets are internal by default, a proposal asking for
+     * a customer-visible ticket still produces an internal one: nothing said in
+     * a conversation can be what publishes work the board keeps internal. And
+     * a field the schema does not have — an assignee id — is still ignored.
+     */
+    public function test_the_chat_cannot_publish_a_ticket_beyond_the_boards_default(): void
     {
         $provider = $this->fakeAiProvider();
 
-        // A proposal that tries to smuggle a visibility flag through.
+        // A proposal that tries to smuggle visibility and an id through.
         $provider->willPropose(AiActionType::CreateTicket->toolName(), [
             'title' => 'Internal work',
             'customer_visible' => true,
@@ -322,6 +330,7 @@ class AiChatSecurityTest extends TestCase
 
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
+        $board->forceFill(['settings' => ['new_tickets_visible_to_customers' => false]])->save();
 
         $component = Livewire::actingAs($team)
             ->test(Chat::class, ['board' => $board])
@@ -333,9 +342,9 @@ class AiChatSecurityTest extends TestCase
 
         $ticket = Ticket::query()->sole();
 
-        // The executor reads only the fields it knows about, and the schema
-        // does not include visibility or assignment: those stay with the people
-        // and screens that already govern them.
+        // Internal, as the board decides, whatever the proposal asked for; and
+        // the executor reads only the fields it knows about, so an id is not
+        // an assignment.
         $this->assertFalse((bool) $ticket->customer_visible);
         $this->assertNull($ticket->assignee_id);
     }

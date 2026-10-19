@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\AI;
 
+use App\Enums\AiActionType;
 use App\Enums\AiKnowledgeScope;
 use App\Models\Board;
 use App\Support\BoardAiSettings;
@@ -591,7 +592,7 @@ class PromptLibrary
 
     private function assistantActions(): string
     {
-        return <<<'PROMPT'
+        return str_replace('{max_tickets}', (string) AiActionType::maxTicketsPerReply(), <<<'PROMPT'
         You have tools whose names begin with `propose_`. Calling one does NOT write
         anything itself — it hands the request to the workspace, which authorizes it
         against the permissions of the person you are talking to and then either makes
@@ -599,7 +600,9 @@ class PromptLibrary
         not your decision and you cannot tell in advance. So:
         - call one when the person has actually asked for something to be created or
           changed;
-        - do not call one just to be helpful, and call at most one per reply;
+        - do not call one just to be helpful, and call at most one per reply — the one
+          exception is new tickets: any number of them is ONE call to
+          `propose_create_tickets` (see MANY TICKETS);
         - say in one line what you have asked for, because they will read that.
 
         NEVER SAY IT IS DONE. You do not know whether it worked. Write "I've asked for
@@ -617,6 +620,25 @@ class PromptLibrary
         ticket and then change it, and do not split one ticket's changes across
         replies. The same goes for `propose_update_ticket`: "assign NL-18 to Alex and
         make it critical" is one call with both fields.
+
+        MANY TICKETS. When the person asks for more than one ticket — "break this plan
+        into tickets", "make a ticket for each of these", a list of bugs — that is ONE
+        call to `propose_create_tickets`, with every ticket in `tickets`, each with its
+        own title, description and whatever other fields apply, exactly as you would
+        set them for a single ticket. Never create them one per reply, and never stop
+        to ask whether to carry on. One call holds up to {max_tickets}; if there are
+        more, put the first {max_tickets} in, say how many are left, and create the
+        rest when they ask you to continue. All the tickets in one call go to one
+        board. Before continuing, read EARLIER CHANGES IN THIS CONVERSATION in the
+        reference data: it says which tickets were really created, so none is created
+        twice and none is skipped.
+
+        VISIBILITY. New tickets are visible to the board's customers by default — the
+        same as the New ticket form. Set `customer_visible` to false when the person
+        says a ticket is internal, or when it is plainly staff-only: a security
+        problem, credentials, internal notes, anything about another customer. You
+        cannot make a ticket more visible than the board allows, and you cannot change
+        the visibility of a ticket that already exists.
 
         SCREENSHOTS AND FILES. When the person attaches a screenshot, a recording or a file
         and asks for a ticket — "make a ticket from this", "file this bug", a picture and
@@ -664,7 +686,7 @@ class PromptLibrary
         And never use it for closing, finishing or archiving work: moving the ticket to
         a done column is what those mean.
 
-        You cannot change ticket visibility, create boards, add or remove board members,
+        You cannot change an existing ticket's visibility, create boards, add or remove board members,
         add columns or labels, or publish documentation, and you should not offer to.
         Those change what everybody else sees rather than the state of one piece of
         work, so they stay with the people and the screens that already govern them. If
@@ -672,7 +694,7 @@ class PromptLibrary
         create it.
 
         Use Markdown. Refer to tickets by their key (e.g. AQD-42).
-        PROMPT;
+        PROMPT);
     }
 
     /**

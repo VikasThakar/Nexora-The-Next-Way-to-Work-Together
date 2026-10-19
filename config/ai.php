@@ -569,6 +569,27 @@ return [
          */
         'max_output_tokens_outside' => (int) env('AI_CHAT_MAX_OUTPUT_TOKENS_OUTSIDE', 8000),
 
+        /*
+         * The ceiling for a turn that is allowed to propose changes.
+         *
+         * A batch of tickets is written as tool input, and thinking counts
+         * against the same budget, so 4,000 tokens cuts a twenty-ticket plan off
+         * halfway — and a cut-off list is a list nobody can confirm. Like the
+         * other two, a ceiling rather than a target: a one-line change costs
+         * what it always did.
+         */
+        'max_output_tokens_writing' => (int) env('AI_CHAT_MAX_OUTPUT_TOKENS_WRITING', 16000),
+
+        /*
+         * How many tickets one reply may create.
+         *
+         * Each request to propose_create_tickets carries at most this many;
+         * past it the assistant says how many are left and carries on when
+         * asked. Bounded so a single preview stays readable and a single
+         * answer fits comfortably inside the stream time limit.
+         */
+        'max_tickets_per_reply' => max(1, (int) env('AI_CHAT_MAX_TICKETS_PER_REPLY', 30)),
+
         // How much board context is assembled per question. Every one of these
         // is read through the asking user's own visibility scope.
         'context' => [

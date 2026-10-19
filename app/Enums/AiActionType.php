@@ -41,6 +41,20 @@ namespace App\Enums;
 enum AiActionType: string
 {
     case CreateTicket = 'create_ticket';
+
+    /*
+     * Several new tickets, as one request.
+     *
+     * Every other case is one change. This one exists because "break this plan
+     * into tickets" is one request for twenty rows, and answering it one ticket
+     * per reply — the only thing a single-change enum allowed — made the person
+     * ask nineteen more times. It is still ONE proposal, with ONE preview and
+     * ONE confirmation: the preview lists every ticket, nothing is written until
+     * all of them have been authorized, and either all are created or none
+     * are. Each ticket is authorized exactly as a single CreateTicket would be.
+     */
+    case CreateTickets = 'create_tickets';
+
     case UpdateTicket = 'update_ticket';
     case CreateDocPage = 'create_doc_page';
     case UpdateDocPage = 'update_doc_page';
@@ -130,6 +144,7 @@ enum AiActionType: string
     {
         return match ($this) {
             self::CreateTicket => 'Create a ticket',
+            self::CreateTickets => 'Create tickets',
             self::UpdateTicket => 'Update a ticket',
             self::CreateDocPage => 'Create a documentation page',
             self::UpdateDocPage => 'Update a documentation page',
@@ -143,6 +158,7 @@ enum AiActionType: string
     {
         return match ($this) {
             self::CreateTicket => 'Create ticket',
+            self::CreateTickets => 'Create tickets',
             self::UpdateTicket => 'Apply ticket changes',
             self::CreateDocPage => 'Create page',
             self::UpdateDocPage => 'Apply page changes',
@@ -161,7 +177,13 @@ enum AiActionType: string
                 .'screenshots, recordings or files to this conversation and the ticket is about them, pass their '
                 .'ids in attachment_ids so the files land on the ticket; images are then shown inline in it. '
                 .'Whether it is created straight away or shown for confirmation first is the workspace\'s '
-                .'decision, not yours; either way you will be told what actually happened before you report it.',
+                .'decision, not yours. For MORE THAN ONE ticket use propose_create_tickets instead.',
+            self::CreateTickets => 'Request several new tickets on one board in a single call — use this whenever the '
+                .'person asks for more than one ticket ("break this plan into tickets", "make a ticket for each of '
+                .'these", a list of bugs). Put every ticket in `tickets`, up to '.self::maxTicketsPerReply().' per '
+                .'call, each with every field the person asked for, exactly as propose_create_ticket takes them. '
+                .'They are authorized together: if any one cannot be created, none are, and you will see why. '
+                .'Never create them one per reply.',
             self::UpdateTicket => 'Request changes to an existing ticket, identified by its number. This is the tool '
                 .'for re-assigning, moving between status columns, re-prioritising, re-labelling, editing the '
                 .'title or body, and attaching files from this conversation (attachment_ids) — send every field '
@@ -197,10 +219,14 @@ enum AiActionType: string
      * access. There is no field here that can name a viewer, a user id, a
      * column id, a label id or a visibility.
      *
-     * That last omission is deliberate and unchanged. `customer_visible` is
-     * absent from every schema, so no request through this chat can be the
-     * thing that publishes internal work to a client; that stays with the
-     * people and the screens that already authorize it.
+     * Visibility is the one exception, and only at creation. A new ticket
+     * starts from the board's own default — visible to customers unless the
+     * board says otherwise, the same as the New ticket form — and the create
+     * schemas carry `customer_visible` so the assistant can make a ticket
+     * INTERNAL when asked to. It can only narrow: ExecuteChatAction never makes
+     * a ticket more visible than the board's default, whatever arrives here.
+     * Changing an existing ticket's visibility stays with the people and the
+     * screens that already authorize it — no update schema names it.
      *
      * Assignees, columns and labels are named in words — "Alex Round", "In
      * Progress", "bug" — rather than by id, for two reasons. It is what the
@@ -218,9 +244,7 @@ enum AiActionType: string
             self::CreateTicket => [
                 'type' => 'object',
                 'properties' => [
-                    'title' => ['type' => 'string', 'description' => 'Short imperative summary, at most 200 characters.'],
-                    'description_md' => ['type' => 'string', 'description' => 'Markdown body describing the work.'],
-                    'priority' => ['type' => 'string', 'enum' => TicketPriority::values(), 'description' => 'Priority. Defaults to normal.'],
+                    ...self::ticketProperties(),
                     /*
                      * Which board, when the conversation does not already say.
                      *
@@ -240,23 +264,27 @@ enum AiActionType: string
                      * App\Actions\AI\ExecuteChatAction::boardFor().
                      */
                     'board' => ['type' => 'string', 'description' => 'The board to create it on — its name, slug or ticket prefix (e.g. NutriLens, nutrilens or NL). Omit when the conversation is already about one board; required when it is about the whole workspace.'],
-                    'type' => ['type' => 'string', 'enum' => TicketType::values(), 'description' => 'What kind of work this is. Defaults to task.'],
-                    'assignee' => ['type' => 'string', 'maxLength' => 120, 'description' => 'Who to assign it to — their name or email, as the person said it (e.g. "Alex Round"). Pass "me" for the person asking. Omit to leave it unassigned. They must already be a member of the board.'],
-                    'column' => ['type' => 'string', 'maxLength' => 120, 'description' => 'The status column to put it in, by name (e.g. "In Progress", "Bugs"). Omit to use the board\'s first column.'],
-                    'labels' => [
-                        'type' => 'array',
-                        'maxItems' => 10,
-                        'items' => ['type' => 'string', 'maxLength' => 60],
-                        'description' => 'Labels to attach, by name. They must already exist on the board — this cannot create a label.',
-                    ],
-                    'attachment_ids' => [
-                        'type' => 'array',
-                        'maxItems' => 20,
-                        'items' => ['type' => 'integer'],
-                        'description' => 'Files from this conversation to put on the ticket, by the id shown next to each entry under ATTACHED FILES (e.g. "ATTACHMENT 1 (id 57)" → 57). Include every attachment the ticket is about; when the person dropped screenshots and asked for a ticket, that is all of them. Images are embedded in the description so they are visible; other files are attached.',
-                    ],
                 ],
                 'required' => ['title'],
+            ],
+
+            self::CreateTickets => [
+                'type' => 'object',
+                'properties' => [
+                    'board' => ['type' => 'string', 'description' => 'The board to create them all on — its name, slug or ticket prefix. Omit when the conversation is already about one board; required when it is about the whole workspace. One board per call.'],
+                    'tickets' => [
+                        'type' => 'array',
+                        'minItems' => 1,
+                        'maxItems' => self::maxTicketsPerReply(),
+                        'description' => 'Every ticket to create, in the order they should be numbered. Each takes the same fields as propose_create_ticket.',
+                        'items' => [
+                            'type' => 'object',
+                            'properties' => self::ticketProperties(),
+                            'required' => ['title'],
+                        ],
+                    ],
+                ],
+                'required' => ['tickets'],
             ],
 
             self::UpdateTicket => [
@@ -339,6 +367,48 @@ enum AiActionType: string
                 'required' => ['slug'],
             ],
         };
+    }
+
+    /**
+     * The fields of one new ticket.
+     *
+     * Shared by propose_create_ticket and each entry of propose_create_tickets,
+     * so a ticket asked for alone and a ticket asked for in a batch can say
+     * exactly the same things and are resolved by exactly the same code.
+     *
+     * @return array<string, mixed>
+     */
+    public static function ticketProperties(): array
+    {
+        return [
+            'title' => ['type' => 'string', 'description' => 'Short imperative summary, at most 200 characters.'],
+            'description_md' => ['type' => 'string', 'description' => 'Markdown body describing the work.'],
+            'priority' => ['type' => 'string', 'enum' => TicketPriority::values(), 'description' => 'Priority. Defaults to normal.'],
+            'type' => ['type' => 'string', 'enum' => TicketType::values(), 'description' => 'What kind of work this is. Defaults to task.'],
+            'assignee' => ['type' => 'string', 'maxLength' => 120, 'description' => 'Who to assign it to — their name or email, as the person said it (e.g. "Alex Round"). Pass "me" for the person asking. Omit to leave it unassigned. They must already be a member of the board.'],
+            'column' => ['type' => 'string', 'maxLength' => 120, 'description' => 'The status column to put it in, by name (e.g. "In Progress", "Bugs"). Omit to use the board\'s first column.'],
+            'labels' => [
+                'type' => 'array',
+                'maxItems' => 10,
+                'items' => ['type' => 'string', 'maxLength' => 60],
+                'description' => 'Labels to attach, by name. They must already exist on the board — this cannot create a label.',
+            ],
+            'attachment_ids' => [
+                'type' => 'array',
+                'maxItems' => 20,
+                'items' => ['type' => 'integer'],
+                'description' => 'Files from this conversation to put on the ticket, by the id shown next to each entry under ATTACHED FILES (e.g. "ATTACHMENT 1 (id 57)" → 57). Include every attachment the ticket is about; when the person dropped screenshots and asked for a ticket, that is all of them. Images are embedded in the description so they are visible; other files are attached.',
+            ],
+            'customer_visible' => ['type' => 'boolean', 'description' => 'New tickets are visible to the board\'s customers by default. Pass false when the person says the ticket is internal, or when it is clearly staff-only — a security problem, credentials, internal notes, anything about another customer. Passing true cannot make a ticket more visible than the board allows.'],
+        ];
+    }
+
+    /**
+     * The most tickets one propose_create_tickets call may carry.
+     */
+    public static function maxTicketsPerReply(): int
+    {
+        return max(1, (int) config('ai.chat.max_tickets_per_reply', 30));
     }
 
     /** @return array<int, string> */

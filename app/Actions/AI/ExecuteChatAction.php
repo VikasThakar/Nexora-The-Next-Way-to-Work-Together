@@ -40,8 +40,10 @@ use App\Services\DocPageFinder;
 use App\Services\TicketFinder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Gate;
 use RuntimeException;
+use Throwable;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
@@ -98,17 +100,21 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  *
  * The surface, and what stays off it
  * ----------------------------------
- * Seven action types. They can raise a ticket, edit it, re-prioritise,
- * re-assign, move it between columns, re-label it, comment on it, delete it,
- * and write documentation pages.
+ * Eight action types. They can raise a ticket or a batch of them, edit one,
+ * re-prioritise, re-assign, move it between columns, re-label it, comment on
+ * it, delete it, and write documentation pages.
  *
- * Two things remain deliberately unreachable. Visibility: no schema in
- * AiActionType carries `customer_visible` for a ticket and no path here sets
- * it, so nothing said to the assistant can be what publishes internal work to a
- * client. And board structure: creating boards, adding members, and adding or
- * renaming columns and labels stay with the screens that govern them, because
- * they change what everybody else sees rather than the state of one piece of
- * work. The assistant works within the shape of a board; it does not reshape it.
+ * Visibility is bounded rather than reachable. A new ticket starts from the
+ * board's own default — the same one the New ticket form starts from — and
+ * the proposal may only narrow it: `customer_visible: false` makes a ticket
+ * internal, and nothing a proposal says can make one more visible than the
+ * board allows. An existing ticket's visibility is not reachable at all.
+ *
+ * Board structure remains deliberately unreachable: creating boards, adding
+ * members, and adding or renaming columns and labels stay with the screens that
+ * govern them, because they change what everybody else sees rather than the
+ * state of one piece of work. The assistant works within the shape of a board;
+ * it does not reshape it.
  */
 class ExecuteChatAction
 {
@@ -186,6 +192,39 @@ class ExecuteChatAction
             throw new RuntimeException('That proposal belongs to a different board.');
         }
 
+        /*
+         * One execution per proposal, even under concurrency.
+         *
+         * The state check below is what stops a proposal being carried out
+         * twice in a row; it cannot stop two requests that check at the same
+         * moment — a second tab, a double click on a slow confirm — and for a
+         * batch of thirty tickets that would be sixty. So the check runs under
+         * a lock, on a freshly read row: whoever gets the lock second finds the
+         * proposal already dealt with.
+         */
+        $lock = Cache::lock('ai-chat-action:'.$message->getKey(), 600);
+
+        if (! $lock->get()) {
+            throw new RuntimeException('That change is already being made. Give it a moment.');
+        }
+
+        try {
+            $message->refresh();
+
+            return $this->execute($board, $message, $actor);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Carry out a proposal the caller has already checked the mode and board
+     * of, under the lock taken in handle().
+     *
+     * @return array{label: string, url: ?string}
+     */
+    private function execute(Board $board, AiChatMessage $message, User $actor): array
+    {
         if (! $message->awaitsConfirmation()) {
             throw new RuntimeException('That proposal has already been dealt with.');
         }
@@ -200,6 +239,7 @@ class ExecuteChatAction
         try {
             $result = match ($type) {
                 AiActionType::CreateTicket => $this->doCreateTicket($board, $input, $actor, $message),
+                AiActionType::CreateTickets => $this->doCreateTickets($board, $input, $actor, $message),
                 AiActionType::UpdateTicket => $this->doUpdateTicket($board, $input, $actor, $message),
                 AiActionType::CreateDocPage => $this->doCreatePage($board, $input, $actor),
                 AiActionType::UpdateDocPage => $this->doUpdatePage($board, $input, $actor),
@@ -514,6 +554,129 @@ class ExecuteChatAction
      */
     private function doCreateTicket(Board $board, array $input, User $actor, AiChatMessage $message): array
     {
+        $ticket = $this->createPrepared($board, $this->prepareTicket($board, $input, $actor, $message), $actor);
+
+        $files = $ticket['files'];
+        $ticket = $ticket['ticket'];
+
+        return [
+            'label' => 'Created ticket '.$ticket->key().' — '.$this->summarise($ticket)
+                .($files->isNotEmpty() ? ' with '.$this->countFiles($files) : ''),
+            'url' => route('tickets.show', ['board' => $board, 'number' => $ticket->number]),
+            'target' => $ticket->key(),
+        ];
+    }
+
+    /**
+     * Several new tickets on one board, all or none.
+     *
+     * The tool behind "break this plan into tickets". Every ticket is first
+     * PREPARED — authorized and resolved exactly as a single create would be,
+     * writing nothing — and only when all of them have passed is any created.
+     * So an unknown column on the seventh ticket means no tickets and a message
+     * naming the seventh, rather than six tickets, a refusal, and somebody
+     * working out which of their twelve made it.
+     *
+     * The creates themselves are sequential, each in CreateTicket's own
+     * transaction, so the numbers come out in the order the list gave them.
+     * There is no outer transaction: CreateTicket's observers broadcast and
+     * notify, and a rollback after those had fired would leave customers' boards
+     * announcing tickets that do not exist. Preparation is what makes a failure
+     * part-way through unlikely; if one happens anyway, the message says
+     * exactly which tickets exist and that the rest were not created.
+     *
+     * @param  array<string, mixed>  $input
+     * @return array{label: string, url: ?string, target: string, items: list<array{key: string, title: string, url: string}>}
+     */
+    private function doCreateTickets(Board $board, array $input, User $actor, AiChatMessage $message): array
+    {
+        $entries = array_values(array_filter(
+            is_array($input['tickets'] ?? null) ? $input['tickets'] : [],
+            static fn ($entry): bool => is_array($entry),
+        ));
+
+        if ($entries === []) {
+            throw new RuntimeException('The proposal had no tickets in it.');
+        }
+
+        $max = AiActionType::maxTicketsPerReply();
+
+        if (count($entries) > $max) {
+            throw new RuntimeException('That is more than '.$max.' tickets for one request. Nothing was created.');
+        }
+
+        $prepared = [];
+
+        foreach ($entries as $index => $entry) {
+            try {
+                $prepared[] = $this->prepareTicket($board, $entry, $actor, $message);
+            } catch (AuthorizationException|RuntimeException $exception) {
+                $reason = $exception->getMessage();
+                $which = 'Ticket '.($index + 1).$this->quotedTitle($entry).': '.$reason
+                    .(str_contains($reason, 'Nothing was') ? '' : ' Nothing was created.');
+
+                // The kind of refusal is kept, so the audit row still says
+                // "refused" for a permission and "error" for a bad column.
+                throw $exception instanceof AuthorizationException
+                    ? new AuthorizationException($which)
+                    : new RuntimeException($which);
+            }
+        }
+
+        $created = [];
+
+        foreach ($prepared as $ticket) {
+            try {
+                $created[] = $this->createPrepared($board, $ticket, $actor)['ticket'];
+            } catch (Throwable $exception) {
+                $done = $created === []
+                    ? 'No tickets were created'
+                    : 'Created '.implode(', ', array_map(fn (Ticket $t): string => $t->key(), $created));
+
+                throw new RuntimeException(
+                    $done.', then it stopped: '.$exception->getMessage().'. The remaining '
+                    .(count($prepared) - count($created)).' were not created.'
+                );
+            }
+        }
+
+        $first = $created[0];
+        $last = $created[count($created) - 1];
+        $range = count($created) === 1 ? $first->key() : $first->key().' to '.$last->key();
+        $visible = count(array_filter($created, fn (Ticket $t): bool => (bool) $t->customer_visible));
+
+        $audience = match (true) {
+            $visible === count($created) => 'visible to customers',
+            $visible === 0 => 'internal',
+            default => $visible.' visible to customers, '.(count($created) - $visible).' internal',
+        };
+
+        return [
+            'label' => 'Created '.count($created).' '.(count($created) === 1 ? 'ticket' : 'tickets')
+                .' on '.$board->name.': '.$range.' ('.$audience.')',
+            'url' => route('boards.show', $board),
+            'target' => mb_substr($range.' ('.count($created).' tickets)', 0, 190),
+            'items' => array_map(fn (Ticket $t): array => [
+                'key' => $t->key(),
+                'title' => $t->title,
+                'url' => route('tickets.show', ['board' => $board, 'number' => $t->number]),
+            ], $created),
+        ];
+    }
+
+    /**
+     * Everything a new ticket needs, authorized and resolved, and nothing
+     * written yet.
+     *
+     * Authorization is per field and happens here, BEFORE anything is
+     * written, which is what lets a batch refuse as a whole. See the comment
+     * on doCreateTicket() for why each field is gated only when asked for.
+     *
+     * @param  array<string, mixed>  $input
+     * @return array{attributes: array<string, mixed>, files: Collection<int, Attachment>}
+     */
+    private function prepareTicket(Board $board, array $input, User $actor, AiChatMessage $message): array
+    {
         Gate::forUser($actor)->authorize('create', [Ticket::class, $board]);
 
         $title = $this->requiredString($input, 'title', 'The proposal had no ticket title.');
@@ -523,14 +686,26 @@ class ExecuteChatAction
         // missing the screenshot it was raised about.
         $files = $this->attachmentsFrom($message, $input, $actor);
 
+        /*
+         * Visibility: the board's default, which the proposal may narrow and
+         * never widen.
+         *
+         * The board's default is what the New ticket form starts from, so a
+         * ticket the assistant raises lands where one raised by hand would.
+         * `customer_visible: false` — the person said it is internal, or it is
+         * plainly staff-only — makes it internal. `true` cannot make a ticket
+         * more visible than the board allows, so nothing said in a
+         * conversation can be what publishes internal work on a board whose
+         * tickets are internal by default.
+         */
+        $visible = $board->newTicketsVisibleToCustomers()
+            && (($input['customer_visible'] ?? true) !== false);
+
         $attributes = [
             'title' => mb_substr($title, 0, 200),
             'description_md' => $this->optionalString($input, 'description_md'),
             'priority' => $this->priority($input),
-            // Visibility is deliberately not passed. CreateTicket defaults a
-            // staff-created ticket to internal, which is the fail-closed
-            // outcome: a chat proposal must never be the thing that publishes
-            // work to a customer.
+            'customer_visible' => $visible,
         ];
 
         /*
@@ -547,7 +722,7 @@ class ExecuteChatAction
         }
 
         if (($assignee = $this->optionalString($input, 'assignee')) !== null) {
-            Gate::forUser($actor)->authorize('assign', $this->prototype($board));
+            Gate::forUser($actor)->authorize('assign', $this->prototype($board, $visible));
 
             $attributes['assignee_id'] = $this->targets->assignee($board, $assignee, $actor)?->getKey();
         }
@@ -559,14 +734,26 @@ class ExecuteChatAction
         $labels = $this->labelNames($input);
 
         if ($labels !== null) {
-            Gate::forUser($actor)->authorize('manageLabels', $this->prototype($board));
+            Gate::forUser($actor)->authorize('manageLabels', $this->prototype($board, $visible));
 
             // Resolved before the ticket exists, so an unknown label name means
             // no ticket at all rather than a ticket missing a label.
             $attributes['label_ids'] = $this->targets->labelIds($board, $labels);
         }
 
-        $ticket = $this->createTicket->handle($board, $attributes, $actor);
+        return ['attributes' => $attributes, 'files' => $files];
+    }
+
+    /**
+     * Write one prepared ticket: CreateTicket, then the conversation's files.
+     *
+     * @param  array{attributes: array<string, mixed>, files: Collection<int, Attachment>}  $prepared
+     * @return array{ticket: Ticket, files: Collection<int, Attachment>}
+     */
+    private function createPrepared(Board $board, array $prepared, User $actor): array
+    {
+        $ticket = $this->createTicket->handle($board, $prepared['attributes'], $actor);
+        $files = $prepared['files'];
 
         /*
          * The conversation's files, copied onto the ticket.
@@ -580,12 +767,19 @@ class ExecuteChatAction
 
         $ticket->loadMissing(['board', 'column', 'assignee', 'labels']);
 
-        return [
-            'label' => 'Created ticket '.$ticket->key().' — '.$this->summarise($ticket)
-                .($files->isNotEmpty() ? ' with '.$this->countFiles($files) : ''),
-            'url' => route('tickets.show', ['board' => $board, 'number' => $ticket->number]),
-            'target' => $ticket->key(),
-        ];
+        return ['ticket' => $ticket, 'files' => $files];
+    }
+
+    /**
+     * ` ("Set up CI")`, for naming one entry of a batch in a refusal.
+     *
+     * @param  array<string, mixed>  $entry
+     */
+    private function quotedTitle(array $entry): string
+    {
+        $title = $this->optionalString($entry, 'title');
+
+        return $title === null ? '' : ' ("'.mb_strimwidth($title, 0, 80, '…').'")';
     }
 
     /**
@@ -1015,19 +1209,19 @@ class ExecuteChatAction
      * policy is asked about a stand-in carrying the two attributes it reads:
      * the board, and internal visibility.
      *
-     * Both are the honest values for a ticket this path is about to create:
-     * CreateTicket makes staff-created tickets internal. So the answer is the
-     * same one the policy would give a moment later on the saved row, and it is
-     * TicketPolicy's answer rather than this class's.
+     * Both are the honest values for the ticket this path is about to create:
+     * the caller passes the visibility it has already decided on, so the answer
+     * is the same one the policy would give a moment later on the saved row,
+     * and it is TicketPolicy's answer rather than this class's.
      *
      * It is never saved.
      */
-    private function prototype(Board $board): Ticket
+    private function prototype(Board $board, bool $visible = false): Ticket
     {
         $ticket = new Ticket;
 
         $ticket->board_id = $board->getKey();
-        $ticket->customer_visible = false;
+        $ticket->customer_visible = $visible;
         $ticket->setRelation('board', $board);
 
         return $ticket;
@@ -1084,6 +1278,10 @@ class ExecuteChatAction
         if ($ticket->labels->isNotEmpty()) {
             $parts[] = 'labelled '.implode(', ', $ticket->labels->pluck('name')->all());
         }
+
+        // Said every time, because it is the one fact about a new ticket that
+        // decides who outside the team can read it.
+        $parts[] = $ticket->customer_visible ? 'visible to customers' : 'internal';
 
         return implode(', ', $parts);
     }

@@ -129,13 +129,15 @@ way to join one yourself.
 ## The one thing to get right
 
 > [!IMPORTANT]
-> **Everything you create is internal by default.** A ticket you raise, a comment you write
-> and a documentation page you add are all invisible to the customer until somebody
-> deliberately publishes them.
+> **A ticket you raise is visible to the board's customers by default; comments and pages are
+> not.** On the New ticket form and in quick add, "Visible to the customer" starts ticked —
+> **untick it for internal work** (the form says how many customers would see the ticket). The
+> assistant follows the same default and makes a ticket internal when you ask it to.
 >
-> That is the correct default and you should rely on it — but it also means **the customer
-> sees nothing until you decide they should.** Publishing is a deliberate act, it is
-> staff-only, and it is recorded in the timeline.
+> A comment you write and a documentation page you add are internal until somebody deliberately
+> publishes them. Publishing an existing ticket or page is staff-only and recorded in the
+> timeline. A board can keep new tickets internal by default through its
+> `new_tickets_visible_to_customers` setting.
 
 The reverse also holds: a ticket a **customer** raises is always customer-visible, always
 lands in the first column, and is never pre-assigned.

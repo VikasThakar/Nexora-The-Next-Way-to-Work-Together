@@ -130,6 +130,7 @@ for inbound GitHub deliveries.
   Answer: prose + a table of the three overdue tickets
           + ONE proposal: propose_create_ticket
             { title: "Chase NL-31 …", board: nutrilens, priority: high }
+          (several new tickets are one proposal too: propose_create_tickets)
         |
         v
   Screen shows a PREVIEW and a Confirm button          ← Operator: nothing written yet
@@ -143,7 +144,8 @@ for inbound GitHub deliveries.
     • Gate: TicketPolicy::create, against the CONFIRMING person
     • call CreateTicket — the ordinary action, with all its own rules
         v
-  NL-57 exists. Internal by default. ticket_created event. Observer fans out.
+  NL-57 exists. Visible to customers unless the board or the request says internal.
+  ticket_created event. Observer fans out.
 ```
 
 Under **AI Agent** the preview step is skipped for this reversible action and the ticket is

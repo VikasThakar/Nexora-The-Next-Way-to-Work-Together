@@ -232,6 +232,23 @@ class FakeAiProvider implements AiProviderInterface
     }
 
     /**
+     * Make the next answer carry several tool calls in one turn, in order —
+     * as a real model does when it asks for more than one thing at once.
+     *
+     * @param  list<array{0: string, 1: array<string, mixed>}>  $calls  tool name and input
+     */
+    public function willProposeMany(array $calls): self
+    {
+        $this->toolCalls = array_map(
+            static fn (array $call, int $i): AiToolCall => new AiToolCall(name: $call[0], input: $call[1], id: 'toolu_fake_'.($i + 1)),
+            $calls,
+            array_keys($calls),
+        );
+
+        return $this;
+    }
+
+    /**
      * Ask for one lookup, then answer.
      *
      * The two-step script the retrieval loop is built for: the first provider

@@ -78,7 +78,7 @@ a migration or a backfill.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `default_content_is_internal` | `true` | New content on the board is internal unless stated otherwise |
+| `new_tickets_visible_to_customers` | `true` (`WORKSPACE_NEW_TICKETS_VISIBLE`) | A ticket staff create starts visible to the board's customers: the starting value of the box on the New ticket form and in quick add, and the most visible an assistant-created ticket can be |
 | `customers_can_comment` | `true` | Whether customers who are members may post to the customer conversation |
 | `timezone` | `UTC` | The board's own day, used for daily AI run caps and statistics |
 | `ai.*` | see section 10 | Model, provider, capability mode, project context, auto-run policy, per-board credentials |

@@ -122,8 +122,11 @@ use RuntimeException;
  * metadata as a proposal, rendered as a preview, and only becomes a database
  * change when a human presses Confirm — at which point
  * App\Actions\AI\ExecuteChatAction authorizes it and calls the ordinary action.
- * Exactly one proposal per turn is kept: a preview showing two changes invites
- * confirming both while reading one.
+ * One proposal per turn is kept: a preview showing two unrelated changes
+ * invites confirming both while reading one. New tickets are the exception
+ * that is not one — several of them are a single request, so ticket creations
+ * in one turn are merged into one `create_tickets` proposal with one preview
+ * listing every ticket. See proposalFrom().
  */
 class WorkspaceChatService
 {
@@ -368,12 +371,18 @@ class WorkspaceChatService
              * Outside Project raises the length ceiling in the prompt, so it
              * has to raise the ceiling on the request too — otherwise a
              * complete explanation arrives cut off mid-sentence, which reads
-             * as a fault rather than as a limit. Both figures are deployment
+             * as a fault rather than as a limit. A turn that may propose
+             * changes gets the writing ceiling for the same reason: a batch of
+             * tickets is written as tool input, and a list cut off halfway is
+             * one nobody can confirm. All three figures are deployment
              * configuration; see config/ai.php.
              */
-            maxOutputTokens: $knowledge->allowsExternalKnowledge()
-                ? (int) config('ai.chat.max_output_tokens_outside', 8000)
-                : (int) config('ai.chat.max_output_tokens', 4000),
+            maxOutputTokens: max(
+                $knowledge->allowsExternalKnowledge()
+                    ? (int) config('ai.chat.max_output_tokens_outside', 8000)
+                    : (int) config('ai.chat.max_output_tokens', 4000),
+                $writeTools !== [] ? (int) config('ai.chat.max_output_tokens_writing', 16000) : 0,
+            ),
             /*
              * The lookups, then the proposals.
              *
@@ -483,7 +492,7 @@ class WorkspaceChatService
             ];
         }
 
-        $proposal = $this->proposalFrom($completion->firstToolCall());
+        $proposal = $this->proposalFrom($completion->toolCalls, $completion->stopReason);
         if ($proposal !== null) {
             $metadata['action'] = $proposal;
         }
@@ -493,9 +502,11 @@ class WorkspaceChatService
             $scope,
             $asker,
             AiChatRole::Assistant,
-            $completion->hasText()
-                ? $completion->text
-                : 'I have prepared the change below for you to review.',
+            match (true) {
+                $completion->hasText() => $completion->text,
+                ($proposal['state'] ?? null) === AiChatMessage::ACTION_FAILED => 'I could not finish preparing that change — see the note below.',
+                default => 'I have prepared the change below for you to review.',
+            },
             $metadata,
         );
     }
@@ -642,6 +653,12 @@ class WorkspaceChatService
             $context .= "\n\n".$attachments;
         }
 
+        $earlier = $this->earlierChanges($history);
+
+        if ($earlier !== '') {
+            $context .= "\n\n".$earlier;
+        }
+
         $messages[] = [
             'role' => 'user',
             'content' => $context
@@ -658,6 +675,104 @@ class WorkspaceChatService
         }
 
         return $messages;
+    }
+
+    /**
+     * What actually happened to the changes asked for earlier in this session.
+     *
+     * The model never sees the result of a proposal — a proposal ends its turn
+     * with no tool result, and the history it is given is each turn's text.
+     * So without this it cannot tell a ticket it asked for from one that was
+     * created, discarded or refused, and "continue with the rest" either
+     * repeats tickets that exist or skips ones that do not. This is the record
+     * of outcomes, taken from the same replayed turns, placed with the other
+     * reference data in the final user message rather than in the assistant
+     * turns, where the model would learn to write lines like it itself.
+     *
+     * @param  iterable<AiChatMessage>  $history
+     */
+    private function earlierChanges(iterable $history): string
+    {
+        $lines = [];
+
+        foreach ($history as $message) {
+            $type = $message->role->isAssistant() ? $message->actionType() : null;
+            $action = $message->action();
+
+            if ($type === null || $action === null) {
+                continue;
+            }
+
+            $result = is_array($action['result'] ?? null) ? $action['result'] : [];
+
+            $lines[] = '- '.match ($action['state'] ?? null) {
+                AiChatMessage::ACTION_CONFIRMED => 'Done: '.($result['label'] ?? $type->label()).$this->createdItems($result),
+                AiChatMessage::ACTION_FAILED => 'Failed: '.$this->describe($type, $action).' — '
+                    .(is_string($action['error'] ?? null) ? $action['error'] : 'no reason was recorded'),
+                AiChatMessage::ACTION_DISCARDED => 'Discarded by the person, nothing changed: '.$this->describe($type, $action),
+                default => 'Still waiting for the person to confirm: '.$this->describe($type, $action),
+            };
+        }
+
+        if ($lines === []) {
+            return '';
+        }
+
+        return "EARLIER CHANGES IN THIS CONVERSATION (what actually happened to what you asked for — trust this over your own earlier replies):\n"
+            .implode("\n", $lines);
+    }
+
+    /**
+     * The tickets a confirmed batch created, one per line.
+     *
+     * @param  array<string, mixed>  $result
+     */
+    private function createdItems(array $result): string
+    {
+        $items = array_slice(array_filter((array) ($result['items'] ?? []), 'is_array'), 0, 60);
+
+        $lines = array_map(
+            static fn (array $item): string => "\n    ".($item['key'] ?? '?').' '.mb_strimwidth((string) ($item['title'] ?? ''), 0, 80, '…'),
+            $items,
+        );
+
+        return implode('', $lines);
+    }
+
+    /**
+     * A proposal in a few words: what it was for, never its full arguments.
+     *
+     * @param  array<string, mixed>  $action
+     */
+    private function describe(AiActionType $type, array $action): string
+    {
+        $input = is_array($action['input'] ?? null) ? $action['input'] : [];
+
+        if ($type === AiActionType::CreateTickets) {
+            $titles = array_values(array_filter(array_map(
+                static fn ($entry): ?string => is_array($entry) && is_string($entry['title'] ?? null) ? mb_strimwidth($entry['title'], 0, 60, '…') : null,
+                (array) ($input['tickets'] ?? []),
+            )));
+
+            if ($titles === []) {
+                return $type->label();
+            }
+
+            $shown = array_slice($titles, 0, 10);
+            $more = count($titles) - count($shown);
+
+            return 'Create '.count($titles).' tickets ('.implode('; ', $shown).($more > 0 ? '; and '.$more.' more' : '').')';
+        }
+
+        $subject = match (true) {
+            is_string($input['title'] ?? null) => '"'.mb_strimwidth($input['title'], 0, 80, '…').'"',
+            is_int($input['number'] ?? null) => '#'.$input['number'],
+            is_string($input['slug'] ?? null) => $input['slug'],
+            is_string($input['ticket'] ?? null) => $input['ticket'],
+            default => null,
+        };
+
+        return $type->label().($subject !== null ? ' '.$subject : '');
     }
 
     /**
@@ -687,34 +802,192 @@ class WorkspaceChatService
     }
 
     /**
-     * Turn a tool call into a stored proposal, or nothing.
+     * Turn a turn's tool calls into one stored proposal, or nothing.
      *
-     * A tool name the enum does not recognise is dropped silently rather than
-     * stored: an unknown proposal has no preview and no executor, so keeping it
-     * would only produce a confirm button that cannot work.
+     * Every call is looked at, not just the first: a round can hold a lookup
+     * and a proposal, and taking `[0]` used to drop the proposal whenever the
+     * lookup came first. Read tools and names the enum does not recognise are
+     * skipped — reads were answered by the loop, an invented name was refused
+     * there, and an unknown proposal would only be a confirm button that
+     * cannot work.
      *
+     * Then one rule with one exception:
+     *
+     *   ticket creations are merged. Several `propose_create_ticket` calls,
+     *   one or more `propose_create_tickets`, or a mix, are one request — "make
+     *   the tickets" — and become one `create_tickets` proposal for one board,
+     *   capped at the per-reply maximum;
+     *
+     *   anything else keeps the first proposal, as before, because a preview of
+     *   two unrelated changes invites confirming both while reading one.
+     *
+     * Whatever is left out is said, in `notes`, on the card itself. A reply cut
+     * off by the output ceiling usually ends mid-way through a tool call, whose
+     * arguments then arrive empty: that is recorded as a FAILED action saying
+     * so, never as a proposal with nothing in it.
+     *
+     * @param  list<AiToolCall>  $calls
      * @return array<string, mixed>|null
      */
-    private function proposalFrom(?AiToolCall $call): ?array
+    private function proposalFrom(array $calls, ?string $stopReason = null): ?array
     {
-        if ($call === null) {
+        $proposals = [];
+
+        foreach ($calls as $call) {
+            $type = $call instanceof AiToolCall ? AiActionType::fromToolName($call->name) : null;
+
+            if ($type !== null) {
+                $proposals[] = ['type' => $type, 'input' => is_array($call->input) ? $call->input : []];
+            }
+        }
+
+        if ($proposals === []) {
             return null;
         }
 
-        $type = AiActionType::fromToolName($call->name);
+        $cutOff = in_array($stopReason, ['max_tokens', 'length'], true);
 
-        if ($type === null) {
-            // A read tool, or a name the model invented. Neither is a proposal:
-            // reads were already executed and answered by the loop, and an
-            // invented name was refused there.
-            return null;
+        // Every schema has a required field, so arguments that arrived empty
+        // are never a usable request.
+        $usable = array_values(array_filter($proposals, static fn (array $p): bool => $p['input'] !== []));
+
+        if ($usable === []) {
+            return $this->failedProposal($proposals[0]['type'], $cutOff
+                ? 'The reply was cut off before the request was complete, so nothing was proposed. '
+                    .'Ask again — for a long list of tickets, ask for fewer at a time.'
+                : 'The request arrived without any details, so nothing was proposed. Ask again.');
         }
 
-        return [
+        $notes = [];
+
+        if (count($usable) < count($proposals)) {
+            $notes[] = $cutOff
+                ? 'The reply was cut off, so its last request was incomplete and has been left out.'
+                : 'A request that arrived without any details has been left out.';
+        }
+
+        $allCreates = array_filter(
+            $usable,
+            static fn (array $p): bool => ! in_array($p['type'], [AiActionType::CreateTicket, AiActionType::CreateTickets], true),
+        ) === [];
+
+        if ($allCreates && (count($usable) > 1 || $usable[0]['type'] === AiActionType::CreateTickets)) {
+            return $this->ticketBatch($usable, $notes);
+        }
+
+        if (count($usable) > 1) {
+            $notes[] = 'Only the first change is shown here. Ask for the others one at a time.';
+        }
+
+        return $this->proposal($usable[0]['type'], $usable[0]['input'], $notes);
+    }
+
+    /**
+     * Several ticket creations, as one `create_tickets` proposal.
+     *
+     * One board per proposal, because one board is what a confirmation is
+     * authorized against: tickets a call addressed to a different board are
+     * left out and the note says so. Per-entry `board` keys are dropped for the
+     * same reason — the batch's board is the only one that applies.
+     *
+     * @param  list<array{type: AiActionType, input: array<string, mixed>}>  $proposals
+     * @param  list<string>  $notes
+     * @return array<string, mixed>
+     */
+    private function ticketBatch(array $proposals, array $notes): array
+    {
+        $board = null;
+        $boardKey = null;
+        $tickets = [];
+        $elsewhere = 0;
+
+        foreach ($proposals as $index => $proposal) {
+            $input = $proposal['input'];
+            $named = is_string($input['board'] ?? null) && trim($input['board']) !== '' ? trim($input['board']) : null;
+
+            $entries = $proposal['type'] === AiActionType::CreateTickets
+                ? array_values(array_filter((array) ($input['tickets'] ?? []), 'is_array'))
+                : [$input];
+
+            if ($index === 0) {
+                $board = $named;
+                $boardKey = $named === null ? null : mb_strtolower($named);
+            } elseif (($named === null ? null : mb_strtolower($named)) !== $boardKey) {
+                $elsewhere += count($entries);
+
+                continue;
+            }
+
+            foreach ($entries as $entry) {
+                unset($entry['board']);
+
+                if ($entry !== []) {
+                    $tickets[] = $entry;
+                }
+            }
+        }
+
+        if ($elsewhere > 0) {
+            $notes[] = $elsewhere.' '.($elsewhere === 1 ? 'ticket' : 'tickets')
+                .' for another board '.($elsewhere === 1 ? 'was' : 'were').' left out. Ask for those separately.';
+        }
+
+        if ($tickets === []) {
+            return $this->failedProposal(AiActionType::CreateTickets, 'The request had no tickets in it, so nothing was proposed.');
+        }
+
+        $max = AiActionType::maxTicketsPerReply();
+
+        if (count($tickets) > $max) {
+            $notes[] = 'Only the first '.$max.' tickets fit in one request; '.(count($tickets) - $max)
+                .' more were left out. Ask to continue for the rest.';
+
+            $tickets = array_slice($tickets, 0, $max);
+        }
+
+        $input = $board === null ? ['tickets' => $tickets] : ['board' => $board, 'tickets' => $tickets];
+
+        return $this->proposal(AiActionType::CreateTickets, $input, $notes);
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     * @param  list<string>  $notes
+     * @return array<string, mixed>
+     */
+    private function proposal(AiActionType $type, array $input, array $notes = []): array
+    {
+        $proposal = [
             'type' => $type->value,
-            'input' => $call->input,
+            'input' => $input,
             'state' => AiChatMessage::ACTION_PROPOSED,
             'proposed_at' => now()->toIso8601String(),
+        ];
+
+        if ($notes !== []) {
+            $proposal['notes'] = $notes;
+        }
+
+        return $proposal;
+    }
+
+    /**
+     * A request that could not become a proposal, recorded as one that failed.
+     *
+     * So the card says what went wrong where the person is looking, the
+     * transcript keeps it, and the next turn's EARLIER CHANGES tells the model.
+     *
+     * @return array<string, mixed>
+     */
+    private function failedProposal(AiActionType $type, string $error): array
+    {
+        return [
+            'type' => $type->value,
+            'input' => [],
+            'state' => AiChatMessage::ACTION_FAILED,
+            'proposed_at' => now()->toIso8601String(),
+            'resolved_at' => now()->toIso8601String(),
+            'error' => $error,
         ];
     }
 }

@@ -98,8 +98,9 @@ class AiWorkspaceWriteTest extends TestCase
         // behalf and the row records whose.
         $this->assertSame($admin->id, $ticket->created_by_id);
 
-        // And still internal: nothing said to the assistant publishes work.
-        $this->assertFalse($ticket->customer_visible);
+        // Visible to the board's customers, like a ticket raised on the New
+        // ticket form: that is the board's default, and nobody asked otherwise.
+        $this->assertTrue($ticket->customer_visible);
     }
 
     /**

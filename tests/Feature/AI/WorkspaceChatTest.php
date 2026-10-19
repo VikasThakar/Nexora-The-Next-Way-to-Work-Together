@@ -146,10 +146,14 @@ class WorkspaceChatTest extends TestCase
         $this->assertSame(AiChatMessage::ACTION_CONFIRMED, $message->refresh()->actionState());
     }
 
-    public function test_a_ticket_created_from_the_chat_is_internal_by_default(): void
+    /**
+     * A ticket the assistant raises lands where one raised by hand would: the
+     * board's default, which is visible to its customers.
+     */
+    public function test_a_ticket_created_from_the_chat_follows_the_boards_default(): void
     {
         $provider = $this->fakeAiProvider();
-        $provider->willPropose(AiActionType::CreateTicket->toolName(), ['title' => 'Internal work']);
+        $provider->willPropose(AiActionType::CreateTicket->toolName(), ['title' => 'Customer work']);
 
         $team = $this->teamMember();
         $board = $this->boardWithColumns([$team]);
@@ -163,10 +167,38 @@ class WorkspaceChatTest extends TestCase
 
         $component->call('startConfirming', $message->id)->call('confirm');
 
-        // A chat proposal must never be the thing that publishes work to a
-        // customer: CreateTicket defaults staff-created tickets to internal and
-        // the executor deliberately does not pass a visibility.
+        $ticket = Ticket::query()->sole();
+
+        $this->assertTrue((bool) $ticket->customer_visible);
+        $this->assertStringContainsString('visible to customers', (string) $message->refresh()->action()['result']['label']);
+    }
+
+    /**
+     * "Make an internal ticket for this" is honoured: the proposal may narrow
+     * the board's default.
+     */
+    public function test_the_assistant_can_create_an_internal_ticket_when_asked(): void
+    {
+        $provider = $this->fakeAiProvider();
+        $provider->willPropose(AiActionType::CreateTicket->toolName(), [
+            'title' => 'Rotate the leaked key',
+            'customer_visible' => false,
+        ]);
+
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+
+        $component = Livewire::actingAs($team)
+            ->test(Chat::class, ['board' => $board])
+            ->set('draft', 'Make an internal ticket to rotate the leaked key')
+            ->call('send');
+
+        $message = AiChatMessage::query()->where('role', AiChatRole::Assistant->value)->sole();
+
+        $component->call('startConfirming', $message->id)->call('confirm');
+
         $this->assertFalse((bool) Ticket::query()->sole()->customer_visible);
+        $this->assertStringContainsString('internal', (string) $message->refresh()->action()['result']['label']);
     }
 
     public function test_a_discarded_proposal_writes_nothing(): void

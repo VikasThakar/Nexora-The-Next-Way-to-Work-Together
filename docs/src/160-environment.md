@@ -25,6 +25,7 @@ has to decide about, grouped by concern.
 | `WORKSPACE_NAME` | `Aqueduct Workspace` | Sidebar and transactional mail. **Set to `Nexora` to brand the product as Nexora** |
 | `WORKSPACE_SHORT_NAME` | `Aqueduct` | Page-title suffix |
 | `WORKSPACE_DEFAULT_TIMEZONE` | `UTC` | Default board timezone; also where "today" and "yesterday" are cut for statistics and MCP answers. Production: `Europe/Stockholm` |
+| `WORKSPACE_NEW_TICKETS_VISIBLE` | `true` | Whether tickets staff create start visible to the board's customers (form, quick add, assistant). A board can override it |
 | `ALLOW_PUBLIC_REGISTRATION` | `false` | Self-service sign-up. Registrants get the `customer` role |
 
 ## Session and security
@@ -108,6 +109,8 @@ has to decide about, grouped by concern.
 | `AI_CHAT_HISTORY` | `20` | Turns replayed |
 | `AI_CHAT_MAX_OUTPUT_TOKENS` | `4000` | |
 | `AI_CHAT_MAX_OUTPUT_TOKENS_OUTSIDE` | `8000` | Outside Project scope |
+| `AI_CHAT_MAX_OUTPUT_TOKENS_WRITING` | `16000` | A turn that may propose changes, so a batch of tickets is not cut off |
+| `AI_CHAT_MAX_TICKETS_PER_REPLY` | `30` | Most tickets one `propose_create_tickets` call may carry |
 | `AI_CHAT_STREAM_TIME_LIMIT` | `360` | Must exceed `AI_REQUEST_TIMEOUT` |
 | `AI_CHAT_CONTEXT_TICKETS` / `_PAGES` / `_EVENTS` | `60` / `40` / `40` | Board context depth |
 | `AI_CHAT_CONTEXT_BOARDS` / `_BOARD_TICKETS` | `12` / `6` | Workspace context breadth |

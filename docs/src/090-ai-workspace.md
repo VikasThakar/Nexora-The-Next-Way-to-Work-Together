@@ -154,7 +154,8 @@ of their project, with no signal that it happened.
      v
   +----------------------------------------------------------------+
   |  ANSWER          RichResponseParser -> prose / table / chart /  |
-  |                  KPI blocks, plus AT MOST ONE proposal          |
+  |                  KPI blocks, plus AT MOST ONE proposal (a batch |
+  |                  of new tickets counts as one)                  |
   |                                                                  |
   |  A proposal is a PREVIEW. It becomes a change only when         |
   |  ExecuteChatAction re-resolves it, authorizes it against the    |
@@ -336,13 +337,14 @@ details.
 
 ## Write tools: propose, then confirm
 
-Seven action types (`App\Enums\AiActionType`), each exposed to the model as
+Eight action types (`App\Enums\AiActionType`), each exposed to the model as
 `propose_<name>`. The prefix is deliberate: the name itself tells the model that calling it
 does not perform the action.
 
 | Action | Destructive? | Notes |
 |---|---|---|
-| `propose_create_ticket` | No | Sets every field at once — title, description, priority, type, assignee, column, labels |
+| `propose_create_ticket` | No | Sets every field at once — title, description, priority, type, assignee, column, labels, and `customer_visible: false` to keep it internal |
+| `propose_create_tickets` | No | Several new tickets on one board, up to 30 per call; one preview, all or none |
 | `propose_update_ticket` | No | Re-assign, move column, re-prioritise, re-label, edit title or body |
 | `propose_comment_ticket` | No | Staff comments default to the **internal** stream |
 | `propose_create_doc_page` | No | New pages are **always internal** until somebody publishes them separately |
@@ -353,10 +355,12 @@ does not perform the action.
 ### What the schemas deliberately cannot express
 
 > [!IMPORTANT]
-> **No schema carries `customer_visible` for a ticket, and no path here sets it.** No request
-> through the chat can be the thing that publishes internal work to a client; that stays with
-> the people and the screens that already authorize it. Likewise there is no field that can
-> name a viewer, a user id, a column id, a label id or a visibility.
+> **Visibility can only be narrowed, and only at creation.** The create schemas carry
+> `customer_visible`, but a new ticket is never more visible than the board's
+> `new_tickets_visible_to_customers` default, so nothing said in a conversation can publish work a
+> board keeps internal. No update schema names visibility: publishing an existing ticket stays with
+> the people and the screens that already authorize it. There is no field that can name a viewer,
+> a user id, a column id or a label id.
 
 Assignees, columns and labels are named **in words** — "Alex Round", "In Progress", "bug" —
 rather than by id. That is what the model has to work with, since it is repeating what
@@ -413,8 +417,30 @@ why, rather than getting a moved card, a dropped assignee and a vague error.
 `SyncTicketLabels`, `PostComment`, `DeleteTicket`, `CreatePage`, `UpdatePage`. Every rule
 those own still applies, and there is no second, weaker path into the same tables.
 
-**Exactly one proposal per turn is kept.** A preview showing two changes invites confirming
-both while reading one.
+**One proposal per turn is kept** — a preview showing two unrelated changes invites
+confirming both while reading one — **with one exception: new tickets.** "Break this plan into
+tickets" is one request, so `propose_create_tickets` carries up to `AI_CHAT_MAX_TICKETS_PER_REPLY`
+(30) tickets in one call, and any ticket creations the model splits across several calls in a
+turn are merged into that one proposal for one board. Its preview lists every ticket; its
+button reads *Create N tickets*; under AI Agent it runs at once, like a single ticket.
+
+- **All or none.** Every ticket is authorized and resolved first, writing nothing; one refusal
+  (an unknown column, an assignee not on the board) fails the batch with "Ticket 3 ("…"): …
+  Nothing was created." Then they are created in order, so the numbers follow the list.
+- **Said, not hidden.** Tickets past the cap, or addressed to another board, are left out with a
+  note on the card. A reply cut off by the output ceiling becomes a *failed* action saying so,
+  never a Confirm button for nothing. Turns that may propose changes get
+  `AI_CHAT_MAX_OUTPUT_TOKENS_WRITING` (16,000) so a long list fits.
+- **Once only.** `ExecuteChatAction::handle()` takes a per-message cache lock and re-reads the
+  row before checking its state, so two tabs or a double click cannot create a batch twice.
+- **The model learns outcomes.** Each question's reference data ends with *EARLIER CHANGES IN THIS
+  CONVERSATION* — what was created (keys and titles), discarded, refused or still waiting — so
+  "continue with the rest" neither repeats nor skips tickets.
+
+**Visibility of new tickets.** A ticket the assistant creates starts from the board's default
+(`new_tickets_visible_to_customers`, visible unless the board says otherwise) — the same default as
+the New ticket form. The proposal can narrow it (`customer_visible: false` for staff-only work) and
+never widen it. Changing an existing ticket's visibility is not available to the assistant.
 
 Re-checking the capability mode at confirmation time is not theoretical: a person can have a
 preview on screen when an administrator switches the workspace to Observer, and the confirm
