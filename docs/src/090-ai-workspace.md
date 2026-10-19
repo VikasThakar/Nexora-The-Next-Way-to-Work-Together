@@ -517,7 +517,8 @@ path, so PHP's global `max_execution_time` can stay low for every other request.
 | Failure | Behaviour |
 |---|---|
 | No credential | Refused with a recorded reason; the application still boots and every other feature works |
-| Provider error | Reported verbatim where it is safe; `AiProviderException` is the only retryable class |
+| Provider error | Reported verbatim where it is safe; `AiProviderException` is the only retryable class. In the chat, staff see the provider's reason and customers a neutral sentence; every failed question is logged as a warning (`Workspace AI could not answer a question.`) |
+| Provider account out of credit | Anthropic's "credit balance is too low" (a 400) and OpenAI's `insufficient_quota` (a 429) are reported as **out of credit**, naming the account to top up — not as a malformed request or a rate limit. Nothing needs deploying afterwards: the next question works once credit is added |
 | Tool failure | Contained, logged in full, reported to the model as a generic failure |
 | External lookup unavailable | The assistant says out loud that it could not look something up, rather than guessing |
 | Malformed chart or table JSON | Falls back to rendering the model's text as prose |

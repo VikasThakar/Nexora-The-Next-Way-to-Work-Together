@@ -9,6 +9,7 @@ use App\Livewire\Ai\Assistant;
 use App\Models\AiChatMessage;
 use App\Services\AI\Exceptions\AiProviderException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -332,6 +333,38 @@ class GlobalAssistantTest extends TestCase
         // A gap in the transcript would be worse than a visible failure.
         $this->assertSame(1, AiChatMessage::query()->count());
         $this->assertSame('Did this survive?', AiChatMessage::query()->sole()->content);
+    }
+
+    /**
+     * Staff are told why, because the reason says what to do; and the failure
+     * is logged, because otherwise an outage is visible only to whoever is
+     * looking at the panel at the time.
+     */
+    public function test_a_provider_failure_tells_staff_why_and_is_logged(): void
+    {
+        Log::spy();
+
+        $provider = $this->fakeAiProvider();
+        $provider->willFail(AiProviderException::outOfCredit('anthropic'));
+
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+
+        Livewire::actingAs($team)
+            ->test(Assistant::class)
+            ->call('reveal', $board->slug)
+            ->call('selectScope', $board->slug)
+            ->set('draft', 'How is the work going?')
+            ->call('send')
+            ->assertSee('run out of credit')
+            ->assertSee('Plans &amp; Billing', escape: false);
+
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->withArgs(fn (string $message, array $context): bool => $message === 'Workspace AI could not answer a question.'
+                && $context['user_id'] === $team->getKey()
+                && $context['board_id'] === $board->getKey()
+                && str_contains($context['message'], 'run out of credit'));
     }
 
     /**

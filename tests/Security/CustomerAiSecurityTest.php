@@ -18,6 +18,7 @@ use App\Services\AI\AiCapabilityGuard;
 use App\Services\AI\AiContextScope;
 use App\Services\AI\AiSessionManager;
 use App\Services\AI\AssistantContextBuilder;
+use App\Services\AI\Exceptions\AiProviderException;
 use App\Services\AI\Tools\AiToolContext;
 use App\Services\AI\Tools\AiToolRegistry;
 use App\Services\BoardAccess;
@@ -248,6 +249,35 @@ class CustomerAiSecurityTest extends TestCase
                 app(AiCapabilityGuard::class)->allowsProposals($board, $customer),
                 $mode->value,
             );
+        }
+    }
+
+    /**
+     * A provider failure's reason is staff information. It names environment
+     * variables, HTTP statuses and the workspace's provider billing — none of
+     * it a customer's to act on, and some of it not theirs to see.
+     */
+    public function test_a_customer_is_not_shown_the_providers_failure_reason(): void
+    {
+        $customer = $this->customer();
+        $board = $this->boardWithColumns([$customer]);
+
+        foreach ([
+            AiProviderException::outOfCredit('anthropic'),
+            AiProviderException::unauthorized(),
+            AiProviderException::status(400, 'model: claude-nonexistent'),
+        ] as $failure) {
+            $this->fakeAiProvider()->willFail($failure);
+
+            $component = Livewire::actingAs($customer)
+                ->test(Assistant::class)
+                ->call('reveal', $board->slug)
+                ->call('selectScope', $board->slug)
+                ->set('draft', 'Is my ticket done?')
+                ->call('send');
+
+            $component->assertSet('aiError', 'The assistant could not answer just now. Please try again in a little while.')
+                ->assertDontSee($failure->getMessage());
         }
     }
 

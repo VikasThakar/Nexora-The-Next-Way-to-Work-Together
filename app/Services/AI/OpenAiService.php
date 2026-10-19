@@ -648,6 +648,15 @@ class OpenAiService implements AiProviderInterface
     {
         $status = $response->status();
 
+        // An account with no credit left answers 429 — the status of a rate
+        // limit — and would otherwise be reported as "will be retried", which
+        // it will not fix. The error code is what tells the two apart.
+        $codes = [data_get($response->json(), 'error.code'), data_get($response->json(), 'error.type')];
+
+        if (in_array('insufficient_quota', $codes, true)) {
+            return AiProviderException::outOfCredit($this->name());
+        }
+
         return match (true) {
             $status === 401, $status === 403 => AiProviderException::unauthorized(),
             $status === 404 => AiProviderException::status(

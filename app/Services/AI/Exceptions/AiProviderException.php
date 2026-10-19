@@ -43,6 +43,26 @@ class AiProviderException extends RuntimeException
         return new self('The AI provider is temporarily overloaded. The run will be retried.');
     }
 
+    /**
+     * The provider account has no credit left.
+     *
+     * Its own message rather than a bare status, because nothing on this side
+     * can fix it — not a retry, not another model, not a shorter prompt — and
+     * the person reading it is usually not the one who holds the provider
+     * account. So it says who has to do what, and where.
+     */
+    public static function outOfCredit(string $provider): self
+    {
+        $where = $provider === 'openai'
+            ? 'the OpenAI account (platform.openai.com, Billing)'
+            : 'the Anthropic account (console.anthropic.com, Plans & Billing)';
+
+        return new self(
+            'The AI provider account has run out of credit, so the assistant cannot answer. '
+            .'An administrator needs to add credit to '.$where.'.'
+        );
+    }
+
     public static function timedOut(): self
     {
         return new self('The AI provider did not answer within the configured timeout.');

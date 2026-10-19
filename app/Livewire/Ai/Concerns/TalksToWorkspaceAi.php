@@ -30,6 +30,7 @@ use App\Support\RichResponse\RichBlock;
 use App\Support\RichResponse\RichResponseParser;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Log;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
 use RuntimeException;
@@ -936,9 +937,29 @@ trait TalksToWorkspaceAi
             // than waiting to be asked for a second time.
             $this->carryOut($answer);
         } catch (AiProviderException $exception) {
+            /*
+             * Logged, because otherwise a provider outage is visible only to
+             * whoever happens to be looking at the panel: nothing else records
+             * a failed question. The message is safe to log — AiProviderException
+             * builds every one of its messages without the credential.
+             */
+            Log::warning('Workspace AI could not answer a question.', [
+                'user_id' => auth()->id(),
+                'board_id' => $this->contextScope()->boardKey(),
+                'ai_session_id' => $session->getKey(),
+                'message' => $exception->getMessage(),
+            ]);
+
             // The user's own turn is already stored, so the transcript shows
             // what was asked and that it did not get through.
-            $this->aiError = $exception->getMessage();
+            //
+            // Staff get the provider's reason, because it says what to do
+            // about it. A customer gets a plain sentence instead: the reason
+            // names environment variables, HTTP statuses and the workspace's
+            // provider billing, none of which is theirs to act on or to see.
+            $this->aiError = auth()->user()?->canSeeInternalContent()
+                ? $exception->getMessage()
+                : 'The assistant could not answer just now. Please try again in a little while.';
             $this->streamingAnswer = '';
         } finally {
             $this->sending = false;

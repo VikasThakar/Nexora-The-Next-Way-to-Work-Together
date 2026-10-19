@@ -270,6 +270,28 @@ class OpenAiProviderTest extends TestCase
     }
 
     /**
+     * Out of credit arrives with a rate limit's status, and retrying will not
+     * fix it — so it must not be reported as one.
+     */
+    public function test_an_account_out_of_credit_is_not_reported_as_a_rate_limit(): void
+    {
+        Http::fake(['api.openai.com/*' => Http::response(['error' => [
+            'message' => 'You exceeded your current quota, please check your plan and billing details.',
+            'type' => 'insufficient_quota',
+            'code' => 'insufficient_quota',
+        ]], 429)]);
+
+        try {
+            $this->provider()->complete($this->prompt());
+            $this->fail('A 429 did not raise.');
+        } catch (AiProviderException $exception) {
+            $this->assertStringContainsString('run out of credit', $exception->getMessage());
+            $this->assertStringContainsString('OpenAI account', $exception->getMessage());
+            $this->assertStringNotContainsString('rate limiting', $exception->getMessage());
+        }
+    }
+
+    /**
      * A vendor error body is verbose and the one useful part of it is
      * `error.message`, which is vendor prose rather than anything derived from
      * a secret. So that part is quoted, and nothing else is.

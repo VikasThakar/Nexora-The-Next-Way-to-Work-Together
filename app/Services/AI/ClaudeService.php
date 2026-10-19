@@ -8,6 +8,7 @@ use Anthropic\Client;
 use Anthropic\Core\Exceptions\APIConnectionException;
 use Anthropic\Core\Exceptions\APIStatusException;
 use Anthropic\Core\Exceptions\APITimeoutException;
+use Anthropic\ErrorType;
 use Anthropic\Messages\Base64ImageSource;
 use Anthropic\Messages\ImageBlockParam;
 use Anthropic\Messages\InputJSONDelta;
@@ -33,6 +34,7 @@ use App\Services\AI\Data\AiToolExchange;
 use App\Services\AI\Data\AiToolResult;
 use App\Services\AI\Exceptions\AiProviderException;
 use GuzzleHttp\Client as GuzzleClient;
+use Psr\Http\Client\ClientInterface;
 use Throwable;
 
 /**
@@ -86,10 +88,16 @@ class ClaudeService implements AiProviderInterface
      * never returned: the exception translation below rebuilds its own prose
      * from the HTTP status precisely so that no part of the exchange that could
      * carry a header reaches a note.
+     *
+     * The transporter is for tests: a Guzzle client with a mock handler lets
+     * the whole adapter — the SDK's request, its streaming, its exceptions —
+     * run without the network. Production never passes one, and gets the
+     * timed client built in client().
      */
     public function __construct(
         private readonly ?string $apiKey = null,
         private readonly ?string $baseUrl = null,
+        private readonly ?ClientInterface $transporter = null,
     ) {}
 
     public function name(): string
@@ -544,35 +552,87 @@ class ClaudeService implements AiProviderInterface
     private function translate(APIStatusException $exception): AiProviderException
     {
         $status = (int) $exception->status;
+        $message = $this->providerMessage($exception);
+
+        if ($this->isOutOfCredit($exception, $message)) {
+            return AiProviderException::outOfCredit($this->name());
+        }
 
         return match (true) {
             $status === 401, $status === 403 => AiProviderException::unauthorized(),
             $status === 429 => AiProviderException::rateLimited(),
             $status === 529 => AiProviderException::overloaded(),
             $status >= 500 => AiProviderException::status($status, 'the provider reported a server error'),
-            default => AiProviderException::status($status, $this->providerMessage($exception)),
+            default => AiProviderException::status($status, $message),
         };
     }
 
+    /**
+     * An account with no credit left.
+     *
+     * Anthropic reports it as a 400 `invalid_request_error` whose message says
+     * the credit balance is too low, and the SDK also knows a `billing_error`
+     * type. Either way it is not a malformed request, and reporting it as one
+     * — "HTTP 400" — sends whoever reads it looking in the wrong place.
+     */
+    private function isOutOfCredit(APIStatusException $exception, string $message): bool
+    {
+        return $exception->type === ErrorType::BILLING_ERROR
+            || str_contains(mb_strtolower($message), 'credit balance');
+    }
+
+    /**
+     * `error.message` from the response, wherever this SDK left it.
+     *
+     * On a streamed call the body can only be read once: the SDK asks Guzzle
+     * for an unbuffered stream, and its own exception constructor has already
+     * read it by the time it gets here. Reading it again is what turned every
+     * streamed failure — the panel's, which is the one people see — into "no
+     * details supplied". So three places are tried, in order: a decoded body
+     * the SDK kept, the response stream when it can be rewound, and the
+     * summary the SDK wrote into its own message, which embeds the body it
+     * decoded.
+     */
     private function providerMessage(APIStatusException $exception): string
     {
-        $body = $exception->response?->getBody();
+        foreach ($this->errorBodies($exception) as $body) {
+            $message = data_get($body, 'error.message');
 
-        if ($body === null) {
-            return 'no details supplied';
+            if (is_string($message) && trim($message) !== '') {
+                return mb_substr(trim($message), 0, 500);
+            }
         }
 
-        try {
-            $decoded = json_decode((string) $body, true, flags: JSON_THROW_ON_ERROR);
-        } catch (Throwable) {
-            return 'no details supplied';
+        return 'no details supplied';
+    }
+
+    /**
+     * @return iterable<mixed>
+     */
+    private function errorBodies(APIStatusException $exception): iterable
+    {
+        yield $exception->body;
+
+        $stream = $exception->response?->getBody();
+
+        if ($stream !== null && $stream->isSeekable()) {
+            $stream->rewind();
+
+            yield json_decode((string) $stream, true);
         }
 
-        $message = data_get($decoded, 'error.message');
+        // The SDK's message is the JSON summary {"status": …, "body": …}. It
+        // carries only the status and the body — no request, no headers — so
+        // reading it here cannot surface the credential.
+        $summary = $exception->getMessage();
+        $start = strpos($summary, '{');
+        $end = strrpos($summary, '}');
 
-        return is_string($message) && trim($message) !== ''
-            ? mb_substr(trim($message), 0, 500)
-            : 'no details supplied';
+        if ($start !== false && $end !== false && $end > $start) {
+            $decoded = json_decode(substr($summary, $start, $end - $start + 1), true);
+
+            yield is_array($decoded) ? ($decoded['body'] ?? null) : null;
+        }
     }
 
     // -----------------------------------------------------------------
@@ -590,7 +650,7 @@ class ClaudeService implements AiProviderInterface
                 'maxRetries' => (int) config('ai.anthropic.max_retries', 2),
                 'timeout' => (float) config('ai.anthropic.timeout', 300),
                 // The SDK enforces no timeout of its own; the transport does.
-                'transporter' => new GuzzleClient([
+                'transporter' => $this->transporter ?? new GuzzleClient([
                     'timeout' => (float) config('ai.anthropic.timeout', 300),
                     'connect_timeout' => 15.0,
                 ]),
