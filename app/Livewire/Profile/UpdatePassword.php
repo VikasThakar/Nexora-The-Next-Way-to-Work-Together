@@ -36,7 +36,11 @@ class UpdatePassword extends Component
 
         $this->reset('current_password', 'password', 'password_confirmation');
 
+        // Redirected for the reason UpdateProfile::save() is: the banner lives
+        // in the layout, and a flash with no redirect is discarded unseen.
         session()->flash('status', 'Password updated.');
+
+        $this->redirectRoute('profile.edit', navigate: true);
     }
 
     public function render()

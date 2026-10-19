@@ -66,7 +66,8 @@ class AvatarTest extends TestCase
         Livewire::actingAs($user)
             ->test(UpdateAvatar::class)
             ->set('photo', FakeFiles::png(300, 300, 'me.png'))
-            ->assertHasNoErrors();
+            ->assertHasNoErrors()
+            ->assertRedirect(route('profile.edit'));
 
         $user->refresh();
 
@@ -74,6 +75,27 @@ class AvatarTest extends TestCase
         $this->assertSame('avatar-testing', $user->avatar_disk);
         $this->assertStringStartsWith('avatars/', $user->avatar_path);
         Storage::disk('avatar-testing')->assertExists($user->avatar_path);
+    }
+
+    /**
+     * The upload reloads the page, because the picture is also drawn in the
+     * layout and the confirmation banner lives there too.
+     */
+    public function test_uploading_a_picture_confirms_it_on_the_reloaded_page(): void
+    {
+        $user = $this->teamMember();
+
+        Livewire::actingAs($user)
+            ->test(UpdateAvatar::class)
+            ->set('photo', FakeFiles::png(100, 100, 'me.png'))
+            ->assertRedirect(route('profile.edit'));
+
+        $this->assertSame('Profile picture updated.', session('status'));
+
+        $this->actingAs($user->refresh())
+            ->get(route('profile.edit'))
+            ->assertOk()
+            ->assertSee('Profile picture updated.');
     }
 
     /**
@@ -103,7 +125,8 @@ class AvatarTest extends TestCase
         Livewire::actingAs($user)
             ->test(UpdateAvatar::class)
             ->set('photo', FakeFiles::fakeImage('not-really.png'))
-            ->assertHasErrors('photo');
+            ->assertHasErrors('photo')
+            ->assertNoRedirect();
 
         $this->assertFalse($user->refresh()->hasAvatar());
         $this->assertSame([], Storage::disk('avatar-testing')->files('avatars'));
@@ -217,7 +240,9 @@ class AvatarTest extends TestCase
 
         $path = $user->refresh()->avatar_path;
 
-        $component->call('remove');
+        $component->call('remove')->assertRedirect(route('profile.edit'));
+
+        $this->assertSame('Profile picture removed.', session('status'));
 
         $user->refresh();
 
@@ -247,8 +272,14 @@ class AvatarTest extends TestCase
         Livewire::actingAs($user)
             ->test(UpdateAvatar::class)
             ->set('photo', FakeFiles::png(100, 100, 'me.png'))
+            ->assertRedirect(route('profile.edit'));
+
+        // A stored picture reloads the page rather than re-rendering in place,
+        // so the picture is checked on the render that follows.
+        Livewire::actingAs($user->refresh())
+            ->test(UpdateAvatar::class)
             ->assertSee('Change picture')
-            ->assertSee(route('users.avatar', ['user' => $user->refresh(), 'v' => substr(sha1((string) $user->avatar_path), 0, 8)]), escape: false);
+            ->assertSee(route('users.avatar', ['user' => $user, 'v' => substr(sha1((string) $user->avatar_path), 0, 8)]), escape: false);
     }
 
     /**

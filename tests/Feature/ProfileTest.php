@@ -35,7 +35,8 @@ class ProfileTest extends TestCase
             ->set('name', 'Renamed Person')
             ->set('email', 'AFTER@example.test')
             ->call('save')
-            ->assertHasNoErrors();
+            ->assertHasNoErrors()
+            ->assertRedirect(route('profile.edit'));
 
         $user->refresh();
 
@@ -53,7 +54,34 @@ class ProfileTest extends TestCase
             ->test(UpdateProfile::class)
             ->set('email', $other->email)
             ->call('save')
-            ->assertHasErrors('email');
+            ->assertHasErrors('email')
+            ->assertNoRedirect();
+    }
+
+    /**
+     * The confirmation is what was missing: the save always worked, but the
+     * banner lives in the layout, and a Livewire re-render never redraws the
+     * layout. Saving reloads the page, so the banner — and the new name in
+     * the sidebar and top bar — actually appear.
+     */
+    public function test_saving_the_profile_shows_a_confirmation_and_the_new_name(): void
+    {
+        $user = $this->teamMember(['name' => 'Before Name']);
+
+        Livewire::actingAs($user)
+            ->test(UpdateProfile::class)
+            ->set('name', 'After Name')
+            ->call('save')
+            ->assertRedirect(route('profile.edit'));
+
+        $this->assertSame('Profile updated.', session('status'));
+
+        $this->actingAs($user->fresh())
+            ->get(route('profile.edit'))
+            ->assertOk()
+            ->assertSee('Profile updated.')
+            ->assertSee('After Name')
+            ->assertDontSee('Before Name');
     }
 
     public function test_a_user_cannot_change_their_own_role_through_the_profile_screen(): void
@@ -78,9 +106,11 @@ class ProfileTest extends TestCase
             ->set('password', 'replacement-password-2')
             ->set('password_confirmation', 'replacement-password-2')
             ->call('save')
-            ->assertHasNoErrors();
+            ->assertHasNoErrors()
+            ->assertRedirect(route('profile.edit'));
 
         $this->assertTrue(Hash::check('replacement-password-2', $user->fresh()->password));
+        $this->assertSame('Password updated.', session('status'));
     }
 
     public function test_changing_a_password_requires_the_current_one(): void
@@ -93,7 +123,8 @@ class ProfileTest extends TestCase
             ->set('password', 'replacement-password-2')
             ->set('password_confirmation', 'replacement-password-2')
             ->call('save')
-            ->assertHasErrors('current_password');
+            ->assertHasErrors('current_password')
+            ->assertNoRedirect();
 
         $this->assertTrue(Hash::check('current-password-1', $user->fresh()->password));
     }

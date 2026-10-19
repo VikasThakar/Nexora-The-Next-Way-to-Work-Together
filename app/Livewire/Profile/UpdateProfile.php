@@ -51,7 +51,13 @@ class UpdateProfile extends Component
 
         $updateUser->handle($user, $validated);
 
+        // Redirect rather than re-render: the banner and the name in the
+        // sidebar and top bar are part of the layout, which a plain re-render
+        // never redraws — and Livewire discards a flash that no redirect
+        // carries, so without this the save looked like it did nothing.
         session()->flash('status', 'Profile updated.');
+
+        $this->redirectRoute('profile.edit', navigate: true);
     }
 
     public function render()

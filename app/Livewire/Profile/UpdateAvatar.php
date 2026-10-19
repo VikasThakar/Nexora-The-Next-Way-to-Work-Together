@@ -29,8 +29,13 @@ use Livewire\WithFileUploads;
  * Choosing a file uploads it; there is no second button to press. That is the
  * pattern in App\Livewire\Attachments\Panel, and it fits here for the reason it
  * does not fit App\Livewire\Concerns\EditsRichText: nothing is waiting to be
- * told a URL. The page simply re-renders with the new picture, which is the
- * confirmation.
+ * told a URL.
+ *
+ * A stored or removed picture then reloads the page (wire:navigate), because
+ * the picture also appears in the layout — the sidebar and the top bar — and
+ * a re-render of this component alone would leave those showing the old one.
+ * The reload is also what carries the confirmation banner, which lives in the
+ * layout too. A refused file does not reload: its error is shown here.
  */
 class UpdateAvatar extends Component
 {
@@ -73,6 +78,8 @@ class UpdateAvatar extends Component
         }
 
         session()->flash('status', 'Profile picture updated.');
+
+        $this->redirectRoute('profile.edit', navigate: true);
     }
 
     public function remove(RemoveAvatar $removeAvatar): void
@@ -83,6 +90,8 @@ class UpdateAvatar extends Component
         $this->resetValidation();
 
         session()->flash('status', 'Profile picture removed.');
+
+        $this->redirectRoute('profile.edit', navigate: true);
     }
 
     public function render()
