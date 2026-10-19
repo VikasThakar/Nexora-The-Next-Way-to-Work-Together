@@ -91,7 +91,7 @@ has to decide about, grouped by concern.
 |---|---|---|
 | `AI_SESSION_TOKEN_LIMIT` | `400000` | Per conversation. 0 = unlimited |
 | `AI_DAILY_USER_TOKEN_LIMIT` | `2000000` | Per person per day |
-| `AI_SESSION_HISTORY` | `25` | Sessions listed in the panel |
+| `AI_SESSION_HISTORY` | `25` | Sessions returned by `AiSessionManager::history()`; not currently listed in the interface |
 | `AI_DAILY_AUTO_RUN_CAP` | `20` | Per board. **No bypass exists** |
 | `AI_MAX_DAILY_AUTO_RUN_CAP` | `500` | Ceiling a board may configure |
 | `AI_DAILY_MANUAL_RUN_CAP` | `100` | |

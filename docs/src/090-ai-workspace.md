@@ -226,6 +226,16 @@ which does not change because they changed the subject.
 > month-old thread re-sends a month of turns to answer a question about today, which is
 > slower, dearer and worse.
 
+**One conversation on screen per person per context.** The panel and the full-page chat show
+the person's current session for the selected board (or the workspace). **New conversation**
+— the **+** in the panel header, a button beside *Clear conversation* on the full page — calls
+`startNewSession()`: the current session is *ended*, never deleted, and the next question
+starts with an empty context. It is disabled on a session nothing has been asked in
+(`AiSession::isFresh()`), which already is a fresh one. From 80% of the session token limit
+(`AiSession::isNearingTokenLimit()`) a note above the composer suggests starting a new one,
+before the ceiling refuses a question; at the ceiling the refusal offers the same remedy.
+Ended sessions are kept for metering and audit but are not listed anywhere in the interface.
+
 Transcripts persist in `ai_chat_messages`; **prompts do not**. The system prompt and the
 context are rebuilt on every request and never stored, so editing a board's project context
 changes the next answer instead of being frozen into an old row.
@@ -234,7 +244,7 @@ changes the next answer instead of being frozen into an old row.
 |---|---|---|
 | Tokens per session | 400,000 | `AI_SESSION_TOKEN_LIMIT` |
 | Tokens per user per day | 2,000,000 | `AI_DAILY_USER_TOKEN_LIMIT` |
-| Sessions listed in the panel | 25 | `AI_SESSION_HISTORY` |
+| Sessions returned by `AiSessionManager::history()` | 25 | `AI_SESSION_HISTORY` |
 | Turns replayed as history | 20 | `AI_CHAT_HISTORY` |
 | Output tokens per answer | 4,000 | `AI_CHAT_MAX_OUTPUT_TOKENS` |
 | Output tokens, Outside Project | 8,000 | `AI_CHAT_MAX_OUTPUT_TOKENS_OUTSIDE` |

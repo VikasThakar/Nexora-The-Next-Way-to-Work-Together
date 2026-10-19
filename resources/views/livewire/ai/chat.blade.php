@@ -45,6 +45,27 @@
                 <x-ui.button type="button" variant="ghost" wire:click="clearHistory">Clear conversation</x-ui.button>
             @endif
 
+            {{-- A fresh conversation on this board, the same control as the +
+                 in the panel's header: the current session is ended, not
+                 deleted. Not offered on one nothing has been asked in yet,
+                 which already is fresh. See
+                 TalksToWorkspaceAi::startNewSession(). --}}
+            @unless ($session->isFresh())
+                <x-ui.button
+                    type="button"
+                    variant="secondary"
+                    wire:click="startNewSession"
+                    wire:loading.attr="disabled"
+                    wire:target="send,startNewSession"
+                    :disabled="$sending"
+                >
+                    <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                    </svg>
+                    New conversation
+                </x-ui.button>
+            @endunless
+
             <x-ui.button :href="route('boards.show', $board)" variant="secondary">Back to board</x-ui.button>
         </x-slot:actions>
     </x-ui.page-header>
@@ -68,8 +89,9 @@
             {{ $aiError }}
 
             {{-- The remedy, offered where the problem is: a conversation that
-                 has spent its allowance is answered by a new one, and there is
-                 no session bar to start one from any more. --}}
+                 has spent its allowance is answered by a new one. New
+                 conversation in the header does the same, but the person
+                 reading this error is looking here. --}}
             @if ($sessionExhausted)
                 <button
                     type="button"
@@ -164,6 +186,25 @@
                 wire:stream.replace="answer"
                 class="mb-3 empty:hidden rounded-lg border border-brand-200 bg-brand-50/40 p-3 text-sm whitespace-pre-wrap text-slate-700"
             ></div>
+
+            {{-- The cue to start afresh before the ceiling refuses a question,
+                 from 80% of the conversation's token allowance — the same
+                 note the panel shows above its composer. --}}
+            @if ($session->isOpen() && $session->isNearingTokenLimit($configuration->sessionTokenLimit))
+                <div role="status" class="mb-3 flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    <span>This conversation is getting long. Start a new one for a fresh context.</span>
+                    <button
+                        type="button"
+                        wire:click="startNewSession"
+                        wire:loading.attr="disabled"
+                        wire:target="send,startNewSession"
+                        @disabled($sending)
+                        class="shrink-0 font-medium text-amber-900 underline decoration-dotted disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        New conversation
+                    </button>
+                </div>
+            @endif
 
             {{--
                 Attachments above the box rather than beside it, and the whole

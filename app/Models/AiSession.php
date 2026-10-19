@@ -227,6 +227,37 @@ class AiSession extends Model
         return $total !== null && $total >= $limit;
     }
 
+    /**
+     * Has this conversation spent most of its allowance?
+     *
+     * The cue to start a new conversation before the ceiling refuses a
+     * question halfway through a thought. The same rules as
+     * hasReachedTokenLimit(): zero is unlimited, and unknown usage is never
+     * "nearly full".
+     */
+    public function isNearingTokenLimit(int $limit): bool
+    {
+        if ($limit <= 0) {
+            return false;
+        }
+
+        $total = $this->totalTokens();
+
+        return $total !== null && $total >= $limit * 0.8;
+    }
+
+    /**
+     * Is this already a fresh conversation?
+     *
+     * An open session nothing has been asked in. The New conversation button
+     * is not offered on one: starting another from here would only end an
+     * empty session to file a second empty one.
+     */
+    public function isFresh(): bool
+    {
+        return $this->isOpen() && (int) $this->message_count === 0;
+    }
+
     // ---------------------------------------------------------------------
     // Scopes
     // ---------------------------------------------------------------------

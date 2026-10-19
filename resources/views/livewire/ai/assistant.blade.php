@@ -154,6 +154,34 @@
                     </button>
                 @endif
 
+                {{--
+                    New conversation.
+
+                    Each person has one conversation per context — the one on
+                    screen — and this replaces it with a fresh one, so the next
+                    question starts with an empty context instead of dragging a
+                    long thread behind it. The current session is ended, not
+                    deleted. Disabled on a conversation nothing has been asked
+                    in yet, which already is a fresh one. See
+                    TalksToWorkspaceAi::startNewSession().
+                --}}
+                @if ($eligible)
+                    <button
+                        type="button"
+                        wire:click="startNewSession"
+                        wire:loading.attr="disabled"
+                        wire:target="send,startNewSession"
+                        @disabled($sending || ! $session || $session->isFresh())
+                        class="-my-1 rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                        aria-label="New conversation"
+                        title="New conversation — start again with a fresh context"
+                    >
+                        <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                    </button>
+                @endif
+
                 <button
                     type="button"
                     @click="$store.aiPanel.close()"
@@ -252,8 +280,8 @@
 
                         {{-- The remedy, where the problem is. A conversation
                              that has spent its allowance is answered by a new
-                             one, and there is no session bar to start one
-                             from any more. --}}
+                             one — the + in the header does the same, but
+                             the person reading this error is looking here. --}}
                         @if ($sessionExhausted)
                             <button
                                 type="button"
@@ -340,6 +368,29 @@
                         @endcan
                     </p>
                 @else
+                    {{--
+                        The cue to start afresh, before the ceiling refuses a
+                        question halfway through a thought. Shown from 80% of
+                        the conversation's token allowance; the remedy is the
+                        same + as in the header, offered where the person is
+                        about to type.
+                    --}}
+                    @if ($session?->isOpen() && $session->isNearingTokenLimit($configuration->sessionTokenLimit))
+                        <div role="status" class="mb-2 flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                            <span>This conversation is getting long. Start a new one for a fresh context.</span>
+                            <button
+                                type="button"
+                                wire:click="startNewSession"
+                                wire:loading.attr="disabled"
+                                wire:target="send,startNewSession"
+                                @disabled($sending)
+                                class="shrink-0 font-medium text-amber-900 underline decoration-dotted disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                New conversation
+                            </button>
+                        </div>
+                    @endif
+
                     {{--
                         The composer: attachments above the box, so a list of
                         files gets the panel's full width, and the whole thing

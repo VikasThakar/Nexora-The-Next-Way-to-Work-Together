@@ -9,9 +9,11 @@ use App\Enums\AiCapabilityMode;
 use App\Enums\AiChatMode;
 use App\Enums\AiProvider;
 use App\Livewire\Ai\Assistant;
+use App\Livewire\Ai\Chat;
 use App\Models\AiChatMessage;
 use App\Models\AiSession;
 use App\Models\AiUsageRecord;
+use App\Services\AI\AiConfigurationResolver;
 use App\Services\AI\AiContextScope;
 use App\Services\AI\AiSessionManager;
 use App\Support\AiModelCatalogue;
@@ -494,6 +496,167 @@ class AiSessionTest extends TestCase
             ->call('selectChatMode', AiChatMode::Reading->value);
 
         $this->assertNotSame($openAiModel, AiSession::query()->sole()->model);
+    }
+
+    // -----------------------------------------------------------------
+    // The New conversation button
+    // -----------------------------------------------------------------
+
+    /**
+     * One conversation per person per board, and the + in the panel's header
+     * to start it again with a fresh context — offered once there is
+     * something to start afresh from.
+     */
+    public function test_the_panel_offers_a_new_conversation_once_something_has_been_asked(): void
+    {
+        $this->fakeAiProvider();
+        $board = $this->boardWithColumns([$team = $this->teamMember()]);
+
+        $component = Livewire::actingAs($team)
+            ->test(Assistant::class)
+            ->call('reveal', $board->slug)
+            ->call('selectScope', $board->slug);
+
+        $this->assertTrue($this->newConversationButtonIsDisabled($component->html()), 'Nothing asked yet: already a fresh conversation.');
+
+        $component->set('draft', 'How is the work going?')->call('send');
+
+        $this->assertFalse($this->newConversationButtonIsDisabled($component->html()));
+    }
+
+    public function test_new_conversation_replaces_the_conversation_on_screen(): void
+    {
+        $this->fakeAiProvider();
+        $board = $this->boardWithColumns([$team = $this->teamMember()]);
+
+        $component = Livewire::actingAs($team)
+            ->test(Assistant::class)
+            ->call('reveal', $board->slug)
+            ->call('selectScope', $board->slug)
+            ->set('draft', 'A distinctive question about kumquats.')
+            ->call('send')
+            ->assertSee('kumquats');
+
+        $component->call('startNewSession')
+            ->assertHasNoErrors()
+            ->assertDontSee('kumquats');
+
+        $this->assertTrue($this->newConversationButtonIsDisabled($component->html()));
+
+        // The old conversation is closed and kept, not deleted.
+        $this->assertSame(1, AiSession::query()->whereNotNull('ended_at')->count());
+        $this->assertSame(2, AiChatMessage::query()->count());
+    }
+
+    /**
+     * Clearing removes the turns but not what the conversation has spent, so a
+     * cleared conversation can still be replaced to get a fresh allowance.
+     */
+    public function test_a_cleared_conversation_can_still_be_replaced(): void
+    {
+        $this->fakeAiProvider();
+        $board = $this->boardWithColumns([$team = $this->teamMember()]);
+
+        $component = Livewire::actingAs($team)
+            ->test(Assistant::class)
+            ->call('reveal', $board->slug)
+            ->call('selectScope', $board->slug)
+            ->set('draft', 'A question.')
+            ->call('send')
+            ->call('clearHistory');
+
+        $this->assertFalse($this->newConversationButtonIsDisabled($component->html()));
+
+        $component->call('startNewSession');
+
+        $this->assertSame(2, AiSession::query()->count());
+    }
+
+    public function test_the_full_page_chat_offers_a_new_conversation_once_something_has_been_asked(): void
+    {
+        $this->fakeAiProvider();
+        $board = $this->boardWithColumns([$team = $this->teamMember()]);
+
+        $component = Livewire::actingAs($team)
+            ->test(Chat::class, ['board' => $board])
+            ->assertDontSee('New conversation');
+
+        $component->set('draft', 'A distinctive question about kumquats.')
+            ->call('send')
+            ->assertSee('New conversation')
+            ->call('startNewSession')
+            ->assertHasNoErrors()
+            ->assertDontSee('kumquats')
+            ->assertDontSee('New conversation');
+
+        $this->assertSame(2, AiSession::query()->count());
+    }
+
+    /**
+     * The cue to start afresh comes before the ceiling refuses a question:
+     * from 80% of the conversation's token allowance.
+     */
+    public function test_a_conversation_nearing_its_token_limit_suggests_a_new_one(): void
+    {
+        $fake = $this->fakeAiProvider();
+        $fake->inputTokens = 400;
+        $fake->outputTokens = 200;
+
+        $board = $this->boardWithColumns([$team = $this->teamMember()]);
+
+        // 600 of 1,000 is 60%: no note yet.
+        app(UpdateGlobalAiSettings::class)->handle(['session_token_limit' => 1000]);
+        app(AiConfigurationResolver::class)->flush();
+
+        Livewire::actingAs($team)
+            ->test(Assistant::class)
+            ->call('reveal', $board->slug)
+            ->call('selectScope', $board->slug)
+            ->set('draft', 'First question.')
+            ->call('send')
+            ->assertDontSee('This conversation is getting long.');
+
+        // 600 of 700 is 86%: the note, in the panel and on the full page.
+        app(UpdateGlobalAiSettings::class)->handle(['session_token_limit' => 700]);
+        app(AiConfigurationResolver::class)->flush();
+
+        Livewire::actingAs($team)
+            ->test(Assistant::class)
+            ->call('reveal', $board->slug)
+            ->call('selectScope', $board->slug)
+            ->assertSee('This conversation is getting long.');
+
+        Livewire::actingAs($team)
+            ->test(Chat::class, ['board' => $board])
+            ->assertSee('This conversation is getting long.')
+            ->call('startNewSession')
+            ->assertDontSee('This conversation is getting long.');
+    }
+
+    public function test_nearing_the_limit_follows_the_same_rules_as_reaching_it(): void
+    {
+        $session = AiSession::factory()->create(['tokens_input' => 700, 'tokens_output' => 100]);
+
+        $this->assertTrue($session->isNearingTokenLimit(1000));
+        $this->assertFalse($session->isNearingTokenLimit(1001));
+        $this->assertFalse($session->isNearingTokenLimit(0), 'Zero is unlimited.');
+
+        $unknown = AiSession::factory()->create(['tokens_input' => null, 'tokens_output' => null]);
+
+        $this->assertFalse($unknown->isNearingTokenLimit(1000), 'Unknown usage is never nearly full.');
+    }
+
+    /**
+     * Whether the panel's + button carries the `disabled` attribute.
+     *
+     * Matched as a standalone attribute: the same tag also says
+     * wire:loading.attr="disabled" and disabled:cursor-not-allowed.
+     */
+    private function newConversationButtonIsDisabled(string $html): bool
+    {
+        $this->assertSame(1, preg_match('/<button\b[^>]*aria-label="New conversation"[^>]*>/', $html, $tag), 'The New conversation button should be in the panel header.');
+
+        return preg_match('/\sdisabled(?=[\s>=])/', $tag[0]) === 1;
     }
 
     // -----------------------------------------------------------------

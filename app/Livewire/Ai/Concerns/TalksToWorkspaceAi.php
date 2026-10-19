@@ -308,9 +308,11 @@ trait TalksToWorkspaceAi
      * Begin a fresh conversation in the current scope.
      *
      * The remedy for a context that has grown too large or has spent its token
-     * allowance, which is why the composer offers it inline the moment a
-     * question is refused for either reason. The previous session is ended
-     * rather than deleted by AiSessionManager, so nothing is lost.
+     * allowance. It is always one click away — the + (New conversation) button
+     * in the header of the panel and of the full-page chat — and it is also
+     * offered inline the moment a question is refused for either reason. The
+     * previous session is ended rather than deleted by AiSessionManager, so
+     * nothing is lost; it is simply no longer the one on screen.
      *
      * The new session inherits the current setting rather than resetting to
      * Reading: somebody who has been drafting tickets and hits the ceiling
