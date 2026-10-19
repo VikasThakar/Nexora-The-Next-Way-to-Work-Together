@@ -4,7 +4,9 @@
 
 Nexora is a **single Laravel application** rendered server-side, made interactive by
 Livewire, and deployed as **one Docker image run three ways**. There is no separate
-front-end application, no API gateway and no microservices.
+front-end application, no API gateway and no microservices. The one machine-facing interface
+— the read-only remote MCP server at `/mcp` that Claude and ChatGPT connect to — is served by
+the same application, from `routes/ai.php`.
 
 ```diagram
                               BROWSER

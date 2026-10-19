@@ -516,7 +516,8 @@ html { scroll-behavior: smooth; }
             <tr><td>AI ticket runs &mdash; <em>apply</em> mode (opens a draft pull request)</td><td><span class="pill part">Partial</span></td></tr>
             <tr><td>Live external knowledge lookup for the assistant</td><td><span class="pill part">Partial</span></td></tr>
             <tr><td>AI Standup Generator</td><td><span class="pill absent">Not built</span></td></tr>
-            <tr><td>REST / JSON API for third parties</td><td><span class="pill absent">Not built</span></td></tr>
+            <tr><td>Remote MCP server for Claude / ChatGPT (read-only, OAuth sign-in, same permissions as the app)</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>General REST / JSON API for third parties</td><td><span class="pill absent">Not built</span></td></tr>
           </tbody>
         </table>
       </div>
@@ -1658,7 +1659,7 @@ html { scroll-behavior: smooth; }
       </div>
       <div class="note warn">
         <span class="lbl">Not implemented</span>
-        Two-factor authentication, SSO / OAuth / SAML, and email verification (the column exists,
+        Two-factor authentication, SSO / SAML sign-in, and email verification (the column exists,
         the flow does not). If any of these is a requirement for a customer, it is new work.
       </div>
 
@@ -1980,7 +1981,7 @@ html { scroll-behavior: smooth; }
           <thead><tr><th>Capability</th><th>Status</th></tr></thead>
           <tbody>
             <tr><th>AI Standup Generator</th><td><strong>Verified absent by a repository-wide search</strong> &mdash; the only match is a test fixture filename. There is no standup service, command, component, route, view or job. The building blocks exist (activity and code-activity readers), so it is buildable, but nothing generates a standup today</td></tr>
-            <tr><th>REST / JSON API for third parties</th><td>No API routes, no token authentication, no specification. Integration is inbound webhook plus outbound HTTP client, not an API</td></tr>
+            <tr><th>General REST / JSON API for third parties</th><td>No general API and no specification. The one machine-facing interface is the read-only remote MCP server at <code>/mcp</code>, which Claude and ChatGPT reach with an OAuth token on behalf of one signed-in person. Other integration is inbound webhook plus outbound HTTP client</td></tr>
             <tr><th>Outbound webhooks from Nexora</th><td>Only Slack and SMS leave the application</td></tr>
             <tr><th>Two-factor authentication, SSO, email verification</th><td>Not implemented</td></tr>
             <tr><th>Documentation version history, page comments, collaborative editing, PDF export</th><td>Not implemented</td></tr>

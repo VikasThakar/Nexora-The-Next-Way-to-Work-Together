@@ -6,6 +6,7 @@ namespace App\Services\AI\Tools;
 
 use App\Enums\AiCapabilityMode;
 use App\Enums\AiKnowledgeScope;
+use App\Enums\AiToolChannel;
 use App\Models\AiSession;
 use App\Models\Board;
 use App\Models\User;
@@ -18,7 +19,9 @@ use App\Services\AI\AiContextScope;
  * constructed once per exchange by App\Services\AI\Tools\AiToolRunner from
  * values that have already been resolved — the signed-in user, a scope built
  * from a board the user can reach, the session they own — so a tool never
- * takes an identity or a board from its own arguments.
+ * takes an identity or a board from its own arguments. The remote MCP server
+ * builds one per request from the token's user instead; it has no chat
+ * session, which is why `session` may be null (only the audit row reads it).
  *
  * That is the load-bearing property of this object, and it is worth stating
  * plainly: a tool argument can name a *subject* (ticket 42, the deployment
@@ -44,7 +47,7 @@ final readonly class AiToolContext
     public function __construct(
         public User $user,
         public AiContextScope $scope,
-        public AiSession $session,
+        public ?AiSession $session,
         public AiCapabilityMode $mode,
         public bool $staff,
         /*
@@ -54,6 +57,12 @@ final readonly class AiToolContext
          * choosing; see AiKnowledgeScope.
          */
         public AiKnowledgeScope $knowledge = AiKnowledgeScope::Project,
+        /*
+         * Which client the answer is for — the in-app assistant or an external
+         * AI over MCP. It decides how an answer may be phrased and what the
+         * audit row records, never what may be read; see AiToolChannel.
+         */
+        public AiToolChannel $channel = AiToolChannel::Assistant,
     ) {}
 
     /**

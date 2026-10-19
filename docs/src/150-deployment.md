@@ -210,6 +210,24 @@ What it deliberately does **not** do:
 > flight is orphaned; the reaper recovers it within ten minutes. An apply run takes minutes,
 > so this is ordinary rather than exceptional.
 
+### The remote MCP server in production
+
+- **Passport keys.** Set `PASSPORT_PRIVATE_KEY` and `PASSPORT_PUBLIC_KEY` on the **web**
+  service (generate once, e.g. `openssl genrsa -out private.pem 4096 && openssl rsa -in
+  private.pem -pubout -out public.pem`; paste the PEM text, never commit it). Without them
+  every OAuth request and every `/mcp` call with a token fails. The worker and Reverb do not
+  need them.
+- **Timezone.** `WORKSPACE_DEFAULT_TIMEZONE=Europe/Stockholm` on web and worker, so
+  "yesterday" means the Swedish day.
+- **The URL** people add as a connector is exactly `https://<host>/mcp` — no trailing slash.
+  Check `GET /.well-known/oauth-protected-resource/mcp` returns that value as `resource`; it
+  is built from the request, so it is only right because `trustProxies('*')` and
+  `URL::forceScheme('https')` make Laravel see HTTPS behind Railway's edge.
+- **Reachability.** Claude's calls come from Anthropic's published egress range and
+  ChatGPT's from OpenAI's; both need the public HTTPS endpoint. Nothing else is required.
+- **Scheduler.** `passport:purge` is scheduled, like the other housekeeping, and only runs
+  where a scheduler does.
+
 ## Rollback considerations
 
 | Concern | Guidance |

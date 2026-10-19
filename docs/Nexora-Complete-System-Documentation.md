@@ -191,7 +191,8 @@ least-privileged role, `customer` — never staff.
 | AI Standup Generator | **Not implemented — see section 32** |
 | Live external knowledge lookup for the assistant | Partially implemented — interface only, no driver ships |
 | Apply-mode code generation | Partially implemented — driver defaults to `unavailable` |
-| REST / JSON API for third parties | Not implemented |
+| Remote MCP server for Claude / ChatGPT (read-only, OAuth) | Implemented |
+| General REST / JSON API for third parties | Not implemented |
 
 <!-- pagebreak -->
 
@@ -201,7 +202,9 @@ least-privileged role, `customer` — never staff.
 
 Nexora is a **single Laravel application** rendered server-side, made interactive by
 Livewire, and deployed as **one Docker image run three ways**. There is no separate
-front-end application, no API gateway and no microservices.
+front-end application, no API gateway and no microservices. The one machine-facing interface
+— the read-only remote MCP server at `/mcp` that Claude and ChatGPT connect to — is served by
+the same application, from `routes/ai.php`.
 
 ```diagram
                               BROWSER
@@ -587,7 +590,8 @@ Livewire components rather than taken from a starter kit.
 | Password confirmation | `GET /confirm-password` | `Livewire\Auth\ConfirmPassword` | Implemented |
 | Email verification | — | — | **Not implemented** (column exists, no flow) |
 | Two-factor authentication | — | — | **Not implemented** |
-| SSO / OAuth / SAML | — | — | **Not implemented** |
+| SSO / SAML (signing in to Nexora with another identity provider) | — | — | **Not implemented** |
+| OAuth authorization server, for AI clients | `GET /oauth/authorize` | Laravel Passport + `resources/views/mcp/authorize.blade.php` | **Implemented** — used only by the remote MCP server; see below |
 
 ### Registration is off by default
 
@@ -647,6 +651,25 @@ middleware. Reaching them asks for the password again even inside a valid sessio
 - `/admin/ai` — global AI settings, which hold provider credentials
 - `/admin/users` — user administration, which is the privilege-escalation path
 - `/boards/create` and `/boards/{board}/edit` — board creation and identity
+
+### OAuth for the remote MCP server
+
+Nexora is an OAuth 2.1 **authorization server** for one purpose: letting a person connect an
+AI client (Claude, ChatGPT) to the read-only MCP endpoint at `/mcp`. It is not a way to sign
+in to Nexora — that is still the login form above — and a token grants nothing beyond the
+MCP tools, which read with the token's user as the viewer.
+
+| Property | Value |
+|---|---|
+| Implementation | Laravel Passport, discovery and registration routes from laravel/mcp |
+| Client registration | Dynamic (RFC 7591), public clients; redirect URIs only on `MCP_REDIRECT_DOMAINS` (Claude, ChatGPT, loopback) |
+| Grant | Authorization code with PKCE `S256` only; the device-code grant is switched off |
+| Scope | `mcp:use`, required by `/mcp` and granted by default |
+| Access token | 60 minutes (`MCP_ACCESS_TOKEN_MINUTES`) |
+| Refresh token | 30 days (`MCP_REFRESH_TOKEN_DAYS`), rotated on every use |
+| Consent | `resources/views/mcp/authorize.blade.php`: names the client and the host it returns to; warns on loopback redirects |
+| Revocation | Access, refresh and auth codes revoked when the user is deactivated or their password changes (`App\Observers\UserObserver`); a deactivated user's request is a `401` |
+| Keys | `PASSPORT_PRIVATE_KEY` / `PASSPORT_PUBLIC_KEY`; rotating them disconnects every client |
 
 ## Authorization
 
@@ -717,12 +740,14 @@ digest all return the same `401 Invalid signature.`
 
 ## Rate limiting
 
-Two named limiters, protecting different things.
+Four named limiters, protecting different things.
 
 | Limiter | Applies to | Keyed on | Default | Why |
 |---|---|---|---|---|
 | `github-webhooks` | `POST /webhooks/github` | Client IP | 300/min (`GITHUB_WEBHOOK_RATE_LIMIT`) | The only unauthenticated route that can enqueue work. Rejected requests never reach signature verification and never touch the database |
 | `ai-voice` | `POST /ai/voice/listen`, `GET /ai/messages/{id}/speech` | Signed-in user id | 30/min (`AI_VOICE_RATE_LIMIT`) | Transcription and speech synthesis are billed per call and are the only AI surface a browser can trigger in a loop without a person typing |
+| `mcp` | `POST /mcp` | Token's user id | 60/min (`MCP_RATE_LIMIT`) | One connected AI client looping on a tool slows down that connection only |
+| `mcp-oauth` | OAuth discovery and `POST /oauth/register` | Client IP | 120/min (`MCP_OAUTH_RATE_LIMIT`) | Unauthenticated by design; generous because every Claude or ChatGPT user arrives from the same vendor addresses |
 
 The login form carries a third limiter of its own, inside `Livewire\Auth\Login`:
 
@@ -1956,13 +1981,14 @@ path or a column name, and none of that belongs in a conversation.
 viewer comes from the *request*. An assistant with tools answers more questions than one
 without, about exactly the same material.
 
-### The ten tools
+### The eleven tools
 
 | Tool | What it reads | Availability |
 |---|---|---|
 | `get_board` | Description, columns with counts, labels, prefix. With no argument, lists reachable boards | Everyone |
 | `get_ticket` | One ticket in full, plus recent conversation and history | Everyone — scoped |
 | `search_tickets` | By text, column, label, priority, assignee, due date, age | Everyone — scoped |
+| `get_completed_tickets` | Tickets completed — moved into a done column — in a named period or date range, from the history; flags tickets reopened since | Everyone — scoped |
 | `search_documentation` | Page titles and bodies, with extracts | Everyone — scoped |
 | `get_documentation_page` | One page in full by slug | Everyone — scoped |
 | `get_statistics` | Eight aggregate metrics | Everyone; three metrics staff-only |
@@ -1970,6 +1996,31 @@ without, about exactly the same material.
 | `get_code_activity` | Branches, commits, pull requests, CI state | **Staff only** |
 | `get_github_repository` | Attached repositories, default branch, build commands — **never credentials, never repository contents** | **Staff only** |
 | `search_external_knowledge` | An outside service | Outside Project scope **and** a configured driver |
+
+### The same tools, from Claude or ChatGPT (remote MCP)
+
+People can add `https://<host>/mcp` to Claude (web, desktop, phone) or ChatGPT as a custom
+connector, sign in with their Nexora account, and ask questions there. Those clients call the
+**same read tools through the same registry** (`App\Mcp\Tools\RegistryTool` wraps each
+contract and calls `AiToolRegistry::invoke()`), so an answer from Claude cannot differ from
+what the in-app assistant would have read for the same person.
+
+`App\Mcp\Servers\NexoraServer` builds the tool context once per request from the OAuth token's
+user:
+
+| Context field | MCP value | Why |
+|---|---|---|
+| `scope` | workspace | An external client has no "current board"; tools take a slug or key |
+| `session` | `null` | Not part of an in-app conversation; the audit row records the call without one |
+| `mode` | Observer | Only governs write proposals, and none are offered |
+| `staff` | `BoardAccess::canSeeInternalContent($user)` | The customer boundary, exactly as in the app |
+| `knowledge` | Project | `search_external_knowledge` is never offered |
+| `channel` | `mcp` | No `nexora-*` rendering hints in answers; audit rows filterable by channel |
+
+Customers get the seven customer tools; staff also get the three staff-only ones. No
+`propose_*` tool exists on this path. Disabling the read tools (`AI_TOOLS_ENABLED=false`)
+empties the MCP tool list too. See section 18 for the endpoint and section 4 for the OAuth
+details.
 
 <!-- pagebreak -->
 
@@ -3552,6 +3603,8 @@ MySQL in production; SQLite in memory for the test suite. 42 migrations, dated f
 | `password` | string | bcrypt, cast `hashed` |
 | `role` | string(32), indexed | Default `team`. **Not mass-assignable** |
 | `theme_preference` | string(10) | Default `light`. **Not mass-assignable** |
+| `avatar_path` | string(2048), nullable | Generated storage key for the profile picture. Null is the whole of "no picture". **Not mass-assignable** |
+| `avatar_disk` | string(40), nullable | Which disk it was written to, recorded per row so changing `ATTACHMENT_DISK` cannot orphan it. **Not mass-assignable** |
 | `deactivated_at` | timestamp, indexed | Null means active |
 
 ### `boards`
@@ -3660,7 +3713,22 @@ workspace-scoped and belong to no board. Stores `disk`, `path`, `filename`, `mim
 | `ai_runs` | One ticket run | `uuid` unique, `trigger_source`, `mode`, `status`, `repository`, `model`, `result_comment_id`, `branch_name`, `pull_request_url`, tokens, cost, duration, `error_message` |
 | `ai_usage_records` | One row per billed exchange | `purpose` (`chat`/`ticket_run`), `provider`, `model`, tokens, **`usage_reported`**, `estimated_cost` |
 | `ai_attachments` | One uploaded file, processed | `attachment_id` **unique**, `kind`, `status`, `checksum`, `extracted_text`, `structured`, `summary`, `characters`, `token_estimate`, `truncated`, `context_sent_at` |
-| `ai_tool_invocations` | **The AI audit log** | `tool`, `category`, `target`, `input`, `success`, `outcome`, `result_characters`, `duration_ms` |
+| `ai_tool_invocations` | **The AI audit log** | `tool`, `category`, `channel` (`assistant` \| `mcp`, indexed with `created_at`), `target`, `input`, `success`, `outcome`, `result_characters`, `duration_ms`. MCP rows have no session and usually no board |
+
+## OAuth tables (remote MCP server)
+
+Laravel Passport's own tables, published unchanged. `user_id` references `users.id`; the
+client id is a UUID.
+
+| Table | Holds |
+|---|---|
+| `oauth_clients` | One row per registered AI client (dynamic registration creates public clients with their redirect URIs) |
+| `oauth_auth_codes` | Short-lived authorization codes awaiting exchange |
+| `oauth_access_tokens` | Issued access tokens: `user_id`, `scopes`, `revoked`, `expires_at` |
+| `oauth_refresh_tokens` | Refresh tokens, by `access_token_id`; rotated on use |
+| `oauth_device_codes` | Created by Passport's migrations; unused — the device grant is off |
+
+Revoked and expired rows are removed daily by `passport:purge`.
 
 ## Integration tables
 
@@ -3914,6 +3982,24 @@ What it deliberately does **not** do:
 > flight is orphaned; the reaper recovers it within ten minutes. An apply run takes minutes,
 > so this is ordinary rather than exceptional.
 
+### The remote MCP server in production
+
+- **Passport keys.** Set `PASSPORT_PRIVATE_KEY` and `PASSPORT_PUBLIC_KEY` on the **web**
+  service (generate once, e.g. `openssl genrsa -out private.pem 4096 && openssl rsa -in
+  private.pem -pubout -out public.pem`; paste the PEM text, never commit it). Without them
+  every OAuth request and every `/mcp` call with a token fails. The worker and Reverb do not
+  need them.
+- **Timezone.** `WORKSPACE_DEFAULT_TIMEZONE=Europe/Stockholm` on web and worker, so
+  "yesterday" means the Swedish day.
+- **The URL** people add as a connector is exactly `https://<host>/mcp` — no trailing slash.
+  Check `GET /.well-known/oauth-protected-resource/mcp` returns that value as `resource`; it
+  is built from the request, so it is only right because `trustProxies('*')` and
+  `URL::forceScheme('https')` make Laravel see HTTPS behind Railway's edge.
+- **Reachability.** Claude's calls come from Anthropic's published egress range and
+  ChatGPT's from OpenAI's; both need the public HTTPS endpoint. Nothing else is required.
+- **Scheduler.** `passport:purge` is scheduled, like the other housekeeping, and only runs
+  where a scheduler does.
+
 ## Rollback considerations
 
 | Concern | Guidance |
@@ -3964,7 +4050,7 @@ has to decide about, grouped by concern.
 |---|---|---|
 | `WORKSPACE_NAME` | `Aqueduct Workspace` | Sidebar and transactional mail. **Set to `Nexora` to brand the product as Nexora** |
 | `WORKSPACE_SHORT_NAME` | `Aqueduct` | Page-title suffix |
-| `WORKSPACE_DEFAULT_TIMEZONE` | `UTC` | Default board timezone |
+| `WORKSPACE_DEFAULT_TIMEZONE` | `UTC` | Default board timezone; also where "today" and "yesterday" are cut for statistics and MCP answers. Production: `Europe/Stockholm` |
 | `ALLOW_PUBLIC_REGISTRATION` | `false` | Self-service sign-up. Registrants get the `customer` role |
 
 ## Session and security
@@ -4097,6 +4183,18 @@ has to decide about, grouped by concern.
 | `AI_VOICE_TIMEOUT` / `AI_VOICE_RATE_LIMIT` | `120` / `30` | |
 | `AI_OPENAI_MODELS` | `gpt-5.1,gpt-5-mini` | Catalogue entries for OpenAI |
 | `AI_OPENAI_VISION_MODELS` | *(empty)* | **Opt-in** vision support |
+
+## Remote MCP server
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MCP_SERVER_ENABLED` | `true` | `false` removes `/mcp` and the OAuth discovery and registration routes |
+| `MCP_REDIRECT_DOMAINS` | `https://claude.ai,https://claude.com,https://chatgpt.com,http://localhost` | Where a registering AI client may send the authorization code |
+| `MCP_RATE_LIMIT` | `60` | Tool calls per minute, per person |
+| `MCP_OAUTH_RATE_LIMIT` | `120` | Discovery / registration requests per minute, per IP |
+| `MCP_ACCESS_TOKEN_MINUTES` | `60` | Access-token lifetime |
+| `MCP_REFRESH_TOKEN_DAYS` | `30` | Refresh-token lifetime — how long an unused connection survives |
+| `PASSPORT_PRIVATE_KEY` / `PASSPORT_PUBLIC_KEY` | *(none)* | Token signing keys (PEM). **Required in production**; locally `php artisan passport:keys` writes `storage/oauth-*.key` instead. Rotating them disconnects every client |
 
 ## GitHub
 
@@ -4770,11 +4868,39 @@ php artisan config:clear && php artisan route:clear && php artisan view:clear
 # HTTP Endpoints and Webhooks
 
 > [!IMPORTANT]
-> **Nexora exposes no public REST or JSON API for third parties.** There are no API routes,
-> no `routes/api.php`, no token authentication and no OpenAPI specification. Everything below
-> is either a browser route, an inbound webhook, or a small number of controller endpoints the
-> application's own front end calls. Integration is therefore **inbound webhook plus outbound
-> HTTP client**, not an API.
+> **Nexora exposes no general REST or JSON API for third parties.** There is no
+> `routes/api.php` and no OpenAPI specification. The one machine-facing interface is the
+> **remote MCP server** at `POST /mcp`: AI clients such as Claude and ChatGPT call it with an
+> OAuth token on behalf of one signed-in person, read-only, under that person's in-app
+> permissions. Everything else below is a browser route, an inbound webhook, or a small number
+> of controller endpoints the application's own front end calls.
+
+## Remote MCP server — `POST /mcp`
+
+Defined in `routes/ai.php`, which laravel/mcp loads **outside** the `web` group: no session,
+no CSRF, a bearer token on every request. `MCP_SERVER_ENABLED=false` removes every route in
+this section.
+
+| Route | Purpose | Authentication | Limit |
+|---|---|---|---|
+| `POST /mcp` | MCP JSON-RPC: `initialize`, `tools/list`, `tools/call` | Passport token (`auth:api`), scope `mcp:use`, active user | `throttle:mcp` — per person |
+| `GET` / `DELETE /mcp` | Always `405` (no server-initiated stream) | — | — |
+| `GET /.well-known/oauth-protected-resource[/mcp]` | RFC 9728 metadata: `resource` is exactly `https://<host>/mcp` | Public | `throttle:mcp-oauth` — per IP |
+| `GET /.well-known/oauth-authorization-server[/…]` | RFC 8414 metadata: endpoints, S256 PKCE, scope | Public | `throttle:mcp-oauth` |
+| `POST /oauth/register` | Dynamic client registration (RFC 7591), public clients only, redirect URIs limited to `config('mcp.redirect_domains')` | Public | `throttle:mcp-oauth` |
+| `GET /oauth/authorize` | Nexora's login if needed, then the consent screen (`resources/views/mcp/authorize.blade.php`) | Web session | — |
+| `POST` / `DELETE /oauth/authorize` | Approve / deny | Web session + CSRF | — |
+| `POST /oauth/token` | Code exchange (PKCE S256) and refresh-token rotation | Client | Passport's own |
+
+**The handshake.** An unauthenticated `POST /mcp` is always a JSON `401` with
+`WWW-Authenticate: Bearer realm="mcp", resource_metadata="…/.well-known/oauth-protected-resource/mcp"`,
+whatever the client sends in `Accept` — `bootstrap/app.php` forces JSON rendering for these
+paths, because a redirect to the login page here is what makes a client report that it
+"couldn't reach the server".
+
+**The tools** are the in-app assistant's read tools, through `AiToolRegistry::invoke()` — see
+section 9 for what each reads and who gets it. Every call writes an `ai_tool_invocations` row
+with `channel = mcp`.
 
 ## Inbound webhook — GitHub
 
@@ -5547,11 +5673,11 @@ read before making a commitment to anybody about what Nexora does.
 | Capability | Status |
 |---|---|
 | **AI Standup Generator** | **Not implemented.** Searched the whole repository: the only match is a test fixture filename (`standup.mp3`). There is no standup service, command, component, route, view or job. The building blocks exist — `get_activity`, `get_code_activity`, `ActivityReader`, `GithubLinkReader` — so it is buildable, but **nothing generates a standup today** |
-| REST / JSON API for third parties | No `routes/api.php`, no token auth, no OpenAPI spec |
+| General REST / JSON API for third parties | No `routes/api.php`, no OpenAPI spec. The only machine-facing interface is the read-only remote MCP server (`/mcp`, OAuth) |
 | Webhooks **out** of Nexora | Only Slack and SMS leave the application |
 | Email notifications | Password reset only |
 | Two-factor authentication | Not implemented |
-| SSO / OAuth / SAML | Not implemented |
+| SSO / SAML | Not implemented (OAuth exists only as the authorization server for MCP connectors) |
 | Email verification | Column exists, no flow |
 | Documentation version history | Only the current body and one draft |
 | Documentation page comments | Not implemented |

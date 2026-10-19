@@ -42,6 +42,16 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        /*
+         * Bearer tokens issued by Passport, used only by the remote MCP server
+         * (routes/ai.php). Same users, same provider: a token is a way of
+         * proving who someone is, not a second kind of account.
+         */
+        'api' => [
+            'driver' => 'passport',
+            'provider' => 'users',
+        ],
     ],
 
     /*

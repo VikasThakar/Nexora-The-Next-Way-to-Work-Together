@@ -24,7 +24,7 @@ has to decide about, grouped by concern.
 |---|---|---|
 | `WORKSPACE_NAME` | `Aqueduct Workspace` | Sidebar and transactional mail. **Set to `Nexora` to brand the product as Nexora** |
 | `WORKSPACE_SHORT_NAME` | `Aqueduct` | Page-title suffix |
-| `WORKSPACE_DEFAULT_TIMEZONE` | `UTC` | Default board timezone |
+| `WORKSPACE_DEFAULT_TIMEZONE` | `UTC` | Default board timezone; also where "today" and "yesterday" are cut for statistics and MCP answers. Production: `Europe/Stockholm` |
 | `ALLOW_PUBLIC_REGISTRATION` | `false` | Self-service sign-up. Registrants get the `customer` role |
 
 ## Session and security
@@ -157,6 +157,18 @@ has to decide about, grouped by concern.
 | `AI_VOICE_TIMEOUT` / `AI_VOICE_RATE_LIMIT` | `120` / `30` | |
 | `AI_OPENAI_MODELS` | `gpt-5.1,gpt-5-mini` | Catalogue entries for OpenAI |
 | `AI_OPENAI_VISION_MODELS` | *(empty)* | **Opt-in** vision support |
+
+## Remote MCP server
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MCP_SERVER_ENABLED` | `true` | `false` removes `/mcp` and the OAuth discovery and registration routes |
+| `MCP_REDIRECT_DOMAINS` | `https://claude.ai,https://claude.com,https://chatgpt.com,http://localhost` | Where a registering AI client may send the authorization code |
+| `MCP_RATE_LIMIT` | `60` | Tool calls per minute, per person |
+| `MCP_OAUTH_RATE_LIMIT` | `120` | Discovery / registration requests per minute, per IP |
+| `MCP_ACCESS_TOKEN_MINUTES` | `60` | Access-token lifetime |
+| `MCP_REFRESH_TOKEN_DAYS` | `30` | Refresh-token lifetime — how long an unused connection survives |
+| `PASSPORT_PRIVATE_KEY` / `PASSPORT_PUBLIC_KEY` | *(none)* | Token signing keys (PEM). **Required in production**; locally `php artisan passport:keys` writes `storage/oauth-*.key` instead. Rotating them disconnects every client |
 
 ## GitHub
 

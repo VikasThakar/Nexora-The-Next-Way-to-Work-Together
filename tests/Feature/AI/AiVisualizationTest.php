@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\AI;
 
 use App\Enums\AiCapabilityMode;
+use App\Enums\AiToolChannel;
 use App\Enums\TicketPriority;
 use App\Livewire\Ai\Chat;
 use App\Models\AiChatMessage;
@@ -160,6 +161,40 @@ class AiVisualizationTest extends TestCase
         // Unrelated totals are cards, not bars — a bar chart of "total, open,
         // closed" implies a comparison that is not there.
         $this->assertStringContainsString('nexora-kpi', $text);
+    }
+
+    /**
+     * Claude or ChatGPT over MCP cannot render the in-app fences, so the same
+     * figures arrive without any suggestion to use them.
+     */
+    public function test_an_external_client_gets_the_same_figures_without_in_app_rendering_hints(): void
+    {
+        $admin = $this->admin();
+        $board = $this->boardWithColumns([$admin]);
+
+        $this->ticketOn($board, $admin);
+        $this->ticketOn($board, $admin);
+
+        $context = new AiToolContext(
+            user: $admin,
+            scope: AiContextScope::board($board),
+            session: null,
+            mode: AiCapabilityMode::Observer,
+            staff: true,
+            channel: AiToolChannel::Mcp,
+        );
+
+        foreach (['totals', 'by_status', 'created_by_week'] as $metric) {
+            $text = app(GetStatisticsTool::class)->handle(['metric' => $metric], $context)->text;
+
+            $this->assertStringNotContainsString('nexora-', $text, $metric);
+            $this->assertStringContainsString('EXACTLY as given', $text, $metric);
+        }
+
+        $this->assertStringContainsString(
+            "Total\t2",
+            app(GetStatisticsTool::class)->handle(['metric' => 'totals'], $context)->text,
+        );
     }
 
     // -----------------------------------------------------------------

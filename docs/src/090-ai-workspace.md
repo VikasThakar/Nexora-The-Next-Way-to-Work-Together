@@ -281,13 +281,14 @@ path or a column name, and none of that belongs in a conversation.
 viewer comes from the *request*. An assistant with tools answers more questions than one
 without, about exactly the same material.
 
-### The ten tools
+### The eleven tools
 
 | Tool | What it reads | Availability |
 |---|---|---|
 | `get_board` | Description, columns with counts, labels, prefix. With no argument, lists reachable boards | Everyone |
 | `get_ticket` | One ticket in full, plus recent conversation and history | Everyone — scoped |
 | `search_tickets` | By text, column, label, priority, assignee, due date, age | Everyone — scoped |
+| `get_completed_tickets` | Tickets completed — moved into a done column — in a named period or date range, from the history; flags tickets reopened since | Everyone — scoped |
 | `search_documentation` | Page titles and bodies, with extracts | Everyone — scoped |
 | `get_documentation_page` | One page in full by slug | Everyone — scoped |
 | `get_statistics` | Eight aggregate metrics | Everyone; three metrics staff-only |
@@ -295,6 +296,31 @@ without, about exactly the same material.
 | `get_code_activity` | Branches, commits, pull requests, CI state | **Staff only** |
 | `get_github_repository` | Attached repositories, default branch, build commands — **never credentials, never repository contents** | **Staff only** |
 | `search_external_knowledge` | An outside service | Outside Project scope **and** a configured driver |
+
+### The same tools, from Claude or ChatGPT (remote MCP)
+
+People can add `https://<host>/mcp` to Claude (web, desktop, phone) or ChatGPT as a custom
+connector, sign in with their Nexora account, and ask questions there. Those clients call the
+**same read tools through the same registry** (`App\Mcp\Tools\RegistryTool` wraps each
+contract and calls `AiToolRegistry::invoke()`), so an answer from Claude cannot differ from
+what the in-app assistant would have read for the same person.
+
+`App\Mcp\Servers\NexoraServer` builds the tool context once per request from the OAuth token's
+user:
+
+| Context field | MCP value | Why |
+|---|---|---|
+| `scope` | workspace | An external client has no "current board"; tools take a slug or key |
+| `session` | `null` | Not part of an in-app conversation; the audit row records the call without one |
+| `mode` | Observer | Only governs write proposals, and none are offered |
+| `staff` | `BoardAccess::canSeeInternalContent($user)` | The customer boundary, exactly as in the app |
+| `knowledge` | Project | `search_external_knowledge` is never offered |
+| `channel` | `mcp` | No `nexora-*` rendering hints in answers; audit rows filterable by channel |
+
+Customers get the seven customer tools; staff also get the three staff-only ones. No
+`propose_*` tool exists on this path. Disabling the read tools (`AI_TOOLS_ENABLED=false`)
+empties the MCP tool list too. See section 18 for the endpoint and section 4 for the OAuth
+details.
 
 <!-- pagebreak -->
 

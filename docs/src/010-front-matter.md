@@ -191,6 +191,7 @@ least-privileged role, `customer` — never staff.
 | AI Standup Generator | **Not implemented — see section 32** |
 | Live external knowledge lookup for the assistant | Partially implemented — interface only, no driver ships |
 | Apply-mode code generation | Partially implemented — driver defaults to `unavailable` |
-| REST / JSON API for third parties | Not implemented |
+| Remote MCP server for Claude / ChatGPT (read-only, OAuth) | Implemented |
+| General REST / JSON API for third parties | Not implemented |
 
 <!-- pagebreak -->

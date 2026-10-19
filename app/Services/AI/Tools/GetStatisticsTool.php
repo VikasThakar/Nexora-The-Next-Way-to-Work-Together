@@ -259,7 +259,7 @@ class GetStatisticsTool implements AiToolContract
             $text .= "\n\n".$this->comparison($metric, $scope, $context, (int) ($input['limit'] ?? 15));
         }
 
-        $text .= "\n\n".$this->guidance($metric, $rows);
+        $text .= "\n\n".$this->guidance($metric, $rows, $context);
 
         return AiToolOutcome::ok($text, $this->target($metric, $board));
     }
@@ -403,10 +403,20 @@ class GetStatisticsTool implements AiToolContract
      * to override it when the person asked for something specific, which is
      * what "prefer" rather than "use" is doing in this text.
      *
+     * An external AI client over MCP gets the instruction about exactness and
+     * nothing else: it cannot render the `nexora-*` fences or the named chart
+     * types, and a suggestion it cannot follow would come back as junk in the
+     * answer.
+     *
      * @param  list<array{label: string, value: int|float}>  $rows
      */
-    private function guidance(string $metric, array $rows): string
+    private function guidance(string $metric, array $rows, AiToolContext $context): string
     {
+        if (! $context->channel->rendersInAppBlocks()) {
+            return 'Report these labels and values EXACTLY as given — do not round them, reorder them, '
+                .'total them differently or fill in gaps. A short list or a plain table reads best.';
+        }
+
         $count = count($rows);
 
         $suggestion = match (true) {

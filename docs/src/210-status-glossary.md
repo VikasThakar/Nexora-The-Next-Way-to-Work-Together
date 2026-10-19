@@ -63,11 +63,11 @@ read before making a commitment to anybody about what Nexora does.
 | Capability | Status |
 |---|---|
 | **AI Standup Generator** | **Not implemented.** Searched the whole repository: the only match is a test fixture filename (`standup.mp3`). There is no standup service, command, component, route, view or job. The building blocks exist — `get_activity`, `get_code_activity`, `ActivityReader`, `GithubLinkReader` — so it is buildable, but **nothing generates a standup today** |
-| REST / JSON API for third parties | No `routes/api.php`, no token auth, no OpenAPI spec |
+| General REST / JSON API for third parties | No `routes/api.php`, no OpenAPI spec. The only machine-facing interface is the read-only remote MCP server (`/mcp`, OAuth) |
 | Webhooks **out** of Nexora | Only Slack and SMS leave the application |
 | Email notifications | Password reset only |
 | Two-factor authentication | Not implemented |
-| SSO / OAuth / SAML | Not implemented |
+| SSO / SAML | Not implemented (OAuth exists only as the authorization server for MCP connectors) |
 | Email verification | Column exists, no flow |
 | Documentation version history | Only the current body and one draft |
 | Documentation page comments | Not implemented |

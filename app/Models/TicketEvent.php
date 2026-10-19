@@ -91,11 +91,19 @@ class TicketEvent extends Model
     }
 
     /**
-     * Drop event types a customer must not see.
+     * Board membership, the ticket rule, and the event-type deny-list.
      *
-     * Board scoping alone is not enough here: a customer who can read a ticket
-     * would otherwise see that it was flipped from internal to visible, which
-     * reveals that it was previously hidden from them.
+     * Board scoping alone is not enough here, for two reasons. An event belongs
+     * to a ticket, and an internal ticket's history is as internal as the
+     * ticket: its key, who moved it and when it was finished all describe work
+     * the customer was never shown. So for anyone who cannot see internal
+     * content, an event is readable only if its ticket is — the same rule
+     * Comment::scopeVisibleTo() applies to comments. And a customer who can
+     * read a ticket would otherwise see that it was flipped from internal to
+     * visible, which reveals that it was previously hidden from them; that is
+     * what the deny-list below removes.
+     *
+     * Staff skip both: on a board they belong to, every ticket is theirs to see.
      *
      * @param  Builder<TicketEvent>  $query
      */
@@ -106,6 +114,11 @@ class TicketEvent extends Model
         if (app(BoardAccess::class)->canSeeInternalContent($user)) {
             return;
         }
+
+        $query->whereIn(
+            'ticket_events.ticket_id',
+            Ticket::query()->visibleTo($user)->select('tickets.id')
+        );
 
         $internalOnly = array_values(array_map(
             fn (TicketEventType $type): string => $type->value,

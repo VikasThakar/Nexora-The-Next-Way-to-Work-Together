@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\AI\Audit;
 
+use App\Enums\AiToolChannel;
 use App\Models\AiChatMessage;
 use App\Models\AiSession;
 use App\Models\AiToolInvocation;
@@ -69,6 +70,7 @@ class AiAuditLogger
         ?string $note = null,
         ?int $resultCharacters = null,
         ?int $durationMs = null,
+        ?string $channel = null,
     ): ?AiToolInvocation {
         try {
             $row = new AiToolInvocation;
@@ -81,6 +83,7 @@ class AiAuditLogger
             $row->board_id = $board?->getKey() ?? $session?->board_id;
             $row->tool = mb_substr($tool, 0, 64);
             $row->category = mb_substr($category, 0, 24);
+            $row->channel = mb_substr($channel ?? AiToolChannel::Assistant->value, 0, 16);
             $row->target = $target === null ? null : mb_substr($target, 0, 190);
             $row->input = $this->sanitise($input);
             $row->success = $success;

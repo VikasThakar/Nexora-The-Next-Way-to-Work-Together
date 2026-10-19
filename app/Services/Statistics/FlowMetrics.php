@@ -9,6 +9,7 @@ use App\Models\BoardColumn;
 use App\Models\Ticket;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
+use WeakMap;
 
 /**
  * How work actually moved, measured from `ticket_events`.
@@ -55,17 +56,29 @@ class FlowMetrics
      * warning both need the same list of moved tickets. Without a memo one page
      * runs each aggregate three or four times.
      *
-     * Keyed on the scope's object identity rather than on its contents: a scope
-     * is immutable and is built once per render, so identity is exactly the
-     * right key and it needs no hashing of board ids and dates. The service is
-     * resolved per request, so nothing here outlives a single report.
+     * Keyed on the scope object itself rather than on its contents: a scope is
+     * immutable and is built once per render, so identity is exactly the right
+     * key and it needs no hashing of board ids and dates.
      *
-     * @var array<int, Collection<int, CarbonImmutable>>
+     * A WeakMap, not an array keyed by spl_object_id(). The two look equivalent
+     * and are not: PHP hands a freed object's id to the next object created, so
+     * a scope built after an earlier one was discarded — a second report in the
+     * same request, or one tool instance answering two people — would be given
+     * the first scope's closures. A WeakMap holds its keys weakly and drops the
+     * entry with the scope, so a dead scope can never stand in for a live one.
+     *
+     * @var WeakMap<StatisticsScope, Collection<int, CarbonImmutable>>
      */
-    private array $closures = [];
+    private WeakMap $closures;
 
-    /** @var array<int, array<int, int>> */
-    private array $movedTicketIds = [];
+    /** @var WeakMap<StatisticsScope, array<int, int>> */
+    private WeakMap $movedTicketIds;
+
+    public function __construct()
+    {
+        $this->closures = new WeakMap;
+        $this->movedTicketIds = new WeakMap;
+    }
 
     /**
      * Tickets that reached a done column during the period, keyed by ticket id.
@@ -78,7 +91,7 @@ class FlowMetrics
      */
     public function closures(StatisticsScope $scope): Collection
     {
-        return $this->closures[spl_object_id($scope)] ??= $this->queryClosures($scope);
+        return $this->closures[$scope] ??= $this->queryClosures($scope);
     }
 
     /**
@@ -411,7 +424,7 @@ class FlowMetrics
      */
     private function ticketIdsWithTransitions(StatisticsScope $scope): array
     {
-        return $this->movedTicketIds[spl_object_id($scope)] ??= $this->queryMovedTicketIds($scope);
+        return $this->movedTicketIds[$scope] ??= $this->queryMovedTicketIds($scope);
     }
 
     /**
