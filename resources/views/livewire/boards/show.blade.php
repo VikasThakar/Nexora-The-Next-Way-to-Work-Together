@@ -505,6 +505,15 @@
                                             <label class="sr-only" for="qa-due-{{ $column->id }}">Due date</label>
                                             <input type="date" id="qa-due-{{ $column->id }}" wire:model="quickAddDueDate"
                                                    class="max-w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-slate-600 transition hover:border-slate-300 hover:text-slate-900 focus:border-brand-400 focus:ring-brand-500/30">
+
+                                            {{-- The same choice as the New ticket form, ticked by the
+                                                 same board default. Untick for internal work. --}}
+                                            <label class="inline-flex items-center gap-1.5 text-xs text-slate-600"
+                                                   title="Customers on this board see the card. Untick for internal work.">
+                                                <input type="checkbox" wire:model="quickAddCustomerVisible"
+                                                       class="size-3.5 rounded border-slate-300 text-brand-600 focus:ring-brand-500">
+                                                Customer can see
+                                            </label>
                                         </div>
 
                                         @error('quickAddDueDate')

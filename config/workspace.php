@@ -88,9 +88,13 @@ return [
 
     'board_defaults' => [
 
-        // Whether newly created content on a board is internal-only by default.
-        // Phase 2+ will read this when creating tickets, comments and pages.
-        'default_content_is_internal' => true,
+        // Whether a ticket staff create starts out visible to the board's
+        // customers. The New ticket form, quick add and the assistant all start
+        // from this, and the person can still untick it per ticket. Code that
+        // calls CreateTicket without saying keeps that action's own fail-closed
+        // default (internal); this is the default of the screens, not of the
+        // table. Comments and documentation pages are not affected.
+        'new_tickets_visible_to_customers' => (bool) env('WORKSPACE_NEW_TICKETS_VISIBLE', true),
 
         // Whether customers who are members of the board may comment.
         // Reserved for Phase 2; declared here so the shape is stable.

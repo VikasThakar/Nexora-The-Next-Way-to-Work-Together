@@ -66,6 +66,10 @@ class Create extends Component
         $this->type = TicketType::default()->value;
         $this->priority = TicketPriority::default()->value;
         $this->columnId = (string) ($board->columns()->ordered()->value('id') ?? '');
+
+        // Ticked unless the board says otherwise: work on a board is usually
+        // the customer's work. Unticking it is how a ticket stays internal.
+        $this->customerVisible = $board->newTicketsVisibleToCustomers();
     }
 
     public function togglePreview(): void
@@ -195,6 +199,8 @@ class Create extends Component
             // Everything below the fold is staff-only. The action enforces the
             // same split, so hiding it here is presentation, not security.
             'isStaff' => $user->isStaff(),
+            // Who a ticked box shows the ticket to, said beside the box.
+            'customerCount' => $user->isStaff() ? $this->board->activeCustomerCount() : 0,
             'firstColumnName' => $this->board->columns()->ordered()->value('name'),
             // Files already dropped in. Images embedded in the description show
             // there too; this list is what makes a PDF or a log file visible,

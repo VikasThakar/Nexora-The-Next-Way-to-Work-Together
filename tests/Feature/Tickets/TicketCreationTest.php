@@ -61,6 +61,11 @@ class TicketCreationTest extends TestCase
         $this->assertEquals([$label->id], $ticket->labels()->pluck('labels.id')->all());
     }
 
+    /**
+     * The action's own default, for code that creates a ticket without saying:
+     * internal. The screens start from the board's default instead — see the
+     * next tests — but nothing that forgets to choose publishes anything.
+     */
     public function test_a_ticket_created_by_staff_is_internal_unless_asked_otherwise(): void
     {
         $team = $this->teamMember();
@@ -69,6 +74,56 @@ class TicketCreationTest extends TestCase
         $ticket = $this->ticketOn($board, $team, ['title' => 'Quiet work']);
 
         $this->assertFalse($ticket->customer_visible, 'Work must default to internal, not exposed.');
+    }
+
+    public function test_the_new_ticket_form_starts_visible_to_the_customer(): void
+    {
+        $team = $this->teamMember();
+        $customer = $this->customer();
+        $board = $this->boardWithColumns([$team, $customer]);
+
+        Livewire::actingAs($team)
+            ->test(TicketCreate::class, ['board' => $board])
+            ->assertSet('customerVisible', true)
+            ->assertSee('1 customer on this board will see it as soon as it is created.')
+            ->set('title', 'Shared work')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertTrue(Ticket::query()->where('title', 'Shared work')->sole()->customer_visible);
+    }
+
+    public function test_unticking_the_box_creates_an_internal_ticket(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+
+        Livewire::actingAs($team)
+            ->test(TicketCreate::class, ['board' => $board])
+            ->assertSee('This board has no customers yet')
+            ->set('title', 'Internal work')
+            ->set('customerVisible', false)
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertFalse(Ticket::query()->where('title', 'Internal work')->sole()->customer_visible);
+    }
+
+    public function test_a_board_can_keep_new_tickets_internal_by_default(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $board->forceFill(['settings' => ['new_tickets_visible_to_customers' => false]])->save();
+
+        Livewire::actingAs($team)
+            ->test(TicketCreate::class, ['board' => $board->refresh()])
+            ->assertSet('customerVisible', false);
+
+        config(['workspace.board_defaults.new_tickets_visible_to_customers' => false]);
+
+        Livewire::actingAs($team)
+            ->test(TicketCreate::class, ['board' => $this->boardWithColumns([$team])])
+            ->assertSet('customerVisible', false);
     }
 
     public function test_ticket_numbers_are_sequential_per_board_and_form_the_key(): void

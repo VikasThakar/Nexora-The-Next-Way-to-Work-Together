@@ -115,6 +115,15 @@ class Show extends Component
     public array $quickAddLabelIds = [];
 
     /**
+     * Whether the card is visible to the board's customers.
+     *
+     * Starts from the board's default (ticked, unless the board says
+     * otherwise) and is offered to staff only; CreateTicket forces a
+     * customer's own card visible whatever arrives here.
+     */
+    public bool $quickAddCustomerVisible = true;
+
+    /**
      * Files dropped onto the open quick-add card.
      *
      * Named so that Livewire's `updated` hook fires, unlike the editor's
@@ -321,6 +330,7 @@ class Show extends Component
             'assignee_id' => $validated['quickAddAssigneeId'] ?: null,
             'due_date' => $validated['quickAddDueDate'] ?: null,
             'label_ids' => $validated['quickAddLabelIds'],
+            'customer_visible' => $this->quickAddCustomerVisible,
         ], auth()->user());
 
         /*
@@ -355,6 +365,7 @@ class Show extends Component
         $this->quickAddDueDate = '';
         $this->quickAddLabelIds = [];
         $this->quickAddUploads = [];
+        $this->quickAddCustomerVisible = $this->board->newTicketsVisibleToCustomers();
     }
 
     // -----------------------------------------------------------------

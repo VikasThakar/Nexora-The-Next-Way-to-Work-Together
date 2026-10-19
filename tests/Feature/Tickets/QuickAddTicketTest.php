@@ -333,6 +333,55 @@ class QuickAddTicketTest extends TestCase
         $this->assertSame(TicketType::Task, $ticket->refresh()->type);
     }
 
+    /**
+     * Quick add starts from the same board default as the New ticket form,
+     * and the box resets to it after every card.
+     */
+    public function test_a_staff_card_is_visible_to_the_customer_unless_unticked(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $column = $this->columnNamed($board, 'Backlog');
+
+        $component = Livewire::actingAs($team)
+            ->test(BoardShow::class, ['board' => $board])
+            ->assertSet('quickAddCustomerVisible', true)
+            ->call('startQuickAdd', $column->id)
+            ->assertSee('Customer can see')
+            ->set('quickAddTitle', 'Shared card')
+            ->call('quickAdd')
+            ->assertHasNoErrors();
+
+        $this->assertTrue(Ticket::query()->where('title', 'Shared card')->sole()->customer_visible);
+
+        $component->set('quickAddTitle', 'Internal card')
+            ->set('quickAddCustomerVisible', false)
+            ->call('quickAdd')
+            ->assertHasNoErrors()
+            ->assertSet('quickAddCustomerVisible', true);
+
+        $this->assertFalse(Ticket::query()->where('title', 'Internal card')->sole()->customer_visible);
+    }
+
+    public function test_a_customer_cannot_use_quick_add_to_make_an_internal_card(): void
+    {
+        $team = $this->teamMember();
+        $customer = $this->customer();
+        $board = $this->boardWithColumns([$team, $customer]);
+        $column = $this->columnNamed($board, 'Backlog');
+
+        Livewire::actingAs($customer)
+            ->test(BoardShow::class, ['board' => $board])
+            ->call('startQuickAdd', $column->id)
+            ->assertDontSee('Customer can see')
+            ->set('quickAddTitle', 'Customer request')
+            ->set('quickAddCustomerVisible', false)
+            ->call('quickAdd')
+            ->assertHasNoErrors();
+
+        $this->assertTrue(Ticket::query()->where('title', 'Customer request')->sole()->customer_visible);
+    }
+
     // Files on the card are covered next door, in
     // tests/Feature/Boards/QuickAddAttachmentTest.php. The same behaviours
     // were asserted here against the staged-upload design this branch

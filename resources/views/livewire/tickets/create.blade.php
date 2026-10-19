@@ -2,7 +2,7 @@
     <x-ui.page-header
         title="New ticket"
         :description="$isStaff
-            ? 'Tickets are internal unless you mark them customer-visible.'
+            ? 'New tickets are visible to the board’s customers unless you untick “Visible to the customer”.'
             : 'Your request goes straight to the delivery team and stays visible to you.'"
         :trail="\App\Support\Breadcrumbs::newTicket($board)"
     />
@@ -193,15 +193,32 @@
             </x-ui.card>
 
             @if ($isStaff)
+                {{--
+                    Ticked by default (the board's setting), so the consequence
+                    is spelled out beside the box and follows it as it changes:
+                    who will see this ticket the moment it is created. Kept in
+                    Alpine so ticking it does not cost a round trip.
+                --}}
                 <x-ui.card title="Customer visibility">
-                    <label class="flex items-start gap-3">
+                    <label class="flex items-start gap-3" x-data="{ visible: @js($customerVisible) }">
                         <input type="checkbox" wire:model="customerVisible"
+                               x-on:change="visible = $event.target.checked"
                                class="mt-0.5 size-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500">
                         <span class="text-sm">
                             <span class="font-medium text-slate-900">Visible to the customer</span>
                             <span class="mt-0.5 block text-slate-500">
-                                Leave this off for internal work. Customers on this board never receive
+                                Untick this for internal work. Customers on this board never receive
                                 internal tickets, in the board, in search or through links.
+                            </span>
+                            <span class="mt-1.5 block text-xs font-medium" role="status">
+                                <span x-show="visible" @class(['text-amber-800' => $customerCount > 0, 'text-slate-500' => $customerCount === 0])>
+                                    @if ($customerCount > 0)
+                                        {{ $customerCount }} {{ \Illuminate\Support\Str::plural('customer', $customerCount) }} on this board will see it as soon as it is created.
+                                    @else
+                                        This board has no customers yet, so only your team sees it for now.
+                                    @endif
+                                </span>
+                                <span x-show="! visible" x-cloak class="text-slate-500">Only your team will see it.</span>
                             </span>
                         </span>
                     </label>

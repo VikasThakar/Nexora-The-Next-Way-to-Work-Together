@@ -219,6 +219,27 @@ class Board extends Model
     }
 
     /**
+     * Should a ticket staff create here start out visible to customers?
+     *
+     * The starting value of the "Visible to the customer" box on the New
+     * ticket form and in quick add, and the ceiling for a ticket the assistant
+     * creates. A board can override the workspace default in its settings.
+     */
+    public function newTicketsVisibleToCustomers(): bool
+    {
+        return (bool) $this->setting('new_tickets_visible_to_customers');
+    }
+
+    /**
+     * How many active customers are members of this board — the people a
+     * customer-visible ticket here is shown to.
+     */
+    public function activeCustomerCount(): int
+    {
+        return $this->members()->active()->role(UserRole::Customer)->count();
+    }
+
+    /**
      * The board's AI configuration, with application defaults applied.
      *
      * Kept as its own accessor rather than a handful of setting() calls so no
