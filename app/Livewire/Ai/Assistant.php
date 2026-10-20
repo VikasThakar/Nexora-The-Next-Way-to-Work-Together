@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace App\Livewire\Ai;
 
+use App\Enums\AiChatMode;
 use App\Livewire\Ai\Concerns\TalksToWorkspaceAi;
 use App\Models\Board;
+use App\Models\DocPage;
 use App\Models\User;
 use App\Services\AI\AiContextScope;
+use App\Services\AI\AiSessionManager;
 use App\Services\AI\PageContextResolver;
 use App\Services\AI\WorkspaceChatService;
 use App\Services\BoardAccess;
@@ -192,6 +195,55 @@ class Assistant extends Component
         $this->pageBoard = $board;
         $this->pageTicket = $ticket;
         $this->pageDoc = $doc;
+    }
+
+    /**
+     * Open on a documentation page, ready to turn its to-dos into tickets.
+     *
+     * What the "Create tickets with AI" button on a page asks for, in one
+     * request rather than reveal() followed by three more: the panel adopts
+     * the page, switches to that page's board, moves the conversation to
+     * Writing — Reading has no tools that propose changes — and writes the
+     * request into the composer. Nothing is sent: the person reads it, adds
+     * to it if they want, and presses Send. The page's own text reaches the
+     * model with the question, as THE PAGE ON SCREEN (PageContextResolver).
+     *
+     * Every argument is re-resolved and re-authorized, as reveal()'s are. A
+     * board this person cannot reach, or a page they cannot read, leaves the
+     * panel simply open, with nothing written.
+     */
+    public function prepareDocTickets(?string $board = null, ?string $doc = null): void
+    {
+        $this->pageBoard = $board;
+        $this->pageTicket = null;
+        $this->pageDoc = $doc;
+        $this->revealed = true;
+
+        if ($this->sending || ! self::eligibleFor(auth()->user())) {
+            return;
+        }
+
+        $scope = $this->resolveScope((string) $board);
+
+        if (! $scope->board instanceof Board) {
+            return;
+        }
+
+        if ($this->scopeValue !== $scope->value()) {
+            $this->selectScope($scope->value());
+        }
+
+        $page = app(PageContextResolver::class)->page($scope->board, $doc, auth()->user());
+
+        if (! $page instanceof DocPage) {
+            return;
+        }
+
+        if (! AiChatMode::coerce($this->session()->chat_mode?->value)->allowsWriteTools()) {
+            $this->selectChatMode(AiChatMode::Writing->value, app(AiSessionManager::class));
+        }
+
+        $this->draft = 'Create tickets for the to-dos and bugs on the page "'.$page->title.'".';
     }
 
     /**

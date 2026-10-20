@@ -23,10 +23,29 @@
     Breadcrumbs::docs() takes it as given and never looks up a parent itself.
 --}}
 <div
-    x-data="{ treeOpen: false }"
+    x-data="docsPage(@js($importConfig))"
     x-on:keydown.escape.window="treeOpen = false"
     class="-mt-2 lg:flex lg:items-start lg:gap-6"
 >
+    @if ($importConfig)
+        {{-- One picker for every Import button; see resources/js/doc-import.js. --}}
+        <input
+            type="file"
+            x-ref="importPicker"
+            x-on:change="picked($event)"
+            class="hidden"
+            multiple
+            accept="{{ $importConfig['accept'] }}"
+            aria-hidden="true"
+            tabindex="-1"
+        >
+
+        {{-- Large files are converted on the queue; this asks how it went. --}}
+        @if ($pendingImports !== [])
+            <div wire:poll.2s="checkImports" class="hidden"></div>
+        @endif
+    @endif
+
     {{-- Dims the page behind the drawer. Mobile only; on desktop the tree is
          part of the layout and there is nothing to dim. --}}
     <div
@@ -56,7 +75,29 @@
         x-bind:class="treeOpen ? 'translate-x-0' : '-translate-x-full'"
         class="fixed top-0 bottom-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col border-r border-slate-200 bg-surface-raised shadow-xl transition-transform duration-200 lg:sticky lg:top-6 lg:bottom-auto lg:left-auto lg:z-auto lg:h-[calc(100dvh-5rem)] lg:w-60 lg:max-w-none lg:shrink-0 lg:translate-x-0 lg:rounded-xl lg:border lg:border-slate-200 lg:bg-surface lg:shadow-xs"
         aria-label="Documentation pages"
+        @if ($importConfig)
+            x-on:dragenter="dragEnter($event)"
+            x-on:dragover="dragOver($event)"
+            x-on:dragleave="dragLeave($event)"
+            x-on:drop="drop($event)"
+        @endif
     >
+        @if ($importConfig)
+            {{-- The whole sidebar takes a drop. Only file drags light it up;
+                 a page dragged in the tree below does not. --}}
+            <div
+                x-show="dragging"
+                x-cloak
+                class="pointer-events-none absolute inset-1.5 z-20 flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-brand-400 bg-brand-50/95 px-4 text-center"
+            >
+                <svg class="size-6 text-brand-600" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+                </svg>
+                <p class="text-[13px] font-semibold text-brand-800">Drop files to import them as pages</p>
+                <p class="text-[11px] leading-4 text-brand-700">{{ $importTypes }}</p>
+            </div>
+        @endif
+
         {{-- Header: whose documentation this is, and the one control that
              creates something. Fixed while the tree below it scrolls. --}}
         <div class="shrink-0 border-b border-slate-100 px-3 py-3">
@@ -103,6 +144,56 @@
                     </svg>
                     New page
                 </button>
+            @endif
+
+            @if ($importConfig)
+                <button
+                    type="button"
+                    x-on:click="choose(null)"
+                    x-bind:disabled="importing"
+                    class="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-wait disabled:opacity-60"
+                    title="Turn a PDF, Word, text, Markdown, CSV, Excel or PowerPoint file into a page — or drop files on this list"
+                >
+                    <svg class="size-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+                    </svg>
+                    <span x-show="! importing">Import file</span>
+                    <span x-show="importing" x-cloak>Importing<span x-show="progress > 0" x-text="' ' + progress + '%'"></span>…</span>
+                </button>
+
+                <p x-show="notice !== ''" x-cloak x-text="notice" class="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] leading-4 text-amber-800"></p>
+
+                @if ($pendingImports !== [])
+                    <ul class="mt-1 space-y-0.5" role="status">
+                        @foreach ($pendingImports as $pending)
+                            <li wire:key="pending-import-{{ $pending['id'] }}" class="flex items-center gap-1.5 rounded-md bg-brand-50 px-2 py-1 text-[11px] text-brand-800">
+                                <svg class="size-3 shrink-0 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4Z"></path>
+                                </svg>
+                                <span class="truncate">Importing {{ $pending['name'] }}…</span>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+
+                @if ($importErrors !== [])
+                    <div class="mt-1 rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] leading-4 text-rose-700" role="alert">
+                        <div class="flex items-start justify-between gap-2">
+                            <p class="font-semibold">Not imported</p>
+                            <button type="button" wire:click="dismissImportErrors" class="-mt-0.5 shrink-0 opacity-60 hover:opacity-100" aria-label="Dismiss">
+                                <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <ul class="mt-0.5 list-disc space-y-0.5 pl-3.5">
+                            @foreach ($importErrors as $error)
+                                <li>{{ $error }}</li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
             @endif
         </div>
 
@@ -218,6 +309,12 @@
                 @endforelse
             @elseif ($tree->isEmpty())
                 <p class="px-2 py-6 text-center text-[13px] text-slate-400">No pages yet.</p>
+
+                @if ($importConfig)
+                    <p class="px-2 text-center text-[11px] leading-4 text-slate-400">
+                        Drop files here to turn them into pages.
+                    </p>
+                @endif
             @else
                 <x-docs.tree
                     :nodes="$tree"
@@ -259,7 +356,16 @@
             {{-- ----------------------------------------------------- --}}
             {{-- Empty state                                            --}}
             {{-- ----------------------------------------------------- --}}
-            <div class="rounded-xl border border-slate-200 bg-surface px-6 py-16 text-center shadow-xs">
+            <div
+                class="relative rounded-xl border border-slate-200 bg-surface px-6 py-16 text-center shadow-xs transition"
+                @if ($importConfig)
+                    x-on:dragenter="dragEnter($event)"
+                    x-on:dragover="dragOver($event)"
+                    x-on:dragleave="dragLeave($event)"
+                    x-on:drop="drop($event)"
+                    x-bind:class="dragging ? 'border-brand-400 bg-brand-50/60 ring-2 ring-brand-500/20' : ''"
+                @endif
+            >
                 <div class="mx-auto mb-4 flex size-12 items-center justify-center rounded-xl bg-brand-50 text-2xl" aria-hidden="true">
                     📚
                 </div>
@@ -276,16 +382,41 @@
                     </p>
 
                     @if ($canCreate)
-                        <button
-                            type="button"
-                            wire:click="startCreating"
-                            class="mt-4 inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-brand-700"
-                        >
-                            <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                            </svg>
-                            Create your first page
-                        </button>
+                        <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+                            <button
+                                type="button"
+                                wire:click="startCreating"
+                                class="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-brand-700"
+                            >
+                                <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                                </svg>
+                                Create your first page
+                            </button>
+
+                            @if ($importConfig)
+                                <button
+                                    type="button"
+                                    x-on:click="choose(null)"
+                                    x-bind:disabled="importing"
+                                    class="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-surface px-3 py-1.5 text-[13px] font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+                                >
+                                    <svg class="size-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+                                    </svg>
+                                    <span x-show="! importing">Import a file</span>
+                                    <span x-show="importing" x-cloak>Importing…</span>
+                                </button>
+                            @endif
+                        </div>
+
+                        @if ($importConfig)
+                            {{-- The card itself takes a drop, too. --}}
+                            <div class="mx-auto mt-5 max-w-sm rounded-lg border border-dashed border-slate-300 px-4 py-3 text-[12px] leading-5 text-slate-500">
+                                <span x-show="! dragging">Or drop files here &mdash; {{ $importTypes }}. Each becomes an internal page with the original attached.</span>
+                                <span x-show="dragging" x-cloak class="font-medium text-brand-700">Drop to import them as pages</span>
+                            </div>
+                        @endif
                     @endif
                 @else
                     <h1 class="text-base font-semibold text-slate-900">{{ $board->name }} documentation</h1>
@@ -402,6 +533,24 @@
                         </div>
 
                         <div class="flex shrink-0 items-center gap-1.5">
+                            {{-- A page with open to-dos — an imported to-do list, a bug
+                                 list — offers to turn them into tickets. The assistant
+                                 opens on this page with the request written; nothing is
+                                 created until it is confirmed. --}}
+                            @if ($canAskAiForTickets && $openTasks > 0)
+                                <button
+                                    type="button"
+                                    x-on:click="$store.aiPanel.ask(@js(['board' => $board->slug, 'ticket' => null, 'doc' => $page->slug]), 'doc-tickets')"
+                                    class="flex items-center gap-1 rounded-md border border-brand-200 bg-brand-50 px-2 py-1 text-xs font-medium text-brand-700 transition hover:bg-brand-100"
+                                >
+                                    <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
+                                    </svg>
+                                    Create tickets with AI
+                                    <span class="rounded bg-brand-100 px-1 text-[10px] text-brand-800">{{ $openTasks }} to-do{{ $openTasks === 1 ? '' : 's' }}</span>
+                                </button>
+                            @endif
+
                             @if ($page->customer_visible)
                                 <x-ui.badge variant="emerald">Published</x-ui.badge>
                             @elseif ($canSeeInternal)
@@ -437,6 +586,26 @@
                                                 class="block w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-100"
                                             >
                                                 New page inside this one
+                                            </button>
+                                        @endif
+
+                                        @if ($importConfig)
+                                            <button
+                                                type="button"
+                                                x-on:click="menu = false; choose({{ $page->id }})"
+                                                class="block w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-100"
+                                            >
+                                                Import a file inside this one
+                                            </button>
+                                        @endif
+
+                                        @if ($canAskAiForTickets)
+                                            <button
+                                                type="button"
+                                                x-on:click="menu = false; $store.aiPanel.ask(@js(['board' => $board->slug, 'ticket' => null, 'doc' => $page->slug]), 'doc-tickets')"
+                                                class="block w-full border-t border-slate-100 px-3 py-1.5 text-left text-slate-700 hover:bg-slate-100"
+                                            >
+                                                Create tickets with AI
                                             </button>
                                         @endif
 

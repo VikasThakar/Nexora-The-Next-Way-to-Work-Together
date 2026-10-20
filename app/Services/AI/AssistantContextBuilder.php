@@ -51,6 +51,26 @@ class AssistantContextBuilder
             $context .= "\n\nCURRENT PAGE\n".$page;
         }
 
+        /*
+         * The documentation page on screen, in full.
+         *
+         * "Make tickets from this page" is a question about text the model
+         * would otherwise have to go and fetch — and in Writing it has no tools
+         * to fetch with. So when the person is reading a page of the board the
+         * conversation is about, its text comes with the question, read with
+         * them as the viewer.
+         */
+        $onScreen = $this->pageContext->pageOnScreen(
+            $pageHint,
+            $viewer,
+            $scope->board,
+            max(1000, (int) config('ai.chat.context.page_on_screen_characters', 40000)),
+        );
+
+        if ($onScreen !== null) {
+            $context .= "\n\nTHE PAGE ON SCREEN\n".$onScreen;
+        }
+
         return $context;
     }
 }

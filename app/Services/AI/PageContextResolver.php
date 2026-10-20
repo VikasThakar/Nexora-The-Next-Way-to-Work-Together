@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Services\AI;
 
 use App\Models\Board;
+use App\Models\DocPage;
+use App\Models\User;
 use App\Services\BoardAccess;
 use App\Services\DocPageFinder;
 use App\Services\TicketFinder;
@@ -37,7 +39,8 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * One line. The point of page context is to disambiguate "why is this blocked?"
  * — not to re-send the ticket, which the board context already carries in full.
  * Keeping it to a title is what stops this becoming a second, unbudgeted
- * context builder.
+ * context builder. The exception is a documentation page, whose text the board
+ * context does not carry: see pageOnScreen(), which is bounded.
  */
 class PageContextResolver
 {
@@ -89,6 +92,76 @@ class PageContextResolver
         }
 
         return $this->access->query($viewer)->where('boards.slug', $slug)->first();
+    }
+
+    /**
+     * A documentation page by slug, if the viewer may read it.
+     */
+    public function page(Board $board, mixed $slug, ?Authenticatable $viewer): ?DocPage
+    {
+        $slug = $this->slug($slug);
+
+        if ($slug === null) {
+            return null;
+        }
+
+        try {
+            return $this->pages->findOrFail($board, $slug, $viewer);
+        } catch (NotFoundHttpException) {
+            return null;
+        }
+    }
+
+    /**
+     * The text of the documentation page on screen, for the model to read.
+     *
+     * The one exception to "one line", and a bounded one: a page is what a
+     * question like "make tickets from this page" is about, and the board
+     * context carries only six hundred characters of each page. So when the
+     * person is reading a page of the board the conversation is about — or
+     * the conversation spans the workspace — its text goes with the question,
+     * up to `$maxCharacters`, and says so when there is more.
+     *
+     * The text is what is on screen: an editor's unpublished draft when the
+     * viewer may edit the page and one exists, otherwise the page as saved.
+     * Read through DocPageFinder with the asker as the viewer, so a customer
+     * gets a published page or nothing, and a forged slug gets nothing.
+     *
+     * @param  array<string, mixed>  $hint
+     */
+    public function pageOnScreen(array $hint, ?Authenticatable $viewer, ?Board $scopeBoard, int $maxCharacters): ?string
+    {
+        $board = $this->resolveBoard($hint['board'] ?? null, $viewer);
+
+        if (! $board instanceof Board || ($scopeBoard instanceof Board && (int) $scopeBoard->getKey() !== (int) $board->getKey())) {
+            return null;
+        }
+
+        $page = $this->page($board, $hint['page'] ?? null, $viewer);
+
+        if (! $page instanceof DocPage) {
+            return null;
+        }
+
+        $draft = $page->hasDraft() && $viewer instanceof User && $viewer->can('update', $page);
+        $body = trim((string) ($draft ? $page->draft_md : $page->body_md));
+
+        if ($body === '') {
+            return null;
+        }
+
+        $clipped = mb_strlen($body) > $maxCharacters;
+
+        return sprintf(
+            '"%s" (slug %s) on the %s board — %s%s.',
+            mb_substr($page->title, 0, 160),
+            $page->slug,
+            $board->name,
+            $page->customer_visible ? 'published to customers' : 'internal',
+            $draft ? ', shown with its unpublished changes' : '',
+        )
+            .($clipped ? "\nTRUNCATED: only the beginning of the page fits here; say so if the question needs the rest." : '')
+            ."\n\n".mb_substr($body, 0, $maxCharacters);
     }
 
     // -----------------------------------------------------------------

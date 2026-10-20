@@ -6,21 +6,30 @@ namespace App\Livewire\Docs;
 
 use App\Actions\Docs\CreatePage;
 use App\Actions\Docs\DeletePage;
+use App\Actions\Docs\ImportDocument;
 use App\Actions\Docs\MovePage;
 use App\Actions\Docs\SaveDraft;
 use App\Actions\Docs\SetPageVisibility;
 use App\Actions\Docs\UpdatePage;
 use App\Livewire\Concerns\EditsRichText;
+use App\Jobs\ImportDocumentFile;
 use App\Livewire\Concerns\ListensForBoardUpdates;
+use App\Livewire\Ai\Assistant;
 use App\Models\Board;
 use App\Models\DocPage;
 use App\Services\BoardAccess;
 use App\Services\BoardBroadcaster;
 use App\Services\ContentRenderer;
+use App\Services\AI\AiCapabilityGuard;
+use App\Services\AI\AiConfigurationResolver;
 use App\Services\DocPageFinder;
+use App\Services\Docs\Import\DocumentImportException;
+use App\Services\Docs\Import\ImportFormat;
 use App\Support\RichText\RichText;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -141,6 +150,31 @@ class Show extends Component
     public ?int $newParentId = null;
 
     public bool $confirmingDelete = false;
+
+    /**
+     * Importing files as pages.
+     *
+     * `$imports` is filled by the browser's uploads (WithFileUploads comes in
+     * through EditsRichText) and emptied as each batch is handled. The rest is
+     * the running result of one import: pages made, files refused, files still
+     * being converted on the queue, and the page to file them under.
+     *
+     * @var array<int, UploadedFile>|UploadedFile|null
+     */
+    public $imports = [];
+
+    public ?int $importParentId = null;
+
+    /** @var list<array{slug: string, title: string, warnings: list<string>, nested: bool}> */
+    public array $imported = [];
+
+    /** @var list<string> */
+    public array $importErrors = [];
+
+    /** @var list<array{id: int, name: string, since: int}> */
+    public array $pendingImports = [];
+
+    public bool $broadcastImports = false;
 
     public function mount(Board $board, DocPageFinder $finder, ?string $slug = null): void
     {
@@ -548,6 +582,213 @@ class Show extends Component
     }
 
     // -----------------------------------------------------------------
+    // Importing files
+    // -----------------------------------------------------------------
+
+    /**
+     * Turn the files just uploaded into pages.
+     *
+     * Called by Livewire when a batch of files lands in `$imports` — the
+     * browser sends a large drop in batches under the server's upload limit
+     * (resources/js/doc-import.js) and calls finishImport() after the last.
+     * Each file is its own attempt: one that cannot be read is reported by
+     * name and the rest still become pages.
+     *
+     * Large files are queued rather than read here; see ImportDocument.
+     */
+    public function updatedImports(ImportDocument $import, DocPageFinder $finder): void
+    {
+        $this->authorize('create', [DocPage::class, $this->board]);
+
+        $user = auth()->user();
+
+        // A drop of several files is a few seconds of parsing, more than the
+        // default request limit allows for.
+        @set_time_limit(120);
+
+        $files = array_values(array_filter(
+            is_array($this->imports) ? $this->imports : [$this->imports],
+            static fn ($file): bool => $file instanceof UploadedFile,
+        ));
+
+        $this->reset('imports');
+
+        $parent = $this->importParentId === null
+            ? null
+            : $finder->query($this->board, $user)->whereKey($this->importParentId)->first();
+
+        $maxFiles = max(1, (int) config('attachments.imports.max_files', 10));
+        $maxKb = max(1, (int) config('attachments.imports.max_size_kb', 20480));
+        $syncKb = max(1, (int) config('attachments.imports.sync_max_kb', 8192));
+
+        foreach ($files as $file) {
+            $name = Str::limit($file->getClientOriginalName(), 80);
+
+            if (count($this->imported) + count($this->pendingImports) >= $maxFiles) {
+                $this->importErrors[] = $name.': only '.$maxFiles.' files can be imported at once.';
+
+                continue;
+            }
+
+            $size = (int) $file->getSize();
+
+            if ($size > $maxKb * 1024) {
+                $this->importErrors[] = $name.': files can be at most '.round($maxKb / 1024).' MB.';
+
+                continue;
+            }
+
+            try {
+                if ($size > $syncKb * 1024) {
+                    $original = $import->queue($this->board, $file, $user, $parent);
+
+                    $this->pendingImports[] = ['id' => (int) $original->getKey(), 'name' => $name, 'since' => now()->getTimestamp()];
+
+                    continue;
+                }
+
+                $result = $import->handle($this->board, $file, $user, $parent);
+
+                $this->imported[] = [
+                    'slug' => $result['page']->slug,
+                    'title' => $result['page']->title,
+                    'warnings' => $result['document']->warnings,
+                    'nested' => $result['nested'],
+                ];
+            } catch (DocumentImportException $exception) {
+                $this->importErrors[] = $name.': '.$exception->getMessage();
+            }
+        }
+    }
+
+    /**
+     * Called by the browser after the last batch: say what happened, and open
+     * the first new page — or keep waiting for the queued ones.
+     */
+    public function finishImport(BoardBroadcaster $broadcaster): void
+    {
+        $this->authorize('create', [DocPage::class, $this->board]);
+
+        if ($this->imported !== [] && ! $this->broadcastImports) {
+            $broadcaster->documentationChanged((int) $this->board->getKey(), false);
+            $this->broadcastImports = true;
+        }
+
+        if ($this->pendingImports !== []) {
+            return;
+        }
+
+        $this->concludeImport();
+    }
+
+    /**
+     * Polled while queued imports are running.
+     */
+    public function checkImports(): void
+    {
+        if ($this->pendingImports === []) {
+            return;
+        }
+
+        $still = [];
+
+        foreach ($this->pendingImports as $pending) {
+            $status = ImportDocumentFile::status((int) $pending['id']);
+
+            if (($status['status'] ?? null) === 'done') {
+                $this->imported[] = [
+                    'slug' => (string) $status['slug'],
+                    'title' => (string) $status['title'],
+                    'warnings' => (array) ($status['warnings'] ?? []),
+                    'nested' => (bool) ($status['nested'] ?? true),
+                ];
+
+                continue;
+            }
+
+            if (($status['status'] ?? null) === 'failed') {
+                $this->importErrors[] = $pending['name'].': '.$status['error'];
+
+                continue;
+            }
+
+            // A job that never reports — a worker that is down — is not
+            // waited on for ever.
+            if (now()->getTimestamp() - (int) $pending['since'] > 900) {
+                $this->importErrors[] = $pending['name'].': this is taking longer than expected. '
+                    .'The page will appear in the list when it is ready.';
+
+                continue;
+            }
+
+            $still[] = $pending;
+        }
+
+        $this->pendingImports = $still;
+
+        if ($still === []) {
+            $this->concludeImport();
+        }
+    }
+
+    public function dismissImportErrors(): void
+    {
+        $this->importErrors = [];
+    }
+
+    /**
+     * The end of an import: a message, and the first new page.
+     *
+     * Errors are flashed with it, so they survive the move to the new page.
+     * When nothing was imported the person stays where they are, with the
+     * reasons listed in the sidebar.
+     */
+    private function concludeImport(): void
+    {
+        $imported = $this->imported;
+        $errors = $this->importErrors;
+
+        $this->imported = [];
+        $this->importParentId = null;
+        $this->broadcastImports = false;
+
+        if ($imported === []) {
+            return;
+        }
+
+        $this->importErrors = [];
+
+        $count = count($imported);
+        $message = $count === 1
+            ? '"'.$imported[0]['title'].'" was imported. It is internal until you publish it.'
+            : $count.' files were imported as pages. They are internal until you publish them.';
+
+        $notes = array_values(array_unique(array_merge(...array_map(
+            static fn (array $page): array => (array) $page['warnings'],
+            $imported,
+        ))));
+
+        if (in_array(false, array_column($imported, 'nested'), true)) {
+            $notes[] = 'The page you chose is already as deep as pages go, so the import was put at the top level.';
+        }
+
+        if ($notes !== []) {
+            $message .= ' '.implode(' ', $notes);
+        }
+
+        session()->flash('status', $message);
+
+        if ($errors !== []) {
+            session()->flash('error', 'Not imported: '.implode(' ', $errors));
+        }
+
+        $this->redirect(
+            route('docs.show', ['board' => $this->board, 'slug' => $imported[0]['slug']]),
+            navigate: true
+        );
+    }
+
+    // -----------------------------------------------------------------
     // Tree
     // -----------------------------------------------------------------
 
@@ -792,8 +1033,34 @@ class Show extends Component
             // RichText::toEditorHtml().
             'editorHtml' => $canEditPage ? $this->editorHtml($rich) : '',
 
-            'canCreate' => $user->can('create', [DocPage::class, $this->board]),
+            'canCreate' => $canCreate = $user->can('create', [DocPage::class, $this->board]),
             'canManage' => $canManage,
+
+            // The Import button and drop areas: for whoever may create a page,
+            // with the limits the browser needs to batch a large drop.
+            'importConfig' => $canCreate ? [
+                'maxFiles' => max(1, (int) config('attachments.imports.max_files', 10)),
+                'maxBytes' => max(1, (int) config('attachments.imports.max_size_kb', 20480)) * 1024,
+                // Under nginx's 32 MB body limit and PHP's post_max_size, with
+                // room for the request around the files.
+                'batchBytes' => 28 * 1024 * 1024,
+                'accept' => '.'.implode(',.', ImportFormat::extensions()),
+            ] : null,
+            'importTypes' => ImportFormat::describe(),
+
+            /*
+             * "Create tickets with AI" on a page: the assistant panel opens on
+             * this page, in Writing, with the request written for them. Only
+             * for somebody the assistant would let propose changes here —
+             * offering a button that ends in "you cannot make changes" helps
+             * nobody.
+             */
+            'canAskAiForTickets' => $this->page !== null
+                && $canEditPage
+                && Assistant::eligibleFor($user)
+                && app(AiConfigurationResolver::class)->isUsable($this->board)
+                && app(AiCapabilityGuard::class)->allowsProposals($this->board, $user),
+            'openTasks' => $this->page === null ? 0 : preg_match_all('/^\s*[-*+] \[ \]\s/m', (string) $this->page->body_md),
             // Asked here rather than in the template: a reader with no upload
             // rights should not see an empty attachments panel, but working
             // that out is not the view's job.

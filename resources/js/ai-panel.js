@@ -10,10 +10,12 @@
  * means opening the drawer is instant instead of a server round trip, and the
  * panel stays open across wire:navigate because Alpine is never torn down.
  *
- * The server is told only two things: reveal() the first time the panel is
- * opened, so a page nobody opened it on pays nothing, and syncPage() on each
- * navigation so the assistant knows what is on screen. Both are re-resolved and
- * re-authorized server-side; nothing here is trusted.
+ * The server is told little: reveal() the first time the panel is opened, so a
+ * page nobody opened it on pays nothing; syncPage() when it opens again; the
+ * page on screen, deferred, as the person moves around; and prepareDocTickets()
+ * when a documentation page asks the panel to turn its to-dos into tickets.
+ * All of it is re-resolved and re-authorized server-side; nothing here is
+ * trusted.
  */
 
 const DEFAULTS = {
@@ -24,6 +26,8 @@ const DEFAULTS = {
     page: { board: null, ticket: null, doc: null },
     // Whether the server has been asked to populate the panel yet.
     revealed: false,
+    // Something to do on opening, beyond showing the conversation — see ask().
+    intent: null,
 }
 
 function createStore() {
@@ -62,6 +66,25 @@ function createStore() {
         },
 
         /*
+         * Open the panel to do something in particular.
+         *
+         * Used by "Create tickets with AI" on a documentation page: the panel
+         * opens on that page with the request written into the composer. The
+         * intent is set before the panel opens so the panel makes the one
+         * request that does all of it, rather than reveal() and then another.
+         */
+        ask(page, intent) {
+            this.page = page
+            this.intent = intent
+
+            if (this.open) {
+                return
+            }
+
+            this.show(page)
+        },
+
+        /*
          * Report the current page. Called by the trigger on every render, so it
          * fires once per navigation without needing a router hook.
          */
@@ -91,19 +114,28 @@ document.addEventListener('alpine:init', () => {
              * first open populates the panel; later opens cost nothing.
              */
             this.$watch('$store.aiPanel.open', (open) => {
-                if (! open) return
+                if (open) this.arrive()
+            })
 
-                const page = store.page
+            // Asked to do something while already open.
+            this.$watch('$store.aiPanel.intent', (intent) => {
+                if (intent && store.open) this.arrive()
+            })
 
-                if (! store.revealed) {
-                    store.revealed = true
-                    this.$wire.reveal(page.board, page.ticket, page.doc)
-                } else {
-                    this.$wire.syncPage(page.board, page.ticket, page.doc)
-                }
+            /*
+             * Where the person is now, carried with the next request.
+             *
+             * The panel is persisted and stays open across navigation, so
+             * without this the server kept describing the page it was opened
+             * on: reading ticket B, asked about "this", it answered about page
+             * A. Deferred, so moving between pages costs no request of its own.
+             */
+            this.$watch('$store.aiPanel.page', (page) => {
+                if (! store.revealed || ! page) return
 
-                // Focus the composer once the drawer has finished moving.
-                this.$nextTick(() => this.$refs.composer?.focus())
+                this.$wire.$set('pageBoard', page.board, false)
+                this.$wire.$set('pageTicket', page.ticket, false)
+                this.$wire.$set('pageDoc', page.doc, false)
             })
 
             /*
@@ -121,6 +153,36 @@ document.addEventListener('alpine:init', () => {
             }
 
             window.addEventListener('keydown', this.escape)
+        },
+
+        /*
+         * The panel has opened, or been asked to do something: one request to
+         * the server for whichever it is. Guarded, because opening the panel to
+         * an intent changes both values watched above in the same tick.
+         */
+        arrive() {
+            if (this.arriving) return
+
+            this.arriving = true
+            this.$nextTick(() => { this.arriving = false })
+
+            const page = store.page
+            const intent = store.intent
+
+            store.intent = null
+
+            if (intent === 'doc-tickets') {
+                store.revealed = true
+                this.$wire.prepareDocTickets(page.board, page.doc)
+            } else if (! store.revealed) {
+                store.revealed = true
+                this.$wire.reveal(page.board, page.ticket, page.doc)
+            } else {
+                this.$wire.syncPage(page.board, page.ticket, page.doc)
+            }
+
+            // Focus the composer once the drawer has finished moving.
+            this.$nextTick(() => this.$refs.composer?.focus())
         },
 
         destroy() {

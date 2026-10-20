@@ -43,6 +43,13 @@ import './editor'
 import './doc-tree'
 
 /*
+ * The documentation screen's own behaviour, as the `docsPage` Alpine
+ * component: the page-tree drawer, and importing files as pages by button or
+ * by drop — see ./doc-import.
+ */
+import './doc-import'
+
+/*
  * The command palette and its ⌘K / Ctrl+K shortcut. A store, because the
  * shortcut is global while the trigger and the panel live in different corners
  * of the document — see ./palette.

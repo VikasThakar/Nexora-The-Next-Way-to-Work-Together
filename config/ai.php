@@ -663,6 +663,11 @@ return [
             'doc_pages' => (int) env('AI_CHAT_CONTEXT_PAGES', 40),
             'activity' => (int) env('AI_CHAT_CONTEXT_EVENTS', 40),
 
+            // The documentation page the person has open, sent in full with
+            // the question up to this many characters — what "make tickets
+            // from this page" needs. See PageContextResolver::pageOnScreen().
+            'page_on_screen_characters' => (int) env('AI_CHAT_CONTEXT_PAGE_CHARS', 40000),
+
             /*
              * The "All workspace" context, which spans boards rather than
              * detailing one.
