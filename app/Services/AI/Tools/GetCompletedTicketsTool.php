@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\AI\Tools;
 
+use App\Mcp\McpPresentation;
 use App\Models\Board;
 use App\Models\Ticket;
 use App\Services\AI\Tools\Concerns\ResolvesWorkspaceSubjects;
@@ -187,7 +188,7 @@ class GetCompletedTicketsTool implements AiToolContract
                 continue;
             }
 
-            $line = '- '.$this->ticketLine($ticket)
+            $line = '- '.$this->ticketLine($ticket, $context)
                 .' · completed '.$completedAt->setTimezone($period->timezone)->toIso8601String();
 
             if ($ticket->column !== null && ! $ticket->column->is_done) {
@@ -195,6 +196,11 @@ class GetCompletedTicketsTool implements AiToolContract
             }
 
             $lines[] = $line;
+        }
+
+        if (! $context->channel->rendersInAppBlocks()) {
+            $lines[] = '';
+            $lines[] = McpPresentation::hint('tickets');
         }
 
         return AiToolOutcome::ok(implode("\n", $lines), $target, $total.' completed');

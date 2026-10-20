@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\AI\Tools;
 
 use App\Enums\TicketPriority;
+use App\Mcp\McpPresentation;
 use App\Models\Board;
 use App\Models\Ticket;
 use App\Services\AI\Tools\Concerns\ResolvesWorkspaceSubjects;
@@ -182,7 +183,12 @@ class SearchTicketsTool implements AiToolContract
 
         foreach ($tickets as $ticket) {
             /** @var Ticket $ticket */
-            $lines[] = '- '.$this->ticketLine($ticket);
+            $lines[] = '- '.$this->ticketLine($ticket, $context);
+        }
+
+        if (! $context->channel->rendersInAppBlocks()) {
+            $lines[] = '';
+            $lines[] = McpPresentation::hint('tickets');
         }
 
         return AiToolOutcome::ok(

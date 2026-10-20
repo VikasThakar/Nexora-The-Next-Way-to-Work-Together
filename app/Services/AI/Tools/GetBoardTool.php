@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\AI\Tools;
 
 use App\Models\Board;
+use App\Mcp\McpPresentation;
 use App\Models\BoardColumn;
 use App\Models\Label;
 use App\Models\Ticket;
@@ -96,6 +97,7 @@ class GetBoardTool implements AiToolContract
         }
 
         $total = $tickets->query($board, $context->user)->count();
+        $mcp = ! $context->channel->rendersInAppBlocks();
 
         $lines[] = 'Tickets visible to this person: '.$total;
 
@@ -126,7 +128,7 @@ class GetBoardTool implements AiToolContract
                 /** @var BoardColumn $column */
                 $count = (int) ($perColumn[$column->getKey()] ?? 0);
 
-                $lines[] = '- '.$column->name.': '.$count.' '.($count === 1 ? 'ticket' : 'tickets')
+                $lines[] = '- '.($mcp ? McpPresentation::status($column) : $column->name).': '.$count.' '.($count === 1 ? 'ticket' : 'tickets')
                     .($column->is_done ? ' (counts as done)' : '');
             }
         }
@@ -154,9 +156,14 @@ class GetBoardTool implements AiToolContract
             $members = $board->members()->orderBy('users.name')->limit(40)->get();
 
             if ($members->isNotEmpty()) {
+                // For an AI app, who work can go to — the only people
+                // update_ticket will accept as an assignee.
+                $assignable = $mcp ? $board->assignableMembers()->pluck('users.id')->all() : [];
+
                 $lines[] = '';
                 $lines[] = 'MEMBERS: '.$members
-                    ->map(fn ($member): string => $member->name.' ('.$member->role->label().')')
+                    ->map(fn ($member): string => $member->name.' ('.$member->role->label()
+                        .($mcp && ! in_array($member->getKey(), $assignable, true) ? ', cannot be assigned work' : '').')')
                     ->implode(', ');
             }
         }
@@ -173,8 +180,13 @@ class GetBoardTool implements AiToolContract
 
             foreach ($recent as $ticket) {
                 /** @var Ticket $ticket */
-                $lines[] = '- '.$this->ticketLine($ticket);
+                $lines[] = '- '.$this->ticketLine($ticket, $context);
             }
+        }
+
+        if ($mcp) {
+            $lines[] = '';
+            $lines[] = McpPresentation::hint('board');
         }
 
         return AiToolOutcome::ok(implode("\n", $lines), $board->slug);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\AI\Tools;
 
+use App\Mcp\McpPresentation;
 use App\Models\Comment;
 use App\Models\Ticket;
 use App\Models\TicketEvent;
@@ -94,35 +95,62 @@ class GetTicketTool implements AiToolContract
 
         $ticket->loadMissing(['board', 'column', 'assignee', 'labels', 'subtasks']);
 
-        $lines = [
-            'TICKET '.$ticket->key().' on board "'.$ticket->board->name.'" (slug: '.$ticket->board->slug.')',
-            'Title: '.$ticket->title,
-            'Status column: '.($ticket->column?->name ?? 'not in a column'),
-            'Type: '.($ticket->type?->label() ?? 'not set'),
-            'Priority: '.($ticket->priority?->label() ?? 'not set'),
-            'Assignee: '.($ticket->assignee?->name ?? 'nobody'),
-        ];
+        /*
+         * For an AI app (MCP) the same facts carry the link, the status and
+         * priority badges and an exact "Last updated" it can hand back as
+         * if_unchanged_since — see App\Mcp\McpPresentation. The in-app
+         * assistant's lines are unchanged.
+         */
+        $mcp = ! $context->channel->rendersInAppBlocks();
+        $timezone = McpPresentation::timezone();
+
+        $lines = $mcp
+            ? [
+                'TICKET '.$ticket->key().' on board "'.$ticket->board->name.'" (slug: '.$ticket->board->slug.')',
+                'Link: '.McpPresentation::ticketUrl($ticket),
+                'Title: '.$ticket->title,
+                'Status: '.McpPresentation::status($ticket->column),
+                'Type: '.McpPresentation::type($ticket->type),
+                'Priority: '.McpPresentation::priority($ticket->priority),
+                'Assigned to: '.McpPresentation::assignee($ticket->assignee),
+            ]
+            : [
+                'TICKET '.$ticket->key().' on board "'.$ticket->board->name.'" (slug: '.$ticket->board->slug.')',
+                'Title: '.$ticket->title,
+                'Status column: '.($ticket->column?->name ?? 'not in a column'),
+                'Type: '.($ticket->type?->label() ?? 'not set'),
+                'Priority: '.($ticket->priority?->label() ?? 'not set'),
+                'Assignee: '.($ticket->assignee?->name ?? 'nobody'),
+            ];
 
         if ($ticket->labels->isNotEmpty()) {
             $lines[] = 'Labels: '.$ticket->labels->pluck('name')->implode(', ');
         }
 
         if ($ticket->due_date !== null) {
-            $lines[] = 'Due: '.$ticket->due_date->toDateString()
-                .($ticket->due_date->isPast() ? ' (in the past)' : '');
+            $lines[] = $mcp
+                ? 'Due: '.McpPresentation::due($ticket->due_date, $timezone)
+                : 'Due: '.$ticket->due_date->toDateString()
+                    .($ticket->due_date->isPast() ? ' (in the past)' : '');
         }
 
         if ($ticket->estimate !== null) {
             $lines[] = 'Estimate: '.$ticket->estimate;
         }
 
-        $lines[] = 'Created: '.($ticket->created_at?->toDateTimeString() ?? 'unknown');
-        $lines[] = 'Last updated: '.($ticket->updated_at?->toDateTimeString() ?? 'unknown');
+        if ($mcp) {
+            $lines[] = 'Created: '.McpPresentation::time($ticket->created_at, $timezone);
+            $lines[] = 'Last updated: '.($ticket->updated_at?->toIso8601String() ?? 'unknown')
+                .' ('.McpPresentation::time($ticket->updated_at, $timezone).')';
+        } else {
+            $lines[] = 'Created: '.($ticket->created_at?->toDateTimeString() ?? 'unknown');
+            $lines[] = 'Last updated: '.($ticket->updated_at?->toDateTimeString() ?? 'unknown');
+        }
 
         // Stated only when it is a fact worth stating. A customer never
         // reaches an internal ticket, so this line is staff-only in practice.
         if (! $ticket->customer_visible) {
-            $lines[] = 'Visibility: internal — the customer cannot see this ticket.';
+            $lines[] = 'Visibility: '.($mcp ? '🔒 ' : '').'internal — the customer cannot see this ticket.';
         }
 
         $description = $this->excerpt($ticket->description_md, 2500);
@@ -131,7 +159,7 @@ class GetTicketTool implements AiToolContract
         $lines[] = 'DESCRIPTION';
         $lines[] = $description === '' ? '(empty)' : $description;
 
-        $checklist = $this->checklist($ticket);
+        $checklist = $this->checklist($ticket, $mcp);
 
         if ($checklist !== null) {
             $lines[] = '';
@@ -159,12 +187,20 @@ class GetTicketTool implements AiToolContract
             $lines[] = $code;
         }
 
+        if ($mcp) {
+            $lines[] = '';
+            $lines[] = McpPresentation::hint('ticket');
+        }
+
         return AiToolOutcome::ok(implode("\n", $lines), $ticket->key());
     }
 
     // -----------------------------------------------------------------
 
-    private function checklist(Ticket $ticket): ?string
+    /**
+     * Numbered for an AI app, because update_checklist names items by number.
+     */
+    private function checklist(Ticket $ticket, bool $numbered = false): ?string
     {
         if ($ticket->subtasks->isEmpty()) {
             return null;
@@ -172,9 +208,9 @@ class GetTicketTool implements AiToolContract
 
         $lines = ['CHECKLIST'];
 
-        foreach ($ticket->subtasks->take(40) as $subtask) {
+        foreach ($ticket->subtasks->take(40)->values() as $index => $subtask) {
             /** @var TicketSubtask $subtask */
-            $lines[] = '- ['.($subtask->completed ? 'x' : ' ').'] '.Str::limit((string) $subtask->title, 160, '…');
+            $lines[] = ($numbered ? ($index + 1).'. ' : '- ').'['.($subtask->completed ? 'x' : ' ').'] '.Str::limit((string) $subtask->title, 160, '…');
         }
 
         return implode("\n", $lines);

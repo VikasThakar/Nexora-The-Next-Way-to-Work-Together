@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\AI\Tools\Concerns;
 
+use App\Mcp\McpPresentation;
 use App\Models\Board;
 use App\Models\Ticket;
 use App\Services\AI\Tools\AiToolContext;
@@ -160,9 +161,16 @@ trait ResolvesWorkspaceSubjects
 
     /**
      * One line describing a ticket, in the vocabulary the team uses.
+     *
+     * For an AI app (MCP) the line carries the link and the status, assignee
+     * and priority badges instead — App\Mcp\McpPresentation::ticketLine().
      */
-    protected function ticketLine(Ticket $ticket): string
+    protected function ticketLine(Ticket $ticket, ?AiToolContext $context = null): string
     {
+        if ($context !== null && ! $context->channel->rendersInAppBlocks()) {
+            return McpPresentation::ticketLine($ticket, $context->staff, McpPresentation::timezone());
+        }
+
         $ticket->loadMissing(['board', 'column', 'assignee']);
 
         $parts = [
