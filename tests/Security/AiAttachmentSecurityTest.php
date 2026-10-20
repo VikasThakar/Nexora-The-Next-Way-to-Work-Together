@@ -351,8 +351,12 @@ class AiAttachmentSecurityTest extends TestCase
         $path = (string) $record->attachment->path;
 
         $this->assertStringNotContainsString('confidential', $path);
-        $this->assertStringNotContainsString('Q4', $path);
         $this->assertStringNotContainsString(' ', $path);
+
+        // The stored name is a random ULID, so nothing of the original name
+        // survives. (Checked as a pattern: asserting the absence of "Q4"
+        // failed whenever the random ULID itself happened to contain it.)
+        $this->assertMatchesRegularExpression('/^[0-9A-HJKMNP-TV-Z]{26}$/', pathinfo($path, PATHINFO_FILENAME));
 
         // The display name is kept, and only as a label.
         $this->assertSame('Q4 board pack (confidential).txt', $record->filename());
