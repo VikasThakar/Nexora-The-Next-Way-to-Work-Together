@@ -6,9 +6,9 @@ Three suites are declared in `phpunit.xml`.
 
 | Suite | Directory | Files | Purpose |
 |---|---|---|---|
-| **Unit** | `tests/Unit` | 16 | Pure logic: enums, value objects, parsers, cost calculation |
-| **Feature** | `tests/Feature` | 90 | End-to-end behaviour through routes and Livewire components |
-| **Security** | `tests/Security` | 28 | **Authorization and isolation, runnable alone as a fast CI gate** |
+| **Unit** | `tests/Unit` | 17 | Pure logic: enums, value objects, parsers, cost calculation |
+| **Feature** | `tests/Feature` | 112 | End-to-end behaviour through routes and Livewire components |
+| **Security** | `tests/Security` | 32 | **Authorization and isolation, runnable alone as a fast CI gate** |
 
 Test environment: SQLite in memory, `array` cache and session, `sync` queue, `null`
 broadcasting, `array` mail, `BCRYPT_ROUNDS=4`, public registration off, and
@@ -28,16 +28,19 @@ php artisan test --filter=test_a_customer_cannot_see_internal_tickets
 
 ## Current status
 
-Measured at commit `395baf7` on 20 October 2026:
+Measured at commit `9c0ff8b` on 20 October 2026:
 
 | Result | Count |
 |---|---|
-| **Passed** | **1,995** |
+| **Passed** | **2,033** |
 | Failed | 2 |
-| Assertions | 7,610 |
+| Assertions | 7,905 |
 
 The two failures are the `ThemePreferenceTest` pair below. The third test in the table is
 date-sensitive: it passes on days whose report period contains no `7`, as it did on this run.
+A fourth, `AiAttachmentSecurityTest > the stored path reveals nothing about the upload`,
+failed about one run in forty because the random file name it inspected could itself contain
+the letters it looked for; it checks the name's shape instead since `7d13980`.
 
 ### The known failures
 
@@ -99,6 +102,7 @@ asserting the absence of `(total 7)` — rather than to change any application b
 |---|---|
 | `AiAssistantSecurityTest`, `AiChatSecurityTest` | Conversation ownership and scope |
 | `CustomerAiSecurityTest` | A customer's assistant is read-only and staff tools are withheld |
+| `McpCustomerBoundaryTest` | A customer's AI app (remote MCP) gets the customer tools only, never sees an internal ticket or note through any tool, and can change only what the ticket screen lets them: raise a ticket, edit their own, reply on the customer thread |
 | `AiWriteAuthorizationTest` | Proposals are authorized against the confirming person, per field |
 | `AiVisibilityTest` | AI runs are invisible to customers |
 | `AiVisualizationSecurityTest` | Charts cannot aggregate hidden data |
@@ -113,7 +117,8 @@ asserting the absence of `(total 7)` — rather than to change any application b
 
 | Area | Files |
 |---|---|
-| AI | 38 files — capability modes, chat modes, knowledge scope, sessions, context window and prompt caching, tools, attachments, voice, rich responses, apply mode, run caps, inheritance, Anthropic and OpenAI providers, token usage, audit log, batch tickets, importing a file into the docs, tickets from the page on screen |
+| AI | 39 files — capability modes, chat modes, knowledge scope, sessions, context window and prompt caching, tools, attachments, voice, rich responses, apply mode, run caps, inheritance, Anthropic and OpenAI providers, token usage, audit log, batch tickets, importing a file into the docs, tickets from the page on screen |
+| MCP | 5 files — the endpoint and both protocol generations, OAuth and the consent screen, every write tool (confirmation codes, retries, stale reads, the AI mode, archived boards, the write limit, the kill switch), the display rules and badges with the in-app output held unchanged, the reconnect migration |
 | Tickets | 13 files — creation, editing, movement, filtering, links, subtasks, attachments, events, rich text, checklist conversion, quick add, live conversation |
 | Documentation | 8 files — editor, save state, drag and drop, tree, workspace, visibility, importing files as pages, the file-to-Markdown converters |
 | Boards | 6 files — management, deletion, columns, labels, integrations, drag and drop |

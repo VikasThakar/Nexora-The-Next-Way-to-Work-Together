@@ -180,6 +180,8 @@ has to decide about, grouped by concern.
 | `MCP_RATE_LIMIT` | `60` | Tool calls per minute, per person |
 | `MCP_OAUTH_RATE_LIMIT` | `120` | Discovery / registration requests per minute, per IP |
 | `MCP_ACCESS_TOKEN_MINUTES` | `60` | Access-token lifetime |
+| `MCP_WRITES_ENABLED` | `true` | `false` takes every MCP write tool away — the server is read-only again — without a deploy |
+| `MCP_WRITE_RATE_LIMIT` | `30` | Changes per minute, per person, through MCP write tools |
 | `MCP_REFRESH_TOKEN_DAYS` | `30` | Refresh-token lifetime — how long an unused connection survives |
 | `PASSPORT_PRIVATE_KEY` / `PASSPORT_PUBLIC_KEY` | *(none)* | Token signing keys (PEM). **Required in production**; locally `php artisan passport:keys` writes `storage/oauth-*.key` instead. Rotating them disconnects every client |
 

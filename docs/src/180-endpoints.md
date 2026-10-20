@@ -4,8 +4,8 @@
 > **Nexora exposes no general REST or JSON API for third parties.** There is no
 > `routes/api.php` and no OpenAPI specification. The one machine-facing interface is the
 > **remote MCP server** at `POST /mcp`: AI clients such as Claude and ChatGPT call it with an
-> OAuth token on behalf of one signed-in person, read-only, under that person's in-app
-> permissions. Everything else below is a browser route, an inbound webhook, or a small number
+> OAuth token on behalf of one signed-in person, to read and to make the changes that person
+> could make by hand, under their in-app permissions. Everything else below is a browser route, an inbound webhook, or a small number
 > of controller endpoints the application's own front end calls.
 
 ## Remote MCP server — `POST /mcp`
@@ -16,7 +16,7 @@ this section.
 
 | Route | Purpose | Authentication | Limit |
 |---|---|---|---|
-| `POST /mcp` | MCP JSON-RPC: `initialize`, `tools/list`, `tools/call` | Passport token (`auth:api`), scope `mcp:use`, active user | `throttle:mcp` — per person |
+| `POST /mcp` | MCP JSON-RPC: `initialize`, `tools/list`, `tools/call` | Passport token (`auth:api`), scope `mcp:use`, active user | `throttle:mcp` — per person; write tools also `MCP_WRITE_RATE_LIMIT` a minute |
 | `GET` / `DELETE /mcp` | Always `405` (no server-initiated stream) | — | — |
 | `GET /.well-known/oauth-protected-resource[/mcp]` | RFC 9728 metadata: `resource` is exactly `https://<host>/mcp` | Public | `throttle:mcp-oauth` — per IP |
 | `GET /.well-known/oauth-authorization-server[/…]` | RFC 8414 metadata: endpoints, S256 PKCE, scope | Public | `throttle:mcp-oauth` |
@@ -31,9 +31,13 @@ whatever the client sends in `Accept` — `bootstrap/app.php` forces JSON render
 paths, because a redirect to the login page here is what makes a client report that it
 "couldn't reach the server".
 
-**The tools** are the in-app assistant's read tools, through `AiToolRegistry::invoke()` — see
-section 9 for what each reads and who gets it. Every call writes an `ai_tool_invocations` row
-with `channel = mcp`.
+**The tools** are the in-app assistant's read tools, through `AiToolRegistry::invoke()`, and
+the write tools in `App\Mcp\Tools\Write` (staff: tickets, checklists, comments, doc pages,
+delete after confirming; customers: raise a ticket, edit their own, reply), which go through
+`ExecuteChatAction::perform()` — see section 9 for each tool, who gets it, the confirmation
+policy and the display rules. Every call writes an `ai_tool_invocations` row with
+`channel = mcp`; a write's category is `action`. `MCP_WRITES_ENABLED=false` removes the write
+tools without a deploy.
 
 ## Inbound webhook — GitHub
 

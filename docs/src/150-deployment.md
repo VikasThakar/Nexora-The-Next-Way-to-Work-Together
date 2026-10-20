@@ -227,6 +227,14 @@ What it deliberately does **not** do:
   ChatGPT's from OpenAI's; both need the public HTTPS endpoint. Nothing else is required.
 - **Scheduler.** `passport:purge` is scheduled, like the other housekeeping, and only runs
   where a scheduler does.
+- **The release that added changes over MCP** runs migration
+  `2026_10_21_000100_revoke_read_only_mcp_connections`, which signs out every connected AI
+  app once. Tell people to expect it: in Claude, Settings → Connectors → Nexora → Connect,
+  and agree to the new screen. No new variable is needed; the defaults are
+  `MCP_WRITES_ENABLED=true` and `MCP_WRITE_RATE_LIMIT=30`.
+- **Back to read-only** without a deploy: set `MCP_WRITES_ENABLED=false` on the web service.
+  Every write tool disappears from the next `tools/list`; reads keep working. Do not roll
+  the revoke migration back — un-revoking credentials is never the right way back.
 
 ## Rollback considerations
 

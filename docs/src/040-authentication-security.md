@@ -80,9 +80,10 @@ middleware. Reaching them asks for the password again even inside a valid sessio
 ### OAuth for the remote MCP server
 
 Nexora is an OAuth 2.1 **authorization server** for one purpose: letting a person connect an
-AI client (Claude, ChatGPT) to the read-only MCP endpoint at `/mcp`. It is not a way to sign
-in to Nexora — that is still the login form above — and a token grants nothing beyond the
-MCP tools, which read with the token's user as the viewer.
+AI client (Claude, ChatGPT) to the MCP endpoint at `/mcp`. It is not a way to sign in to
+Nexora — that is still the login form above — and a token grants nothing beyond the MCP
+tools, which read and change things with the token's user as the actor and under that
+person's own permissions.
 
 | Property | Value |
 |---|---|
@@ -92,7 +93,8 @@ MCP tools, which read with the token's user as the viewer.
 | Scope | `mcp:use`, required by `/mcp` and granted by default |
 | Access token | 60 minutes (`MCP_ACCESS_TOKEN_MINUTES`) |
 | Refresh token | 30 days (`MCP_REFRESH_TOKEN_DAYS`), rotated on every use |
-| Consent | `resources/views/mcp/authorize.blade.php`: names the client and the host it returns to; warns on loopback redirects |
+| Consent | `resources/views/mcp/authorize.blade.php`: names the client and the host it returns to, says what it will be able to change (staff and customer wording differ), warns on loopback redirects |
+| Re-consent | Connections approved while the server was read-only were revoked once, by migration `2026_10_21_000100_revoke_read_only_mcp_connections`, so nobody's app gained changes on a screen that promised it could not make any |
 | Revocation | Access, refresh and auth codes revoked when the user is deactivated or their password changes (`App\Observers\UserObserver`); a deactivated user's request is a `401` |
 | Keys | `PASSPORT_PRIVATE_KEY` / `PASSPORT_PUBLIC_KEY`; rotating them disconnects every client |
 
@@ -172,6 +174,7 @@ Four named limiters, protecting different things.
 | `github-webhooks` | `POST /webhooks/github` | Client IP | 300/min (`GITHUB_WEBHOOK_RATE_LIMIT`) | The only unauthenticated route that can enqueue work. Rejected requests never reach signature verification and never touch the database |
 | `ai-voice` | `POST /ai/voice/listen`, `GET /ai/messages/{id}/speech` | Signed-in user id | 30/min (`AI_VOICE_RATE_LIMIT`) | Transcription and speech synthesis are billed per call and are the only AI surface a browser can trigger in a loop without a person typing |
 | `mcp` | `POST /mcp` | Token's user id | 60/min (`MCP_RATE_LIMIT`) | One connected AI client looping on a tool slows down that connection only |
+| `mcp-write:{user}` | MCP write tools, inside `WriteTool` | Token's user id | 30/min (`MCP_WRITE_RATE_LIMIT`) | A runaway client can read, but stops changing things well before it could do damage |
 | `mcp-oauth` | OAuth discovery and `POST /oauth/register` | Client IP | 120/min (`MCP_OAUTH_RATE_LIMIT`) | Unauthenticated by design; generous because every Claude or ChatGPT user arrives from the same vendor addresses |
 
 The login form carries a third limiter of its own, inside `Livewire\Auth\Login`:

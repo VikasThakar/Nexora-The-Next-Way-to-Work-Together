@@ -191,7 +191,7 @@ least-privileged role, `customer` — never staff.
 | AI Standup Generator | **Not implemented — see section 32** |
 | Live external knowledge lookup for the assistant | Partially implemented — interface only, no driver ships |
 | Apply-mode code generation | Partially implemented — driver defaults to `unavailable` |
-| Remote MCP server for Claude / ChatGPT (read-only, OAuth) | Implemented |
+| Remote MCP server for Claude / ChatGPT (reads and changes, OAuth) | Implemented |
 | General REST / JSON API for third parties | Not implemented |
 
 <!-- pagebreak -->
@@ -203,7 +203,7 @@ least-privileged role, `customer` — never staff.
 Nexora is a **single Laravel application** rendered server-side, made interactive by
 Livewire, and deployed as **one Docker image run three ways**. There is no separate
 front-end application, no API gateway and no microservices. The one machine-facing interface
-— the read-only remote MCP server at `/mcp` that Claude and ChatGPT connect to — is served by
+— the remote MCP server at `/mcp` that Claude and ChatGPT connect to — is served by
 the same application, from `routes/ai.php`.
 
 ```diagram
@@ -655,9 +655,10 @@ middleware. Reaching them asks for the password again even inside a valid sessio
 ### OAuth for the remote MCP server
 
 Nexora is an OAuth 2.1 **authorization server** for one purpose: letting a person connect an
-AI client (Claude, ChatGPT) to the read-only MCP endpoint at `/mcp`. It is not a way to sign
-in to Nexora — that is still the login form above — and a token grants nothing beyond the
-MCP tools, which read with the token's user as the viewer.
+AI client (Claude, ChatGPT) to the MCP endpoint at `/mcp`. It is not a way to sign in to
+Nexora — that is still the login form above — and a token grants nothing beyond the MCP
+tools, which read and change things with the token's user as the actor and under that
+person's own permissions.
 
 | Property | Value |
 |---|---|
@@ -667,7 +668,8 @@ MCP tools, which read with the token's user as the viewer.
 | Scope | `mcp:use`, required by `/mcp` and granted by default |
 | Access token | 60 minutes (`MCP_ACCESS_TOKEN_MINUTES`) |
 | Refresh token | 30 days (`MCP_REFRESH_TOKEN_DAYS`), rotated on every use |
-| Consent | `resources/views/mcp/authorize.blade.php`: names the client and the host it returns to; warns on loopback redirects |
+| Consent | `resources/views/mcp/authorize.blade.php`: names the client and the host it returns to, says what it will be able to change (staff and customer wording differ), warns on loopback redirects |
+| Re-consent | Connections approved while the server was read-only were revoked once, by migration `2026_10_21_000100_revoke_read_only_mcp_connections`, so nobody's app gained changes on a screen that promised it could not make any |
 | Revocation | Access, refresh and auth codes revoked when the user is deactivated or their password changes (`App\Observers\UserObserver`); a deactivated user's request is a `401` |
 | Keys | `PASSPORT_PRIVATE_KEY` / `PASSPORT_PUBLIC_KEY`; rotating them disconnects every client |
 
@@ -747,6 +749,7 @@ Four named limiters, protecting different things.
 | `github-webhooks` | `POST /webhooks/github` | Client IP | 300/min (`GITHUB_WEBHOOK_RATE_LIMIT`) | The only unauthenticated route that can enqueue work. Rejected requests never reach signature verification and never touch the database |
 | `ai-voice` | `POST /ai/voice/listen`, `GET /ai/messages/{id}/speech` | Signed-in user id | 30/min (`AI_VOICE_RATE_LIMIT`) | Transcription and speech synthesis are billed per call and are the only AI surface a browser can trigger in a loop without a person typing |
 | `mcp` | `POST /mcp` | Token's user id | 60/min (`MCP_RATE_LIMIT`) | One connected AI client looping on a tool slows down that connection only |
+| `mcp-write:{user}` | MCP write tools, inside `WriteTool` | Token's user id | 30/min (`MCP_WRITE_RATE_LIMIT`) | A runaway client can read, but stops changing things well before it could do damage |
 | `mcp-oauth` | OAuth discovery and `POST /oauth/register` | Client IP | 120/min (`MCP_OAUTH_RATE_LIMIT`) | Unauthenticated by design; generous because every Claude or ChatGPT user arrives from the same vendor addresses |
 
 The login form carries a third limiter of its own, inside `Livewire\Auth\Login`:
@@ -2130,30 +2133,145 @@ without, about exactly the same material.
 | `get_github_repository` | Attached repositories, default branch, build commands — **never credentials, never repository contents** | **Staff only** |
 | `search_external_knowledge` | An outside service | Outside Project scope **and** a configured driver |
 
-### The same tools, from Claude or ChatGPT (remote MCP)
+### The same tools — and changes — from Claude or ChatGPT (remote MCP)
 
 People can add `https://<host>/mcp` to Claude (web, desktop, phone) or ChatGPT as a custom
-connector, sign in with their Nexora account, and ask questions there. Those clients call the
-**same read tools through the same registry** (`App\Mcp\Tools\RegistryTool` wraps each
-contract and calls `AiToolRegistry::invoke()`), so an answer from Claude cannot differ from
-what the in-app assistant would have read for the same person.
+connector, sign in with their Nexora account, and ask questions — or ask for changes — there.
+For reading, those clients call the **same read tools through the same registry**
+(`App\Mcp\Tools\RegistryTool` wraps each contract and calls `AiToolRegistry::invoke()`), so an
+answer from Claude cannot differ from what the in-app assistant would have read for the same
+person.
 
 `App\Mcp\Servers\NexoraServer` builds the tool context once per request from the OAuth token's
 user:
 
 | Context field | MCP value | Why |
 |---|---|---|
-| `scope` | workspace | An external client has no "current board"; tools take a slug or key |
+| `scope` | workspace | An external client has no "current board"; tools take a board or ticket key |
 | `session` | `null` | Not part of an in-app conversation; the audit row records the call without one |
-| `mode` | Observer | Only governs write proposals, and none are offered |
+| `mode` | Observer | Governs only in-app proposals, which this path never makes; the write tools ask the board's real mode themselves |
 | `staff` | `BoardAccess::canSeeInternalContent($user)` | The customer boundary, exactly as in the app |
 | `knowledge` | Project | `search_external_knowledge` is never offered |
-| `channel` | `mcp` | No `nexora-*` rendering hints in answers; audit rows filterable by channel |
+| `channel` | `mcp` | Answers carry links and status emojis instead of `nexora-*` rendering hints; audit rows filterable by channel |
 
-Customers get the seven customer tools; staff also get the three staff-only ones. No
-`propose_*` tool exists on this path. Disabling the read tools (`AI_TOOLS_ENABLED=false`)
-empties the MCP tool list too. See section 18 for the endpoint and section 4 for the OAuth
-details.
+Customers get the seven customer read tools; staff also get the three staff-only ones.
+Disabling the read tools (`AI_TOOLS_ENABLED=false`) empties the read list. See section 18 for
+the endpoint and section 4 for the OAuth details.
+
+#### Changes from an AI app
+
+The in-app assistant never writes directly — it proposes and a person confirms. Over MCP the
+person is in a conversation in their own AI app, and **the app itself asks them before each
+call**: every write tool is annotated `readOnlyHint: false` (and `delete_ticket`
+`destructiveHint: true`), which is what makes Claude and ChatGPT ask. So the change is made
+directly, through the **same code a confirmed proposal goes through** —
+`ExecuteChatAction::perform()` — and nothing re-implements a permission.
+
+| Tool | Staff | Customer | What it does |
+|---|---|---|---|
+| `create_ticket` | Every field: description, type, priority, status (column), assignee, labels, due date, estimate, visibility | Board, title, description, type, priority | Raise one ticket. A customer's ticket follows the customer rules: first column, nobody assigned, visible |
+| `create_tickets` | Up to 30, same fields | — | All or nothing; a refusal names the ticket at fault |
+| `update_ticket` | Any field, status, assignee (`nobody` unassigns), labels (replaces the set), due date (`none` clears) | Title and description of a ticket **they raised** | The answer lists what changed, old → new, read back from the saved row |
+| `update_checklist` | Add, complete, reopen, remove items by text or number | — | `TicketPolicy::manageSubtasks`, as on the ticket screen |
+| `add_comment` | Internal note by default; `visible_to_customer` posts on the customer thread | Customer thread only, where the board allows customer comments | |
+| `delete_ticket` | After confirmation | — | Permanent |
+| `create_doc_page` | Markdown, optionally nested | — | Always internal |
+| `update_doc_page` | Title and body | — | Never over a colleague's unsaved draft |
+
+**What every write goes through, in order** (`App\Mcp\Tools\Write\WriteTool`):
+
+1. the per-person write limit — `MCP_WRITE_RATE_LIMIT`, 30 a minute, on top of the endpoint's
+   request limit;
+2. the arguments, checked against the tool's schema by `AiToolInput` (unknown keys dropped,
+   lengths capped) — the customer variant of a tool simply has no staff fields;
+3. the target, resolved **as this person**: a ticket key through `TicketFinder`, a board
+   through `BoardAccess`. A ticket on a board they are not on, an internal ticket a customer
+   cannot see and a key that does not exist all get **the same answer**;
+4. `AiCapabilityGuard::assertCanWriteExternally()`: the board's AI mode must allow writes
+   (Observer means the AI writes nothing, from inside the product or out), archived boards are
+   refused, and a customer may only use the three customer tools;
+5. the change, through the ordinary actions and policies, inside `WriteOrigin` so the history
+   says "via Claude";
+6. one `ai_tool_invocations` row — category `action`, channel `mcp`, success or not;
+7. an answer in the display style: ✅ and what actually changed, or ❌ and why nothing did.
+   A database error's message is never repeated to the app.
+
+**Risk policy.** Ordinary, reversible work happens on the call; three things wait for the
+person:
+
+| Change | Happens |
+|---|---|
+| Create, update, move, assign, label, checklist, internal note, internal page | At once (the app has already asked the person) |
+| **Delete a ticket** | Only with a confirmation code |
+| **A staff comment the customer will read** | Only with a confirmation code |
+| **Editing a published page** | Only with a confirmation code |
+
+`App\Mcp\Support\Confirmations`: the first call changes nothing and answers with a preview and
+a six-character code. The code is bound to the person, the tool, the target and the exact
+arguments, works once and lasts ten minutes. It cannot prove the person read the preview — a
+model could answer its own question — which is why the client's own approval prompt is the
+other half of the gate.
+
+**Safeguards.**
+
+- **Retries never duplicate.** `App\Mcp\Support\RepeatGuard`: the same person, tool and
+  arguments within 90 seconds get the first answer back, marked as a repeat, under a lock.
+  Applies to the tools that add something.
+- **Stale reads don't overwrite.** `update_ticket` and `update_doc_page` take
+  `if_unchanged_since` — the "Last updated" the app read — and refuse if the record changed
+  after it.
+- **Attribution.** History rows (`ticket_events.payload.via`, `activity_log.properties.via`)
+  carry the app's registered name, cleaned to 30 characters; the ticket history and activity
+  feed show "· via Claude". The actor is always the person.
+- **Kill switch.** `MCP_WRITES_ENABLED=false` takes every write tool away — back to read-only —
+  without a deploy.
+
+**Not offered, deliberately:** changing visibility or publishing, moving or deleting pages,
+deleting comments, boards, columns, labels and members, AI code runs, bulk edits of existing
+tickets, and file uploads.
+
+#### How results look in the chat
+
+Asked for by the people using it: tickets shown the way a person scans them — status at a
+glance, who has it, a table when there are several — **in the chat, not in an artifact**.
+`App\Mcp\McpPresentation` holds all of it, for the MCP channel only; the in-app assistant's tool
+output is unchanged.
+
+- **Server instructions** (sent once on connect, staff and customer variants): which tool
+  answers which question; the rules for changes; and the display rules — lead with the answer,
+  one ticket as a bold linked line plus bullets, three or more as a table *Ticket | Title |
+  Status | Assigned to | Priority | Due*, "who is working on what" grouped per person, status
+  and assignee always shown as separate facts, values exactly as returned, and no artifacts,
+  canvases, documents, widgets or charts unless asked.
+- **Badges in the tool output**, computed from the real data so a model never guesses:
+
+| | Rule |
+|---|---|
+| 🟢 | The column counts as done |
+| 🔴 | The column's name says blocked or on hold |
+| 🟣 | Review, QA, testing |
+| ⚪ | The board's first column, or a backlog / to-do name |
+| 🟡 | Anything else in between — the column's own name is always kept |
+| 🔥 ⬆️ ➖ ⬇️ 💤 | Priority Critical, High, Medium, Low, Nice to have (shapes, so they never clash with status colours) |
+| 🐞 ✨ 📋 · 👤 · 📅 / ⚠️ · 🔒 | Type; assignee or *Unassigned*; due or overdue; internal (staff only) |
+
+- **Links**: every ticket key is a Markdown link to the ticket.
+- **A one-line `DISPLAY:` hint** ends each list and detail result, because not every client
+  shows its model the server instructions.
+
+#### Connecting Claude or ChatGPT
+
+Checked October 2026; both vendors call custom connectors beta, so menus may move.
+
+| App | Steps |
+|---|---|
+| Claude (Free, Pro, Max) | Settings → Connectors → **Add custom connector** → URL `https://<host>/mcp` → Add → Connect → sign in to Nexora → **Allow** |
+| Claude (Team, Enterprise) | An Owner adds the connector in Admin settings → Connectors; each member then clicks **Connect** under Settings → Connectors |
+| ChatGPT (Plus, Pro, Business, Enterprise, Edu) | Settings → Apps & Connectors → Advanced settings → turn on **Developer mode** → create a connector with the URL → sign in → **Allow**. On Business and Enterprise a workspace admin may have to allow it first |
+
+Both apps ask before calling a tool that is not read-only. Claude lets each tool be set to
+*Always allow*, *Ask each time* or *Never*; leaving the write tools on **Ask each time** keeps a
+person in front of every change. ChatGPT shows the call's arguments for approval — read them.
 
 <!-- pagebreak -->
 
@@ -3923,7 +4041,7 @@ workspace-scoped and belong to no board. Stores `disk`, `path`, `filename`, `mim
 | `ai_runs` | One ticket run | `uuid` unique, `trigger_source`, `mode`, `status`, `repository`, `model`, `result_comment_id`, `branch_name`, `pull_request_url`, tokens, cost, duration, `error_message` |
 | `ai_usage_records` | One row per billed exchange | `purpose` (`chat`/`ticket_run`), `provider`, `model`, tokens (input inclusive of cached), `tokens_cache_read` / `tokens_cache_write`, `context_tokens`, **`usage_reported`**, `estimated_cost` |
 | `ai_attachments` | One uploaded file, processed | `attachment_id` **unique**, `kind`, `status`, `checksum`, `extracted_text`, `structured`, `summary`, `characters`, `token_estimate`, `truncated`, `context_sent_at`, `markdown` / `markdown_truncated` (the whole file as a page body, for importing into the docs) |
-| `ai_tool_invocations` | **The AI audit log** | `tool`, `category`, `channel` (`assistant` \| `mcp`, indexed with `created_at`), `target`, `input`, `success`, `outcome`, `result_characters`, `duration_ms`. MCP rows have no session and usually no board |
+| `ai_tool_invocations` | **The AI audit log** | `tool`, `category`, `channel` (`assistant` \| `mcp`, indexed with `created_at`), `target`, `input`, `success`, `outcome` (`ok`, `refused`, `invalid`, `not_found`, `error`, or `awaiting_confirmation` for an MCP change waiting for the person), `result_characters`, `duration_ms`. MCP rows have no session; a read usually has no board, a change records its board |
 
 ## OAuth tables (remote MCP server)
 
@@ -4209,6 +4327,14 @@ What it deliberately does **not** do:
   ChatGPT's from OpenAI's; both need the public HTTPS endpoint. Nothing else is required.
 - **Scheduler.** `passport:purge` is scheduled, like the other housekeeping, and only runs
   where a scheduler does.
+- **The release that added changes over MCP** runs migration
+  `2026_10_21_000100_revoke_read_only_mcp_connections`, which signs out every connected AI
+  app once. Tell people to expect it: in Claude, Settings → Connectors → Nexora → Connect,
+  and agree to the new screen. No new variable is needed; the defaults are
+  `MCP_WRITES_ENABLED=true` and `MCP_WRITE_RATE_LIMIT=30`.
+- **Back to read-only** without a deploy: set `MCP_WRITES_ENABLED=false` on the web service.
+  Every write tool disappears from the next `tools/list`; reads keep working. Do not roll
+  the revoke migration back — un-revoking credentials is never the right way back.
 
 ## Rollback considerations
 
@@ -4416,6 +4542,8 @@ has to decide about, grouped by concern.
 | `MCP_RATE_LIMIT` | `60` | Tool calls per minute, per person |
 | `MCP_OAUTH_RATE_LIMIT` | `120` | Discovery / registration requests per minute, per IP |
 | `MCP_ACCESS_TOKEN_MINUTES` | `60` | Access-token lifetime |
+| `MCP_WRITES_ENABLED` | `true` | `false` takes every MCP write tool away — the server is read-only again — without a deploy |
+| `MCP_WRITE_RATE_LIMIT` | `30` | Changes per minute, per person, through MCP write tools |
 | `MCP_REFRESH_TOKEN_DAYS` | `30` | Refresh-token lifetime — how long an unused connection survives |
 | `PASSPORT_PRIVATE_KEY` / `PASSPORT_PUBLIC_KEY` | *(none)* | Token signing keys (PEM). **Required in production**; locally `php artisan passport:keys` writes `storage/oauth-*.key` instead. Rotating them disconnects every client |
 
@@ -4655,9 +4783,9 @@ Three suites are declared in `phpunit.xml`.
 
 | Suite | Directory | Files | Purpose |
 |---|---|---|---|
-| **Unit** | `tests/Unit` | 16 | Pure logic: enums, value objects, parsers, cost calculation |
-| **Feature** | `tests/Feature` | 90 | End-to-end behaviour through routes and Livewire components |
-| **Security** | `tests/Security` | 28 | **Authorization and isolation, runnable alone as a fast CI gate** |
+| **Unit** | `tests/Unit` | 17 | Pure logic: enums, value objects, parsers, cost calculation |
+| **Feature** | `tests/Feature` | 112 | End-to-end behaviour through routes and Livewire components |
+| **Security** | `tests/Security` | 32 | **Authorization and isolation, runnable alone as a fast CI gate** |
 
 Test environment: SQLite in memory, `array` cache and session, `sync` queue, `null`
 broadcasting, `array` mail, `BCRYPT_ROUNDS=4`, public registration off, and
@@ -4677,16 +4805,19 @@ php artisan test --filter=test_a_customer_cannot_see_internal_tickets
 
 ## Current status
 
-Measured at commit `395baf7` on 20 October 2026:
+Measured at commit `9c0ff8b` on 20 October 2026:
 
 | Result | Count |
 |---|---|
-| **Passed** | **1,995** |
+| **Passed** | **2,033** |
 | Failed | 2 |
-| Assertions | 7,610 |
+| Assertions | 7,905 |
 
 The two failures are the `ThemePreferenceTest` pair below. The third test in the table is
 date-sensitive: it passes on days whose report period contains no `7`, as it did on this run.
+A fourth, `AiAttachmentSecurityTest > the stored path reveals nothing about the upload`,
+failed about one run in forty because the random file name it inspected could itself contain
+the letters it looked for; it checks the name's shape instead since `7d13980`.
 
 ### The known failures
 
@@ -4748,6 +4879,7 @@ asserting the absence of `(total 7)` — rather than to change any application b
 |---|---|
 | `AiAssistantSecurityTest`, `AiChatSecurityTest` | Conversation ownership and scope |
 | `CustomerAiSecurityTest` | A customer's assistant is read-only and staff tools are withheld |
+| `McpCustomerBoundaryTest` | A customer's AI app (remote MCP) gets the customer tools only, never sees an internal ticket or note through any tool, and can change only what the ticket screen lets them: raise a ticket, edit their own, reply on the customer thread |
 | `AiWriteAuthorizationTest` | Proposals are authorized against the confirming person, per field |
 | `AiVisibilityTest` | AI runs are invisible to customers |
 | `AiVisualizationSecurityTest` | Charts cannot aggregate hidden data |
@@ -4762,7 +4894,8 @@ asserting the absence of `(total 7)` — rather than to change any application b
 
 | Area | Files |
 |---|---|
-| AI | 38 files — capability modes, chat modes, knowledge scope, sessions, context window and prompt caching, tools, attachments, voice, rich responses, apply mode, run caps, inheritance, Anthropic and OpenAI providers, token usage, audit log, batch tickets, importing a file into the docs, tickets from the page on screen |
+| AI | 39 files — capability modes, chat modes, knowledge scope, sessions, context window and prompt caching, tools, attachments, voice, rich responses, apply mode, run caps, inheritance, Anthropic and OpenAI providers, token usage, audit log, batch tickets, importing a file into the docs, tickets from the page on screen |
+| MCP | 5 files — the endpoint and both protocol generations, OAuth and the consent screen, every write tool (confirmation codes, retries, stale reads, the AI mode, archived boards, the write limit, the kill switch), the display rules and badges with the in-app output held unchanged, the reconnect migration |
 | Tickets | 13 files — creation, editing, movement, filtering, links, subtasks, attachments, events, rich text, checklist conversion, quick add, live conversation |
 | Documentation | 8 files — editor, save state, drag and drop, tree, workspace, visibility, importing files as pages, the file-to-Markdown converters |
 | Boards | 6 files — management, deletion, columns, labels, integrations, drag and drop |
@@ -5096,8 +5229,8 @@ php artisan config:clear && php artisan route:clear && php artisan view:clear
 > **Nexora exposes no general REST or JSON API for third parties.** There is no
 > `routes/api.php` and no OpenAPI specification. The one machine-facing interface is the
 > **remote MCP server** at `POST /mcp`: AI clients such as Claude and ChatGPT call it with an
-> OAuth token on behalf of one signed-in person, read-only, under that person's in-app
-> permissions. Everything else below is a browser route, an inbound webhook, or a small number
+> OAuth token on behalf of one signed-in person, to read and to make the changes that person
+> could make by hand, under their in-app permissions. Everything else below is a browser route, an inbound webhook, or a small number
 > of controller endpoints the application's own front end calls.
 
 ## Remote MCP server — `POST /mcp`
@@ -5108,7 +5241,7 @@ this section.
 
 | Route | Purpose | Authentication | Limit |
 |---|---|---|---|
-| `POST /mcp` | MCP JSON-RPC: `initialize`, `tools/list`, `tools/call` | Passport token (`auth:api`), scope `mcp:use`, active user | `throttle:mcp` — per person |
+| `POST /mcp` | MCP JSON-RPC: `initialize`, `tools/list`, `tools/call` | Passport token (`auth:api`), scope `mcp:use`, active user | `throttle:mcp` — per person; write tools also `MCP_WRITE_RATE_LIMIT` a minute |
 | `GET` / `DELETE /mcp` | Always `405` (no server-initiated stream) | — | — |
 | `GET /.well-known/oauth-protected-resource[/mcp]` | RFC 9728 metadata: `resource` is exactly `https://<host>/mcp` | Public | `throttle:mcp-oauth` — per IP |
 | `GET /.well-known/oauth-authorization-server[/…]` | RFC 8414 metadata: endpoints, S256 PKCE, scope | Public | `throttle:mcp-oauth` |
@@ -5123,9 +5256,13 @@ whatever the client sends in `Accept` — `bootstrap/app.php` forces JSON render
 paths, because a redirect to the login page here is what makes a client report that it
 "couldn't reach the server".
 
-**The tools** are the in-app assistant's read tools, through `AiToolRegistry::invoke()` — see
-section 9 for what each reads and who gets it. Every call writes an `ai_tool_invocations` row
-with `channel = mcp`.
+**The tools** are the in-app assistant's read tools, through `AiToolRegistry::invoke()`, and
+the write tools in `App\Mcp\Tools\Write` (staff: tickets, checklists, comments, doc pages,
+delete after confirming; customers: raise a ticket, edit their own, reply), which go through
+`ExecuteChatAction::perform()` — see section 9 for each tool, who gets it, the confirmation
+policy and the display rules. Every call writes an `ai_tool_invocations` row with
+`channel = mcp`; a write's category is `action`. `MCP_WRITES_ENABLED=false` removes the write
+tools without a deploy.
 
 ## Inbound webhook — GitHub
 
@@ -5902,7 +6039,7 @@ read before making a commitment to anybody about what Nexora does.
 | Capability | Status |
 |---|---|
 | **AI Standup Generator** | **Not implemented.** Searched the whole repository: the only match is a test fixture filename (`standup.mp3`). There is no standup service, command, component, route, view or job. The building blocks exist — `get_activity`, `get_code_activity`, `ActivityReader`, `GithubLinkReader` — so it is buildable, but **nothing generates a standup today** |
-| General REST / JSON API for third parties | No `routes/api.php`, no OpenAPI spec. The only machine-facing interface is the read-only remote MCP server (`/mcp`, OAuth) |
+| General REST / JSON API for third parties | No `routes/api.php`, no OpenAPI spec. The only machine-facing interface is the remote MCP server (`/mcp`, OAuth), which reads and makes the changes the signed-in person could make by hand |
 | Webhooks **out** of Nexora | Only Slack and SMS leave the application |
 | Email notifications | Password reset only |
 | Two-factor authentication | Not implemented |
@@ -5987,7 +6124,7 @@ each is worth an owner.
 | **Ticket** | A unit of work. Addressed by `PREFIX-NUMBER`, e.g. `NL-42` |
 | **Ticket key** | The human identifier — the board's prefix, a hyphen, the per-board number. What GitHub branches and commits reference |
 | **Ticket prefix** | A board's 2–6 character code, globally unique |
-| **Tool** | A read-only lookup the AI may call. Runs **with the asking person as the viewer**, and is audited whatever the outcome |
+| **Tool** | A read-only lookup the AI may call. Runs **with the asking person as the viewer**, and is audited whatever the outcome. Over MCP an AI app also has **write tools**, which make a change as the person, under their permissions |
 | **Webhook (inbound)** | GitHub telling Nexora about code activity. Authenticated by HMAC-SHA256 over the raw body |
 | **Webhook (outbound)** | A Slack incoming-webhook URL. A bearer credential, so it is encrypted at rest and write-only in the UI |
 | **Workspace** | The whole deployment. **Not an entity** — there is no workspace table. Used in this document to mean "everything in this installation" |

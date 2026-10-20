@@ -369,30 +369,145 @@ without, about exactly the same material.
 | `get_github_repository` | Attached repositories, default branch, build commands — **never credentials, never repository contents** | **Staff only** |
 | `search_external_knowledge` | An outside service | Outside Project scope **and** a configured driver |
 
-### The same tools, from Claude or ChatGPT (remote MCP)
+### The same tools — and changes — from Claude or ChatGPT (remote MCP)
 
 People can add `https://<host>/mcp` to Claude (web, desktop, phone) or ChatGPT as a custom
-connector, sign in with their Nexora account, and ask questions there. Those clients call the
-**same read tools through the same registry** (`App\Mcp\Tools\RegistryTool` wraps each
-contract and calls `AiToolRegistry::invoke()`), so an answer from Claude cannot differ from
-what the in-app assistant would have read for the same person.
+connector, sign in with their Nexora account, and ask questions — or ask for changes — there.
+For reading, those clients call the **same read tools through the same registry**
+(`App\Mcp\Tools\RegistryTool` wraps each contract and calls `AiToolRegistry::invoke()`), so an
+answer from Claude cannot differ from what the in-app assistant would have read for the same
+person.
 
 `App\Mcp\Servers\NexoraServer` builds the tool context once per request from the OAuth token's
 user:
 
 | Context field | MCP value | Why |
 |---|---|---|
-| `scope` | workspace | An external client has no "current board"; tools take a slug or key |
+| `scope` | workspace | An external client has no "current board"; tools take a board or ticket key |
 | `session` | `null` | Not part of an in-app conversation; the audit row records the call without one |
-| `mode` | Observer | Only governs write proposals, and none are offered |
+| `mode` | Observer | Governs only in-app proposals, which this path never makes; the write tools ask the board's real mode themselves |
 | `staff` | `BoardAccess::canSeeInternalContent($user)` | The customer boundary, exactly as in the app |
 | `knowledge` | Project | `search_external_knowledge` is never offered |
-| `channel` | `mcp` | No `nexora-*` rendering hints in answers; audit rows filterable by channel |
+| `channel` | `mcp` | Answers carry links and status emojis instead of `nexora-*` rendering hints; audit rows filterable by channel |
 
-Customers get the seven customer tools; staff also get the three staff-only ones. No
-`propose_*` tool exists on this path. Disabling the read tools (`AI_TOOLS_ENABLED=false`)
-empties the MCP tool list too. See section 18 for the endpoint and section 4 for the OAuth
-details.
+Customers get the seven customer read tools; staff also get the three staff-only ones.
+Disabling the read tools (`AI_TOOLS_ENABLED=false`) empties the read list. See section 18 for
+the endpoint and section 4 for the OAuth details.
+
+#### Changes from an AI app
+
+The in-app assistant never writes directly — it proposes and a person confirms. Over MCP the
+person is in a conversation in their own AI app, and **the app itself asks them before each
+call**: every write tool is annotated `readOnlyHint: false` (and `delete_ticket`
+`destructiveHint: true`), which is what makes Claude and ChatGPT ask. So the change is made
+directly, through the **same code a confirmed proposal goes through** —
+`ExecuteChatAction::perform()` — and nothing re-implements a permission.
+
+| Tool | Staff | Customer | What it does |
+|---|---|---|---|
+| `create_ticket` | Every field: description, type, priority, status (column), assignee, labels, due date, estimate, visibility | Board, title, description, type, priority | Raise one ticket. A customer's ticket follows the customer rules: first column, nobody assigned, visible |
+| `create_tickets` | Up to 30, same fields | — | All or nothing; a refusal names the ticket at fault |
+| `update_ticket` | Any field, status, assignee (`nobody` unassigns), labels (replaces the set), due date (`none` clears) | Title and description of a ticket **they raised** | The answer lists what changed, old → new, read back from the saved row |
+| `update_checklist` | Add, complete, reopen, remove items by text or number | — | `TicketPolicy::manageSubtasks`, as on the ticket screen |
+| `add_comment` | Internal note by default; `visible_to_customer` posts on the customer thread | Customer thread only, where the board allows customer comments | |
+| `delete_ticket` | After confirmation | — | Permanent |
+| `create_doc_page` | Markdown, optionally nested | — | Always internal |
+| `update_doc_page` | Title and body | — | Never over a colleague's unsaved draft |
+
+**What every write goes through, in order** (`App\Mcp\Tools\Write\WriteTool`):
+
+1. the per-person write limit — `MCP_WRITE_RATE_LIMIT`, 30 a minute, on top of the endpoint's
+   request limit;
+2. the arguments, checked against the tool's schema by `AiToolInput` (unknown keys dropped,
+   lengths capped) — the customer variant of a tool simply has no staff fields;
+3. the target, resolved **as this person**: a ticket key through `TicketFinder`, a board
+   through `BoardAccess`. A ticket on a board they are not on, an internal ticket a customer
+   cannot see and a key that does not exist all get **the same answer**;
+4. `AiCapabilityGuard::assertCanWriteExternally()`: the board's AI mode must allow writes
+   (Observer means the AI writes nothing, from inside the product or out), archived boards are
+   refused, and a customer may only use the three customer tools;
+5. the change, through the ordinary actions and policies, inside `WriteOrigin` so the history
+   says "via Claude";
+6. one `ai_tool_invocations` row — category `action`, channel `mcp`, success or not;
+7. an answer in the display style: ✅ and what actually changed, or ❌ and why nothing did.
+   A database error's message is never repeated to the app.
+
+**Risk policy.** Ordinary, reversible work happens on the call; three things wait for the
+person:
+
+| Change | Happens |
+|---|---|
+| Create, update, move, assign, label, checklist, internal note, internal page | At once (the app has already asked the person) |
+| **Delete a ticket** | Only with a confirmation code |
+| **A staff comment the customer will read** | Only with a confirmation code |
+| **Editing a published page** | Only with a confirmation code |
+
+`App\Mcp\Support\Confirmations`: the first call changes nothing and answers with a preview and
+a six-character code. The code is bound to the person, the tool, the target and the exact
+arguments, works once and lasts ten minutes. It cannot prove the person read the preview — a
+model could answer its own question — which is why the client's own approval prompt is the
+other half of the gate.
+
+**Safeguards.**
+
+- **Retries never duplicate.** `App\Mcp\Support\RepeatGuard`: the same person, tool and
+  arguments within 90 seconds get the first answer back, marked as a repeat, under a lock.
+  Applies to the tools that add something.
+- **Stale reads don't overwrite.** `update_ticket` and `update_doc_page` take
+  `if_unchanged_since` — the "Last updated" the app read — and refuse if the record changed
+  after it.
+- **Attribution.** History rows (`ticket_events.payload.via`, `activity_log.properties.via`)
+  carry the app's registered name, cleaned to 30 characters; the ticket history and activity
+  feed show "· via Claude". The actor is always the person.
+- **Kill switch.** `MCP_WRITES_ENABLED=false` takes every write tool away — back to read-only —
+  without a deploy.
+
+**Not offered, deliberately:** changing visibility or publishing, moving or deleting pages,
+deleting comments, boards, columns, labels and members, AI code runs, bulk edits of existing
+tickets, and file uploads.
+
+#### How results look in the chat
+
+Asked for by the people using it: tickets shown the way a person scans them — status at a
+glance, who has it, a table when there are several — **in the chat, not in an artifact**.
+`App\Mcp\McpPresentation` holds all of it, for the MCP channel only; the in-app assistant's tool
+output is unchanged.
+
+- **Server instructions** (sent once on connect, staff and customer variants): which tool
+  answers which question; the rules for changes; and the display rules — lead with the answer,
+  one ticket as a bold linked line plus bullets, three or more as a table *Ticket | Title |
+  Status | Assigned to | Priority | Due*, "who is working on what" grouped per person, status
+  and assignee always shown as separate facts, values exactly as returned, and no artifacts,
+  canvases, documents, widgets or charts unless asked.
+- **Badges in the tool output**, computed from the real data so a model never guesses:
+
+| | Rule |
+|---|---|
+| 🟢 | The column counts as done |
+| 🔴 | The column's name says blocked or on hold |
+| 🟣 | Review, QA, testing |
+| ⚪ | The board's first column, or a backlog / to-do name |
+| 🟡 | Anything else in between — the column's own name is always kept |
+| 🔥 ⬆️ ➖ ⬇️ 💤 | Priority Critical, High, Medium, Low, Nice to have (shapes, so they never clash with status colours) |
+| 🐞 ✨ 📋 · 👤 · 📅 / ⚠️ · 🔒 | Type; assignee or *Unassigned*; due or overdue; internal (staff only) |
+
+- **Links**: every ticket key is a Markdown link to the ticket.
+- **A one-line `DISPLAY:` hint** ends each list and detail result, because not every client
+  shows its model the server instructions.
+
+#### Connecting Claude or ChatGPT
+
+Checked October 2026; both vendors call custom connectors beta, so menus may move.
+
+| App | Steps |
+|---|---|
+| Claude (Free, Pro, Max) | Settings → Connectors → **Add custom connector** → URL `https://<host>/mcp` → Add → Connect → sign in to Nexora → **Allow** |
+| Claude (Team, Enterprise) | An Owner adds the connector in Admin settings → Connectors; each member then clicks **Connect** under Settings → Connectors |
+| ChatGPT (Plus, Pro, Business, Enterprise, Edu) | Settings → Apps & Connectors → Advanced settings → turn on **Developer mode** → create a connector with the URL → sign in → **Allow**. On Business and Enterprise a workspace admin may have to allow it first |
+
+Both apps ask before calling a tool that is not read-only. Claude lets each tool be set to
+*Always allow*, *Ask each time* or *Never*; leaving the write tools on **Ask each time** keeps a
+person in front of every change. ChatGPT shows the call's arguments for approval — read them.
 
 <!-- pagebreak -->
 

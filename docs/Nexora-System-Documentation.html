@@ -516,7 +516,7 @@ html { scroll-behavior: smooth; }
             <tr><td>AI ticket runs &mdash; <em>apply</em> mode (opens a draft pull request)</td><td><span class="pill part">Partial</span></td></tr>
             <tr><td>Live external knowledge lookup for the assistant</td><td><span class="pill part">Partial</span></td></tr>
             <tr><td>AI Standup Generator</td><td><span class="pill absent">Not built</span></td></tr>
-            <tr><td>Remote MCP server for Claude / ChatGPT (read-only, OAuth sign-in, same permissions as the app)</td><td><span class="pill done">Built</span></td></tr>
+            <tr><td>Remote MCP server for Claude / ChatGPT (reads and changes, OAuth sign-in, same permissions as the app)</td><td><span class="pill done">Built</span></td></tr>
             <tr><td>General REST / JSON API for third parties</td><td><span class="pill absent">Not built</span></td></tr>
           </tbody>
         </table>
@@ -1267,6 +1267,44 @@ html { scroll-behavior: smooth; }
         forwarded, stripping EXIF including GPS, and are sent as pictures only to models that
         declare vision. An instruction <em>inside</em> an uploaded document is framed to the model
         as text somebody wrote, never a command.
+      </p>
+
+      <h3>From Claude or ChatGPT (remote MCP)</h3>
+      <div class="prose tight">
+        <p>
+          People add <code>https://&lt;host&gt;/mcp</code> to Claude or ChatGPT as a custom connector,
+          sign in with their Nexora account, and then ask questions &mdash; or ask for changes &mdash;
+          from there. Reading uses <strong>the same ten tools through the same registry</strong>, so an
+          answer cannot differ from what the in-app assistant would read for the same person. Changes
+          go through <strong>the same code a confirmed proposal does</strong>
+          (<code>ExecuteChatAction::perform()</code>), as the person, within the board&rsquo;s AI mode,
+          and every call is audited on the <code>mcp</code> channel.
+        </p>
+      </div>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Who</th><th>Can change</th></tr></thead>
+          <tbody>
+            <tr><th>Staff</th><td><span class="mono">create_ticket</span>, <span class="mono">create_tickets</span> (up to 30, all or nothing), <span class="mono">update_ticket</span> (fields, status, assignee, labels, due date, estimate), <span class="mono">update_checklist</span>, <span class="mono">add_comment</span>, <span class="mono">delete_ticket</span>, <span class="mono">create_doc_page</span>, <span class="mono">update_doc_page</span></td></tr>
+            <tr><th>Customers</th><td>Only what the ticket screen already allows: raise a ticket, edit the title and description of one they raised, reply on the customer thread</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="cards">
+        <div class="card"><span class="tag">Confirm</span><h5>Three changes wait for a yes</h5><p>Deleting a ticket, a comment the customer will read and editing a published page answer &ldquo;confirmation needed&rdquo; with a one-time code bound to the person, the target and the exact arguments. Everything else happens on the call &mdash; the AI app has already asked the person.</p></div>
+        <div class="card"><span class="tag">Safe</span><h5>Retries, races, runaways</h5><p>An identical request within 90 seconds returns the first answer instead of a duplicate; a ticket changed since it was read is not overwritten; changes are limited to 30 a minute per person; <code>MCP_WRITES_ENABLED=false</code> returns to read-only without a deploy.</p></div>
+        <div class="card"><span class="tag">Honest</span><h5>The answer is the saved row</h5><p>Every reply is read back from the database: what changed, old &rarr; new. A refusal says why; a ticket the person cannot see reads exactly like one that does not exist.</p></div>
+        <div class="card"><span class="tag">Traced</span><h5>&ldquo;via Claude&rdquo; in the history</h5><p>The person is always the actor; the ticket history and activity feed add the app it came through.</p></div>
+      </div>
+      <p class="cap">
+        <strong>How it looks in the chat.</strong> The server tells the AI app to answer in the chat,
+        never in an artifact: one ticket as a bold linked line with bullets, several as a table
+        <em>Ticket | Title | Status | Assigned to | Priority | Due</em>, status and assignee always shown
+        separately. The tools put status colours in their own output &mdash; 🟢 done, 🟡 in progress,
+        🟣 review, 🔴 blocked, ⚪ not started &mdash; worked out from the real column, with its name
+        kept, plus 👤 for the assignee (<em>Unassigned</em> when nobody has it) and a link on every
+        ticket key. Connections approved while the server was read-only were signed out once, so
+        everybody agrees to the new screen.
       </p>
     </section>
 
@@ -2025,7 +2063,7 @@ html { scroll-behavior: smooth; }
           <thead><tr><th>Capability</th><th>Status</th></tr></thead>
           <tbody>
             <tr><th>AI Standup Generator</th><td><strong>Verified absent by a repository-wide search</strong> &mdash; the only match is a test fixture filename. There is no standup service, command, component, route, view or job. The building blocks exist (activity and code-activity readers), so it is buildable, but nothing generates a standup today</td></tr>
-            <tr><th>General REST / JSON API for third parties</th><td>No general API and no specification. The one machine-facing interface is the read-only remote MCP server at <code>/mcp</code>, which Claude and ChatGPT reach with an OAuth token on behalf of one signed-in person. Other integration is inbound webhook plus outbound HTTP client</td></tr>
+            <tr><th>General REST / JSON API for third parties</th><td>No general API and no specification. The one machine-facing interface is the remote MCP server at <code>/mcp</code>, which Claude and ChatGPT reach with an OAuth token on behalf of one signed-in person, to read and to make the changes that person could make by hand. Other integration is inbound webhook plus outbound HTTP client</td></tr>
             <tr><th>Outbound webhooks from Nexora</th><td>Only Slack and SMS leave the application</td></tr>
             <tr><th>Two-factor authentication, SSO, email verification</th><td>Not implemented</td></tr>
             <tr><th>Documentation version history, page comments, collaborative editing, PDF export</th><td>Not implemented</td></tr>

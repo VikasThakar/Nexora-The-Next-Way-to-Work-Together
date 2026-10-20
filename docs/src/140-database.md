@@ -166,7 +166,7 @@ workspace-scoped and belong to no board. Stores `disk`, `path`, `filename`, `mim
 | `ai_runs` | One ticket run | `uuid` unique, `trigger_source`, `mode`, `status`, `repository`, `model`, `result_comment_id`, `branch_name`, `pull_request_url`, tokens, cost, duration, `error_message` |
 | `ai_usage_records` | One row per billed exchange | `purpose` (`chat`/`ticket_run`), `provider`, `model`, tokens (input inclusive of cached), `tokens_cache_read` / `tokens_cache_write`, `context_tokens`, **`usage_reported`**, `estimated_cost` |
 | `ai_attachments` | One uploaded file, processed | `attachment_id` **unique**, `kind`, `status`, `checksum`, `extracted_text`, `structured`, `summary`, `characters`, `token_estimate`, `truncated`, `context_sent_at`, `markdown` / `markdown_truncated` (the whole file as a page body, for importing into the docs) |
-| `ai_tool_invocations` | **The AI audit log** | `tool`, `category`, `channel` (`assistant` \| `mcp`, indexed with `created_at`), `target`, `input`, `success`, `outcome`, `result_characters`, `duration_ms`. MCP rows have no session and usually no board |
+| `ai_tool_invocations` | **The AI audit log** | `tool`, `category`, `channel` (`assistant` \| `mcp`, indexed with `created_at`), `target`, `input`, `success`, `outcome` (`ok`, `refused`, `invalid`, `not_found`, `error`, or `awaiting_confirmation` for an MCP change waiting for the person), `result_characters`, `duration_ms`. MCP rows have no session; a read usually has no board, a change records its board |
 
 ## OAuth tables (remote MCP server)
 

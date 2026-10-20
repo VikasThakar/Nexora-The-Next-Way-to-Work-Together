@@ -63,7 +63,7 @@ read before making a commitment to anybody about what Nexora does.
 | Capability | Status |
 |---|---|
 | **AI Standup Generator** | **Not implemented.** Searched the whole repository: the only match is a test fixture filename (`standup.mp3`). There is no standup service, command, component, route, view or job. The building blocks exist — `get_activity`, `get_code_activity`, `ActivityReader`, `GithubLinkReader` — so it is buildable, but **nothing generates a standup today** |
-| General REST / JSON API for third parties | No `routes/api.php`, no OpenAPI spec. The only machine-facing interface is the read-only remote MCP server (`/mcp`, OAuth) |
+| General REST / JSON API for third parties | No `routes/api.php`, no OpenAPI spec. The only machine-facing interface is the remote MCP server (`/mcp`, OAuth), which reads and makes the changes the signed-in person could make by hand |
 | Webhooks **out** of Nexora | Only Slack and SMS leave the application |
 | Email notifications | Password reset only |
 | Two-factor authentication | Not implemented |
@@ -148,7 +148,7 @@ each is worth an owner.
 | **Ticket** | A unit of work. Addressed by `PREFIX-NUMBER`, e.g. `NL-42` |
 | **Ticket key** | The human identifier — the board's prefix, a hyphen, the per-board number. What GitHub branches and commits reference |
 | **Ticket prefix** | A board's 2–6 character code, globally unique |
-| **Tool** | A read-only lookup the AI may call. Runs **with the asking person as the viewer**, and is audited whatever the outcome |
+| **Tool** | A read-only lookup the AI may call. Runs **with the asking person as the viewer**, and is audited whatever the outcome. Over MCP an AI app also has **write tools**, which make a change as the person, under their permissions |
 | **Webhook (inbound)** | GitHub telling Nexora about code activity. Authenticated by HMAC-SHA256 over the raw body |
 | **Webhook (outbound)** | A Slack incoming-webhook URL. A bearer credential, so it is encrypted at rest and write-only in the UI |
 | **Workspace** | The whole deployment. **Not an entity** — there is no workspace table. Used in this document to mean "everything in this installation" |
