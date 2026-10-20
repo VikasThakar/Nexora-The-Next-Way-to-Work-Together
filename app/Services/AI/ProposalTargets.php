@@ -95,7 +95,14 @@ class ProposalTargets
             $lowered = mb_strtolower($name);
         }
 
-        $members = $board->members()->get();
+        /*
+         * The people work can actually go to: active staff on this board —
+         * the same list CreateTicket and UpdateTicket accept. Matching against
+         * every member instead would let "assign it to <a customer>" resolve,
+         * only for the action to drop the assignee and the reply to claim it
+         * had been done.
+         */
+        $members = $board->assignableMembers()->get();
 
         $matches = $this->narrow(
             $members,
@@ -106,7 +113,8 @@ class ProposalTargets
         if ($matches->isEmpty()) {
             throw new RuntimeException(
                 'I could not assign that: '.$this->quote($name).' is not a member of '
-                .$board->name.'. Somebody has to be added to the board before work can be assigned to them.'
+                .$board->name.' who work can be assigned to — only active team members of the board can be, '
+                .'not customers. Nothing was changed.'
             );
         }
 

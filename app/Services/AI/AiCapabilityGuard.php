@@ -116,6 +116,45 @@ class AiCapabilityGuard
         }
     }
 
+    /**
+     * May an AI app, acting as this person over the remote MCP server, change
+     * something on this board?
+     *
+     * The same ceiling as a proposal, for the same reason: the mode says what
+     * the workspace lets an AI attempt, and an AI app is an AI. Under Observer
+     * it writes nothing here either, from inside the product or out.
+     *
+     * The difference is the customer rule. In the product a customer is never
+     * offered a write tool, because the assistant's writes are staff work. Over
+     * MCP a customer is acting for themselves, and may do — through their AI
+     * app — exactly the few things the ticket screen already lets them do by
+     * hand: raise a ticket, edit their own, reply on the customer thread. The
+     * caller says whether this is one of those ($customerOperation); anything
+     * else is refused for a customer here, before any policy is asked. The
+     * policies then decide the particular change, as they do on the screens.
+     *
+     * @throws AuthorizationException
+     */
+    public function assertCanWriteExternally(Board $board, User $user, bool $customerOperation): void
+    {
+        if (! $user->isActive()) {
+            throw new AuthorizationException('You are not allowed to make that change.');
+        }
+
+        if (! $this->access->canSeeInternalContent($user) && ! $customerOperation) {
+            throw new AuthorizationException('You are not allowed to make that change.');
+        }
+
+        $mode = $this->mode($board);
+
+        if (! $mode->canProposeWrites()) {
+            throw new AuthorizationException(
+                'The AI is set to '.$mode->label().' on '.$board->name.', so it cannot change anything there. '
+                .'An administrator can raise the mode in the AI settings.'
+            );
+        }
+    }
+
     // -----------------------------------------------------------------
     // Ticket runs
     // -----------------------------------------------------------------

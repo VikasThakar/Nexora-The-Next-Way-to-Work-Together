@@ -21,6 +21,8 @@
                 is_string($entry['assignee'] ?? null) ? 'for '.$entry['assignee'] : null,
                 is_array($entry['labels'] ?? null) && $entry['labels'] !== []
                     ? implode(', ', array_filter($entry['labels'], 'is_string')) : null,
+                is_string($entry['due_date'] ?? null) ? 'due '.$entry['due_date'] : null,
+                is_numeric($entry['estimate'] ?? null) ? 'estimate '.(0 + $entry['estimate']) : null,
                 is_array($entry['attachment_ids'] ?? null) && $entry['attachment_ids'] !== []
                     ? count($entry['attachment_ids']).' '.\Illuminate\Support\Str::plural('file', count($entry['attachment_ids'])) : null,
             ]);

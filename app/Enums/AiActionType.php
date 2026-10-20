@@ -334,6 +334,8 @@ enum AiActionType: string
                         'items' => ['type' => 'string', 'maxLength' => 60],
                         'description' => 'The complete set of labels the ticket should end up with, by name — this REPLACES its current labels rather than adding to them, so include the ones it should keep. Pass an empty array to clear them. Omit to leave them unchanged.',
                     ],
+                    'due_date' => ['type' => 'string', 'maxLength' => 10, 'description' => 'Replacement due date, written YYYY-MM-DD. Pass "none" to clear it. Omit to leave unchanged.'],
+                    'estimate' => ['type' => 'number', 'minimum' => 0, 'maximum' => 9999, 'description' => 'Replacement estimate (points or hours). Omit to leave unchanged.'],
                     'attachment_ids' => [
                         'type' => 'array',
                         'maxItems' => 20,
@@ -437,7 +439,7 @@ enum AiActionType: string
         return [
             'title' => ['type' => 'string', 'description' => 'Short imperative summary, at most 200 characters.'],
             'description_md' => ['type' => 'string', 'description' => 'Markdown body describing the work.'],
-            'priority' => ['type' => 'string', 'enum' => TicketPriority::values(), 'description' => 'Priority. Defaults to normal.'],
+            'priority' => ['type' => 'string', 'enum' => TicketPriority::values(), 'description' => 'Priority. Defaults to medium.'],
             'type' => ['type' => 'string', 'enum' => TicketType::values(), 'description' => 'What kind of work this is. Defaults to task.'],
             'assignee' => ['type' => 'string', 'maxLength' => 120, 'description' => 'Who to assign it to — their name or email, as the person said it (e.g. "Alex Round"). Pass "me" for the person asking. Omit to leave it unassigned. They must already be a member of the board.'],
             'column' => ['type' => 'string', 'maxLength' => 120, 'description' => 'The status column to put it in, by name (e.g. "In Progress", "Bugs"). Omit to use the board\'s first column.'],
@@ -447,6 +449,8 @@ enum AiActionType: string
                 'items' => ['type' => 'string', 'maxLength' => 60],
                 'description' => 'Labels to attach, by name. They must already exist on the board — this cannot create a label.',
             ],
+            'due_date' => ['type' => 'string', 'maxLength' => 10, 'description' => 'The due date, written YYYY-MM-DD (e.g. 2026-10-25). Work out a date the person said in words ("next Friday") from today\'s date. Omit for no due date.'],
+            'estimate' => ['type' => 'number', 'minimum' => 0, 'maximum' => 9999, 'description' => 'The estimate, as the team counts it (points or hours). Omit when nobody gave one.'],
             'attachment_ids' => [
                 'type' => 'array',
                 'maxItems' => 20,

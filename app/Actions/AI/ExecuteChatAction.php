@@ -22,6 +22,7 @@ use App\Enums\TicketPriority;
 use App\Enums\TicketType;
 use App\Models\AiAttachment;
 use App\Models\AiChatMessage;
+use App\Models\AiSession;
 use App\Models\AiRun;
 use App\Models\AiToolInvocation;
 use App\Models\Attachment;
@@ -37,6 +38,7 @@ use App\Services\AI\ProposalTargets;
 use App\Services\AI\WorkspaceChatService;
 use App\Services\AttachmentStorage;
 use App\Services\BoardAccess;
+use App\Services\BoardBroadcaster;
 use App\Services\DocPageFinder;
 use App\Services\Docs\Import\DocumentImporter;
 use App\Services\Docs\Import\DocumentImportException;
@@ -147,6 +149,7 @@ class ExecuteChatAction
         private readonly AttachFilesToTicket $attachFiles,
         private readonly AttachmentStorage $storage,
         private readonly DocumentImporter $importer,
+        private readonly BoardBroadcaster $broadcaster,
     ) {}
 
     /**
@@ -248,17 +251,7 @@ class ExecuteChatAction
         }
 
         try {
-            $result = match ($type) {
-                AiActionType::CreateTicket => $this->doCreateTicket($board, $input, $actor, $message),
-                AiActionType::CreateTickets => $this->doCreateTickets($board, $input, $actor, $message),
-                AiActionType::UpdateTicket => $this->doUpdateTicket($board, $input, $actor, $message),
-                AiActionType::CreateDocPage => $this->doCreatePage($board, $input, $actor, $message),
-                AiActionType::UpdateDocPage => $this->doUpdatePage($board, $input, $actor),
-                AiActionType::ImportDocument => $this->doImportDocument($board, $input, $actor, $message),
-                AiActionType::CodeRun => $this->doCodeRun($board, $input, $actor),
-                AiActionType::CommentTicket => $this->doCommentTicket($board, $input, $actor),
-                AiActionType::DeleteTicket => $this->doDeleteTicket($board, $input, $actor),
-            };
+            $result = $this->perform($type, $board, $input, $actor, $message->session);
         } catch (NotFoundHttpException) {
             // The readers raise 404 when a ticket or page is not visible to this
             // user on this board — the same answer a customer gets for a ticket
@@ -273,6 +266,10 @@ class ExecuteChatAction
                 'error' => $exception->getMessage(),
                 'confirmed_by_id' => $actor->getKey(),
             ]);
+
+            // Audited like any other refusal: a proposal naming something the
+            // person cannot see is exactly the attempt a review looks for.
+            $this->recordAttempt($type, $input, $message, $actor, $board, null, $exception);
 
             throw $exception;
         } catch (AuthorizationException|RuntimeException $exception) {
@@ -296,6 +293,52 @@ class ExecuteChatAction
         $this->recordAttempt($type, $input, $message, $actor, $board, $result, null);
 
         return $result;
+    }
+
+    /**
+     * Make one change, with no proposal behind it.
+     *
+     * The body of every action, shared by the two callers that may make one:
+     * a confirmed (or unattended) proposal, through execute() above, and an AI
+     * app calling one of the remote MCP server's write tools, through
+     * App\Mcp\Tools\Write\WriteTool. Everything that makes a change safe —
+     * resolving the ticket or page through the readers that apply visibility,
+     * the per-field Gate checks against $actor, the ordinary domain actions —
+     * happens in here, so the two paths cannot disagree about what is allowed.
+     *
+     * What it does NOT do is the caller's half: the capability-mode ceiling,
+     * the proposal's state and lock, and the audit row. execute() keeps those
+     * for proposals; the MCP write tool has its own (see
+     * AiCapabilityGuard::assertCanWriteExternally()).
+     *
+     * $session is the conversation whose files `attachment_ids` and
+     * `import_attachment_id` may name. Without one, naming a file is refused.
+     *
+     * @param  array<string, mixed>  $input
+     * @return array{label: string, url: ?string, target?: string, note?: string, items?: list<array{key: string, title: string, url: string}>, page?: array{title: string, url: string}}
+     *
+     * @throws AuthorizationException when $actor may not make this change
+     * @throws RuntimeException when the change cannot be resolved
+     * @throws NotFoundHttpException when the ticket or page is not visible to $actor
+     */
+    public function perform(AiActionType $type, Board $board, array $input, User $actor, ?AiSession $session = null): array
+    {
+        // An archived board is read-only for everybody, whoever is asking.
+        if ($board->isArchived()) {
+            throw new RuntimeException('“'.$board->name.'” is archived, so nothing on it can be changed. Nothing was changed.');
+        }
+
+        return match ($type) {
+            AiActionType::CreateTicket => $this->doCreateTicket($board, $input, $actor, $session),
+            AiActionType::CreateTickets => $this->doCreateTickets($board, $input, $actor, $session),
+            AiActionType::UpdateTicket => $this->doUpdateTicket($board, $input, $actor, $session),
+            AiActionType::CreateDocPage => $this->doCreatePage($board, $input, $actor, $session),
+            AiActionType::UpdateDocPage => $this->doUpdatePage($board, $input, $actor),
+            AiActionType::ImportDocument => $this->doImportDocument($board, $input, $actor, $session),
+            AiActionType::CodeRun => $this->doCodeRun($board, $input, $actor),
+            AiActionType::CommentTicket => $this->doCommentTicket($board, $input, $actor),
+            AiActionType::DeleteTicket => $this->doDeleteTicket($board, $input, $actor),
+        };
     }
 
     /**
@@ -414,13 +457,27 @@ class ExecuteChatAction
             return null;
         }
 
-        /*
-         * Name, slug or ticket prefix, because that is how people refer to a
-         * board out loud and the model is repeating what they said. Matched
-         * exactly rather than by LIKE: a partial match that picked the wrong
-         * board would create somebody's ticket in the wrong project, and being
-         * asked to be precise is a far smaller cost.
-         */
+        return $this->resolveBoard($name, $actor);
+    }
+
+    /**
+     * A board named the way people name one, among the boards this person can
+     * reach and that are not archived; null otherwise.
+     *
+     * Name, slug or ticket prefix, because that is how people refer to a
+     * board out loud and the model is repeating what they said. Matched
+     * exactly rather than by LIKE: a partial match that picked the wrong
+     * board would create somebody's ticket in the wrong project, and being
+     * asked to be precise is a far smaller cost.
+     */
+    public function resolveBoard(string $name, User $actor): ?Board
+    {
+        $name = trim($name);
+
+        if ($name === '') {
+            return null;
+        }
+
         return $this->boards->query($actor)
             ->notArchived()
             ->where(function ($query) use ($name): void {
@@ -564,9 +621,9 @@ class ExecuteChatAction
      * @param  array<string, mixed>  $input
      * @return array{label: string, url: ?string}
      */
-    private function doCreateTicket(Board $board, array $input, User $actor, AiChatMessage $message): array
+    private function doCreateTicket(Board $board, array $input, User $actor, ?AiSession $session): array
     {
-        $ticket = $this->createPrepared($board, $this->prepareTicket($board, $input, $actor, $message), $actor);
+        $ticket = $this->createPrepared($board, $this->prepareTicket($board, $input, $actor, $session), $actor);
 
         $files = $ticket['files'];
         $ticket = $ticket['ticket'];
@@ -600,7 +657,7 @@ class ExecuteChatAction
      * @param  array<string, mixed>  $input
      * @return array{label: string, url: ?string, target: string, items: list<array{key: string, title: string, url: string}>}
      */
-    private function doCreateTickets(Board $board, array $input, User $actor, AiChatMessage $message): array
+    private function doCreateTickets(Board $board, array $input, User $actor, ?AiSession $session): array
     {
         $entries = array_values(array_filter(
             is_array($input['tickets'] ?? null) ? $input['tickets'] : [],
@@ -638,7 +695,7 @@ class ExecuteChatAction
             }
 
             try {
-                $prepared[] = $this->prepareTicket($board, $entry, $actor, $message);
+                $prepared[] = $this->prepareTicket($board, $entry, $actor, $session);
             } catch (AuthorizationException|RuntimeException $exception) {
                 $reason = $exception->getMessage();
                 $which = 'Ticket '.($index + 1).$this->quotedTitle($entry).': '.$reason
@@ -708,7 +765,7 @@ class ExecuteChatAction
      * @param  array<string, mixed>  $input
      * @return array{attributes: array<string, mixed>, files: Collection<int, Attachment>}
      */
-    private function prepareTicket(Board $board, array $input, User $actor, AiChatMessage $message): array
+    private function prepareTicket(Board $board, array $input, User $actor, ?AiSession $session): array
     {
         Gate::forUser($actor)->authorize('create', [Ticket::class, $board]);
 
@@ -717,7 +774,7 @@ class ExecuteChatAction
         // Resolved before the ticket exists, like labels: an id that is not a
         // file on this conversation means no ticket rather than a ticket
         // missing the screenshot it was raised about.
-        $files = $this->attachmentsFrom($message, $input, $actor);
+        $files = $this->attachmentsFrom($session, $input, $actor);
 
         /*
          * Visibility: the board's default, which the proposal may narrow and
@@ -761,7 +818,21 @@ class ExecuteChatAction
         }
 
         if (($column = $this->optionalString($input, 'column')) !== null) {
+            // The same ability a move needs: choosing where a new ticket starts
+            // is choosing its status.
+            Gate::forUser($actor)->authorize('move', $this->prototype($board, $visible));
+
             $attributes['board_column_id'] = $this->targets->column($board, $column)->getKey();
+        }
+
+        [$dueGiven, $due] = $this->dueDate($input);
+
+        if ($dueGiven && $due !== null) {
+            $attributes['due_date'] = $due;
+        }
+
+        if (($estimate = $this->estimate($input)) !== null) {
+            $attributes['estimate'] = $estimate;
         }
 
         $labels = $this->labelNames($input);
@@ -834,13 +905,13 @@ class ExecuteChatAction
      * @param  array<string, mixed>  $input
      * @return array{label: string, url: ?string}
      */
-    private function doUpdateTicket(Board $board, array $input, User $actor, AiChatMessage $message): array
+    private function doUpdateTicket(Board $board, array $input, User $actor, ?AiSession $session): array
     {
         $ticket = $this->ticketFrom($board, $input, $actor, 'The proposal did not say which ticket to change.');
 
         Gate::forUser($actor)->authorize('update', $ticket);
 
-        $files = $this->attachmentsFrom($message, $input, $actor);
+        $files = $this->attachmentsFrom($session, $input, $actor);
 
         if ($files->isNotEmpty()) {
             Gate::forUser($actor)->authorize('manageAttachments', $ticket);
@@ -855,6 +926,18 @@ class ExecuteChatAction
 
         if (isset($attributes['title'])) {
             $attributes['title'] = mb_substr($attributes['title'], 0, 200);
+        }
+
+        // Added after the filter above, because a null due date is a real
+        // change here: "none" clears it.
+        [$dueGiven, $due] = $this->dueDate($input);
+
+        if ($dueGiven) {
+            $attributes['due_date'] = $due;
+        }
+
+        if (($estimate = $this->estimate($input)) !== null) {
+            $attributes['estimate'] = $estimate;
         }
 
         // -------------------------------------------------------------
@@ -913,6 +996,18 @@ class ExecuteChatAction
 
             if (isset($attributes['type'])) {
                 $changes[] = 'set the type to '.($ticket->fresh()?->type->label() ?? $attributes['type']);
+            }
+
+            if (array_key_exists('due_date', $attributes)) {
+                $changes[] = $attributes['due_date'] === null
+                    ? 'cleared the due date'
+                    : 'set the due date to '.$attributes['due_date'];
+            }
+
+            // Read back, because UpdateTicket drops an estimate from anybody
+            // who may not set one, and this line reports what is saved.
+            if (isset($attributes['estimate']) && $ticket->fresh()?->estimate !== null) {
+                $changes[] = 'set the estimate to '.rtrim(rtrim(number_format((float) $attributes['estimate'], 2, '.', ''), '0'), '.');
             }
         }
 
@@ -1044,9 +1139,9 @@ class ExecuteChatAction
      * @param  array<string, mixed>  $input
      * @return array{label: string, url: ?string, target: string}
      */
-    private function doCreatePage(Board $board, array $input, User $actor, AiChatMessage $message): array
+    private function doCreatePage(Board $board, array $input, User $actor, ?AiSession $session): array
     {
-        $prepared = $this->preparePage($board, $input, $actor, $message);
+        $prepared = $this->preparePage($board, $input, $actor, $session);
         $page = $this->createPreparedPage($board, $prepared, $actor);
 
         return [
@@ -1083,7 +1178,7 @@ class ExecuteChatAction
      * @param  array<string, mixed>  $input
      * @return array{label: string, url: ?string, target: string, page: array{title: string, url: string}, items: list<array{key: string, title: string, url: string}>}
      */
-    private function doImportDocument(Board $board, array $input, User $actor, AiChatMessage $message): array
+    private function doImportDocument(Board $board, array $input, User $actor, ?AiSession $session): array
     {
         $pageInput = is_array($input['page'] ?? null) ? $input['page'] : [];
 
@@ -1098,7 +1193,7 @@ class ExecuteChatAction
             throw new RuntimeException('That is more than '.$max.' tickets for one request. Nothing was imported.');
         }
 
-        $page = $this->preparePage($board, $pageInput, $actor, $message);
+        $page = $this->preparePage($board, $pageInput, $actor, $session);
 
         $tickets = [];
 
@@ -1107,7 +1202,7 @@ class ExecuteChatAction
             $entry['customer_visible'] = ($entry['customer_visible'] ?? false) === true;
 
             try {
-                $tickets[] = $this->prepareTicket($board, $entry, $actor, $message);
+                $tickets[] = $this->prepareTicket($board, $entry, $actor, $session);
             } catch (AuthorizationException|RuntimeException $exception) {
                 $reason = $exception->getMessage();
                 $which = 'Ticket '.($index + 1).$this->quotedTitle($entry).': '.$reason
@@ -1186,7 +1281,7 @@ class ExecuteChatAction
      * @param  array<string, mixed>  $input
      * @return array{attributes: array{title: string, body_md: ?string, parent_id: ?int}, files: Collection<int, Attachment>, source: ?string, truncated: bool}
      */
-    private function preparePage(Board $board, array $input, User $actor, AiChatMessage $message): array
+    private function preparePage(Board $board, array $input, User $actor, ?AiSession $session): array
     {
         Gate::forUser($actor)->authorize('create', [DocPage::class, $board]);
 
@@ -1203,14 +1298,14 @@ class ExecuteChatAction
         }
 
         $body = $this->optionalString($input, 'body_md');
-        $files = $this->attachmentsFrom($message, $input, $actor);
+        $files = $this->attachmentsFrom($session, $input, $actor);
         $source = null;
         $truncated = false;
 
         $importId = $input['import_attachment_id'] ?? null;
 
         if (is_int($importId) || (is_string($importId) && ctype_digit($importId))) {
-            [$markdown, $record, $truncated] = $this->importedBody($message, (int) $importId, $actor);
+            [$markdown, $record, $truncated] = $this->importedBody($session, (int) $importId, $actor);
 
             $body = trim(($body !== null ? $body."\n\n---\n\n" : '').$markdown);
             $source = $record->filename();
@@ -1247,10 +1342,8 @@ class ExecuteChatAction
      *
      * @return array{0: string, 1: AiAttachment, 2: bool}
      */
-    private function importedBody(AiChatMessage $message, int $id, User $actor): array
+    private function importedBody(?AiSession $session, int $id, User $actor): array
     {
-        $session = $message->session;
-
         $record = $session === null ? null : AiAttachment::query()
             ->visibleTo($actor)
             ->forSession($session)
@@ -1302,6 +1395,11 @@ class ExecuteChatAction
             $this->storage->copy($file, $page, $board, $actor);
         }
 
+        // CreatePage leaves telling other screens to its caller; the docs
+        // sidebar does it, so the assistant does too. A new page is internal,
+        // so no customer's screen needs to hear about it.
+        $this->broadcaster->documentationChanged((int) $board->getKey(), false);
+
         return $page;
     }
 
@@ -1352,11 +1450,34 @@ class ExecuteChatAction
             $attributes['title'] = mb_substr($attributes['title'], 0, 200);
         }
 
+        /*
+         * Somebody else's unsaved work is not overwritten.
+         *
+         * UpdatePage discards the page's draft — right for its author saving,
+         * wrong for anybody else: a colleague's half-written edit would vanish
+         * without them ever being told. So the change is refused and the
+         * person is told who to ask. The author's own draft is theirs to
+         * replace.
+         */
+        if ($page->hasDraft() && (int) $page->draft_by_id !== (int) $actor->getKey()) {
+            $page->loadMissing('draftBy');
+
+            throw new RuntimeException(
+                ($page->draftBy?->name ?? 'Somebody').' has unsaved edits on “'.$page->title.'”. '
+                .'Nothing was changed — ask them to save or discard their draft first.'
+            );
+        }
+
         $this->updatePage->handle($page, $attributes, $actor);
+
+        // As the docs page does after a save: open sidebars and readers
+        // refresh, and a published page's customers see the change.
+        $this->broadcaster->documentationChanged((int) $board->getKey(), (bool) $page->customer_visible);
 
         return [
             'label' => 'Updated page “'.$page->title.'”',
             'url' => route('docs.show', ['board' => $board, 'slug' => $page->slug]),
+            'target' => mb_substr((string) $page->slug, 0, 190),
         ];
     }
 
@@ -1428,7 +1549,7 @@ class ExecuteChatAction
      * @param  array<string, mixed>  $input
      * @return Collection<int, Attachment>
      */
-    private function attachmentsFrom(AiChatMessage $message, array $input, User $actor): Collection
+    private function attachmentsFrom(?AiSession $session, array $input, User $actor): Collection
     {
         $ids = collect((array) ($input['attachment_ids'] ?? []))
             ->filter(static fn ($id): bool => is_int($id) || (is_string($id) && ctype_digit($id)))
@@ -1441,10 +1562,12 @@ class ExecuteChatAction
             return new Collection;
         }
 
-        $session = $message->session;
-
+        // No conversation: the conversation is gone, or the change came from an
+        // AI app over MCP, which has no files to name.
         if ($session === null) {
-            throw new RuntimeException('That proposal names files, but the conversation they were attached to is gone.');
+            throw new RuntimeException(
+                'That names files from a conversation, and there is no conversation here to take them from. Nothing was changed.'
+            );
         }
 
         $records = AiAttachment::query()
@@ -1568,6 +1691,10 @@ class ExecuteChatAction
             $parts[] = 'labelled '.implode(', ', $ticket->labels->pluck('name')->all());
         }
 
+        if ($ticket->due_date !== null) {
+            $parts[] = 'due '.$ticket->due_date->toDateString();
+        }
+
         // Said every time, because it is the one fact about a new ticket that
         // decides who outside the team can read it.
         $parts[] = $ticket->customer_visible ? 'visible to customers' : 'internal';
@@ -1615,5 +1742,60 @@ class ExecuteChatAction
         return is_string($value)
             ? (TicketPriority::tryFrom($value) ?? TicketPriority::default())
             : TicketPriority::default();
+    }
+
+    /**
+     * The due date a change asked for: whether it said anything about one,
+     * and the date — null meaning "clear it", which people say as "none".
+     *
+     * A date that is not a real calendar date is refused rather than guessed
+     * at: "2026-02-30" landing on the 2nd of March would be a deadline nobody
+     * set.
+     *
+     * @param  array<string, mixed>  $input
+     * @return array{0: bool, 1: ?string}
+     */
+    private function dueDate(array $input): array
+    {
+        $value = $this->optionalString($input, 'due_date');
+
+        if ($value === null) {
+            return [false, null];
+        }
+
+        if (in_array(mb_strtolower($value), ['none', 'clear', 'no date', 'null'], true)) {
+            return [true, null];
+        }
+
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+
+        if ($date === false || $date->format('Y-m-d') !== $value) {
+            throw new RuntimeException(
+                'The due date has to be a date written like 2026-10-25, or "none" to clear it. Nothing was changed.'
+            );
+        }
+
+        return [true, $value];
+    }
+
+    /**
+     * The estimate a change asked for, or null when it did not ask.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    private function estimate(array $input): ?float
+    {
+        $value = $input['estimate'] ?? null;
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        // The column is decimal(6,2).
+        if (! is_numeric($value) || (float) $value < 0 || (float) $value > 9999) {
+            throw new RuntimeException('The estimate has to be a number from 0 to 9999. Nothing was changed.');
+        }
+
+        return round((float) $value, 2);
     }
 }
