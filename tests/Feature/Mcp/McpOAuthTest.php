@@ -150,7 +150,8 @@ class McpOAuthTest extends TestCase
         $consent = $this->actingAs($user)->get($authorizeUrl);
 
         $consent->assertOk()
-            ->assertSee('Allow Claude to read')
+            ->assertSee('Allow Claude to use')
+            ->assertSee('Reads and changes.')
             ->assertSee('claude.ai')
             ->assertSee('Ada Lovelace')
             ->assertDontSee('window.close', false);
@@ -306,7 +307,10 @@ class McpOAuthTest extends TestCase
             ->get('/oauth/authorize?'.http_build_query($query))
             ->assertOk()
             ->assertSee('chatgpt.com')
-            ->assertSee('only the tickets and pages that have been shared with you');
+            ->assertSee('only the tickets and pages that have been shared with you')
+            // A customer is told what they can change, and nothing staff can.
+            ->assertSee('Reads and replies.')
+            ->assertDontSee('Deleting a ticket');
     }
 
     // -----------------------------------------------------------------

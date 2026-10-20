@@ -655,7 +655,7 @@ class AppServiceProvider extends ServiceProvider
         Passport::refreshTokensExpireIn(CarbonInterval::days(max(1, (int) config('mcp.server.refresh_token_days', 30))));
 
         Passport::tokensCan([
-            Registrar::OAUTH_SCOPE => 'Read the boards, tickets, documentation and statistics you can see in Nexora',
+            Registrar::OAUTH_SCOPE => 'Read and change the boards, tickets and documentation you can access in Nexora',
         ]);
         Passport::defaultScopes([Registrar::OAUTH_SCOPE]);
 

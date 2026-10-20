@@ -25,9 +25,9 @@
 @component('layouts.guest', ['title' => 'Connect '.$client->name])
     <div>
         <div class="mb-6">
-            <h1 class="text-lg font-semibold text-slate-900">Allow {{ $client->name }} to read {{ $product }}?</h1>
+            <h1 class="text-lg font-semibold text-slate-900">Allow {{ $client->name }} to use {{ $product }} as you?</h1>
             <p class="mt-1 text-sm text-slate-500">
-                An AI app is asking to answer questions using your {{ $product }} data.
+                An AI app is asking to answer questions from your {{ $product }} data and to make changes for you.
             </p>
         </div>
 
@@ -44,21 +44,33 @@
         </dl>
 
         <ul class="mb-6 space-y-2 text-sm text-slate-600">
+            {{--
+                What the app will be able to do, said plainly — this is the
+                consent the write tools rest on. Staff and customers get
+                different tools (App\Mcp\Servers\NexoraServer), so they are
+                told different things.
+            --}}
             <li>
-                <span class="font-medium text-slate-900">Read-only.</span>
-                It can look up boards, tickets, documentation and statistics. It cannot create, change or delete anything.
+                @if ($user->canSeeInternalContent())
+                    <span class="font-medium text-slate-900">Reads and changes.</span>
+                    It can look up boards, tickets, documentation and statistics, and create and update tickets, comment, tick off checklists and edit documentation.
+                    Deleting a ticket, writing to a customer and changing a published page wait for you to confirm.
+                @else
+                    <span class="font-medium text-slate-900">Reads and replies.</span>
+                    It can look up the tickets and pages shared with you, raise tickets, edit the ones you raised and reply to the team.
+                @endif
             </li>
             <li>
                 <span class="font-medium text-slate-900">Your access, nothing more.</span>
                 @if ($user->canSeeInternalContent())
-                    It sees exactly what you can see on your boards.
+                    It sees and changes exactly what you can on your boards. Every change is recorded as yours, marked “via {{ $client->name }}”.
                 @else
-                    It sees only the tickets and pages that have been shared with you.
+                    It sees only the tickets and pages that have been shared with you. Every change is recorded as yours.
                 @endif
             </li>
             <li>
                 <span class="font-medium text-slate-900">You stay in control.</span>
-                Disconnect it at any time in the AI app's settings. Changing your password disconnects every AI app.
+                Your AI app normally asks you before each change. Disconnect it at any time in the AI app's settings. Changing your password disconnects every AI app.
             </li>
         </ul>
 
