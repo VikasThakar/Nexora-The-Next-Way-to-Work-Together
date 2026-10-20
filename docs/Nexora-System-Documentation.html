@@ -879,6 +879,26 @@ html { scroll-behavior: smooth; }
         </table>
       </div>
 
+      <h3>Importing files as pages</h3>
+      <div class="prose tight">
+        <p>
+          <strong>Import file</strong> beside <em>+ New page</em>, <strong>Import a file</strong> in an
+          empty documentation section, and <em>Import a file inside this one</em> on any page &mdash;
+          and the sidebar and the empty state take dropped files. PDF, Word, text, Markdown, CSV, Excel
+          and PowerPoint files each become an <strong>internal page with the original attached</strong>,
+          keeping the structure a to-do or bug list is made of: headings, nested lists, checkboxes as
+          to-dos, tables, links. A scanned PDF or a legacy <code>.doc</code> is refused with what to do;
+          one bad file never stops the rest. Office XML is read with a streaming reader that refuses any
+          document type declaration, inside the existing zip-bomb limits, and large files are converted
+          on the queue.
+        </p>
+        <p>
+          A page with open to-dos shows <strong>Create tickets with AI</strong>: the assistant opens on
+          that page&rsquo;s board, in Writing, with the request written &mdash; nothing is created until
+          it is confirmed.
+        </p>
+      </div>
+
       <h3>The ancestor visibility rule</h3>
       <div class="note key">
         <span class="lbl">A tree needs one rule a flat table does not</span>
@@ -1157,9 +1177,10 @@ html { scroll-behavior: smooth; }
         <table>
           <thead><tr><th>Limit</th><th>Default</th><th>Variable</th></tr></thead>
           <tbody>
-            <tr><td>Tokens per session</td><td class="mono">400,000</td><td class="mono">AI_SESSION_TOKEN_LIMIT</td></tr>
-            <tr><td>Tokens per user per day</td><td class="mono">2,000,000</td><td class="mono">AI_DAILY_USER_TOKEN_LIMIT</td></tr>
-            <tr><td>Turns replayed as history</td><td class="mono">20</td><td class="mono">AI_CHAT_HISTORY</td></tr>
+            <tr><td>Tokens per session (a spending cap)</td><td class="mono">off</td><td class="mono">AI_SESSION_TOKEN_LIMIT</td></tr>
+            <tr><td>Tokens per user per day (cached reads count a tenth)</td><td class="mono">2,000,000</td><td class="mono">AI_DAILY_USER_TOKEN_LIMIT</td></tr>
+            <tr><td>History replayed</td><td class="mono">the whole conversation, up to the model&rsquo;s window</td><td class="mono">AI_CHAT_CONTEXT_BUDGET</td></tr>
+            <tr><td>Prompt caching</td><td class="mono">on, 5 minutes</td><td class="mono">AI_CHAT_CACHE</td></tr>
             <tr><td>Output tokens per answer</td><td class="mono">4,000</td><td class="mono">AI_CHAT_MAX_OUTPUT_TOKENS</td></tr>
             <tr><td>Context: one board</td><td class="mono">60 tickets, 40 pages, 40 events</td><td>&mdash;</td></tr>
             <tr><td>Context: whole workspace</td><td class="mono">12 boards, 6 tickets each, titles only</td><td>&mdash;</td></tr>
@@ -1173,6 +1194,18 @@ html { scroll-behavior: smooth; }
         not</strong> &mdash; the system prompt and the context are rebuilt on every request, so
         editing a board&rsquo;s project context changes the next answer instead of being frozen
         into an old row.
+      </div>
+      <div class="prose tight">
+        <p>
+          <strong>The whole conversation, cached.</strong> Each question replays the conversation in
+          full, up to the model&rsquo;s real context window &mdash; a million tokens for Opus 5 and
+          Sonnet 5 &mdash; and asks the provider to cache it, so the repeat costs a tenth of a fresh
+          send. A conversation that outgrows the window loses its oldest part in one jump, from a
+          question, and the beginning then stays the same so the cache keeps working. Files stay with
+          the question they came in on. The note above the composer now says when the conversation
+          nearly fills what the model can read at once; the per-conversation spending cap is off by
+          default.
+        </p>
       </div>
       <p class="cap">
         Usage is recorded per exchange with a <code>usage_reported</code> flag: a run whose token
@@ -1210,11 +1243,21 @@ html { scroll-behavior: smooth; }
         </div>
         <div class="card">
           <span class="tag">Attachments</span>
-          <h5>Seven kinds, full text once then a digest</h5>
-          <p>Text, Markdown, CSV, PDF, image, audio and Office documents. A forty-page specification is
-          sent in full on the first turn that uses it and as a digest thereafter, unless the question
-          names the filename. <strong>Every truncation is stated in the prompt</strong>, because a
+          <h5>Seven kinds, kept with their message</h5>
+          <p>Text, Markdown, CSV, PDF, image, audio and Office documents. A file goes in whole with the
+          question it came in on and is replayed with it on every later turn, from the cache, so a long
+          to-do list can be finished with &ldquo;continue&rdquo;. Word files arrive with their headings,
+          lists and checkboxes. <strong>Every truncation is stated in the prompt</strong>, because a
           model handed half a contract and not told will summarise it as though it read the end.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Import</span>
+          <h5>A file into the docs, and its tickets</h5>
+          <p>&ldquo;Import this into the docs and make the tickets&rdquo; is one proposal:
+          <code>propose_import_document</code> makes an internal page whose body is the whole file,
+          converted on the server &mdash; never retyped by the model &mdash; and a ticket for each open
+          to-do and bug, internal unless asked otherwise, all or nothing. A page with open to-dos offers
+          <em>Create tickets with AI</em>, which opens the assistant on that page.</p>
         </div>
       </div>
       <p class="cap">

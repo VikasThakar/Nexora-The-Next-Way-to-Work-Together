@@ -16,7 +16,7 @@
 |---|---|---|---|
 | `ai` | `ExecuteAiRunJob` | The **worker** service | An AI run takes minutes. A worker chewing through a repository clone must never delay a broadcast or a notification |
 | `default` | Broadcasts, in-app notifications, GitHub webhook processing, Slack messages, SMS | The **worker** service | Millisecond work |
-| `attachments` | `ProcessAiAttachment` | **Inside the web container** | See below |
+| `attachments` | `ProcessAiAttachment`, `ImportDocumentFile` | **Inside the web container** | See below |
 
 ```diagram
    RAILWAY SERVICES
@@ -64,7 +64,8 @@ The `ai` queue must be **named explicitly and is listed first**. A worker starte
 | Job | Queue | Tries | Timeout | Notes |
 |---|---|---|---|---|
 | `ExecuteAiRunJob` | `ai` | 3 | 900s | `WithoutOverlapping` lock plus an authoritative status claim; backoff 30s, 120s |
-| `ProcessAiAttachment` | `attachments` | 2 | 600s | Reads, extracts, transcribes or re-encodes an upload |
+| `ProcessAiAttachment` | `attachments` | 2 | 600s | Reads, extracts, transcribes or re-encodes an upload; also keeps a document as page Markdown for the assistant's docs import |
+| `ImportDocumentFile` | `attachments` | 1 | 600s | Imports a documentation file over 8 MB as a page off the web request; reports to the screen through the cache (`doc-import:{id}`) and removes the stored file if it cannot be read |
 | `ProcessGitHubWebhookJob` | `default` | 3 | 60s | Parses a verified delivery into links |
 | `SendSmsJob` | `default` | 3 | — | Backoff 15s, 60s, 180s |
 

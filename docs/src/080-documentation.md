@@ -174,15 +174,72 @@ persisted or sent anywhere.
 | Delete a page | Yes | Member only | **No** |
 | Publish or retract a page | Yes | Member only | **No** |
 | Attach a file | Yes | Member only | **No** |
+| Import a file as a page | Yes | Member only | **No** |
 
 Documentation is the delivery team's material, which they publish to customers a page at a
 time. **A customer never authors it.**
+
+## Importing files as pages
+
+A file somebody already has — a to-do list, a bug list, meeting notes, a spec — becomes a page
+without retyping it.
+
+| Where | How |
+|---|---|
+| Sidebar | **Import file** beside **+ New page**, and the whole sidebar takes a dropped file |
+| Empty documentation | **Import a file** beside **Create your first page**, and the card takes a dropped file |
+| A page's **More** menu | **Import a file inside this one** files the new page under it |
+| The assistant | "Import this into the docs and make the tickets" — section 9 |
+
+Each file becomes an **internal page** (`App\Actions\Docs\ImportDocument`), its title the
+document's own (a leading heading, Word's Title, YAML front matter, a text file's opening line)
+or else the file name, and **the original is attached to the page** — so anything a conversion
+could not keep is one click away. One file that cannot be read is named in the sidebar, and the
+rest still import.
+
+`App\Services\Docs\Import\DocumentImporter` turns each format into the Markdown a page stores,
+keeping the structure a to-do or bug list is made of:
+
+| Format | What is kept |
+|---|---|
+| Word `.docx` | Headings (from the styles, found by name or outline level), bullet and numbered lists with nesting, checkbox controls and box bullets as to-dos, bold/italic/strike, web links, tables, footnotes. Pictures are counted and left in the original |
+| PDF | The text, with running headers, footers and page numbers removed and wrapped lines joined into paragraphs; bullets and `[ ]` / `☐` as lists and to-dos. A scan (no text layer) is refused with a reason |
+| Text `.txt` | Bullets, numbering, checkboxes, `Bugs:`-style and capitalised headings, the author's line breaks |
+| Markdown | As written, less YAML front matter |
+| CSV / TSV | A table (delimiter detected), first 500 rows |
+| Excel `.xlsx` | A heading and a table per sheet, first 500 rows × 30 columns |
+| PowerPoint `.pptx` | A heading per slide, its points nested by level, speaker notes as a quote |
+
+The legacy `.doc`, `.xls` and `.ppt` are refused with "save it as .docx" — they are binary
+formats and reading them would mean a new parser for untrusted input.
+
+> [!IMPORTANT]
+> **Safety.** Office files are ZIPs of XML: they are read inside the existing zip-bomb limits
+> (`App\Support\Ooxml\OoxmlPackage`) with a streaming reader that refuses any part declaring a
+> document type and loads no DTD or entity (`App\Support\Xml\SafeXml`), so the XXE class of attack
+> does not arise. The type is decided by the extension **and** checked against the bytes. Output is
+> escaped for the renderer — `<` and `++` would otherwise vanish or turn into underline — and written
+> in the editor's own Markdown forms, so opening an imported page in the editor rewrites nothing.
+
+**Limits** (`config/attachments.php`, `imports`): 10 files per drop, 20 MB each; a body holds
+200,000 characters — past that it is cut at a paragraph and says the rest is in the original. A
+file over 8 MB is converted on the attachments queue (`ImportDocumentFile`) while the sidebar
+shows *Importing…*; a drop larger than the server's request limit goes up in batches.
+
+### Create tickets with AI
+
+A page with open to-dos shows **Create tickets with AI · N to-dos** in its header (and the item is
+in the **More** menu on every page). It opens the assistant on the page's board, in Writing, with
+"Create tickets for the to-dos and bugs on the page …" written in the composer — nothing is sent
+until the person presses Send. The page's text reaches the model as *THE PAGE ON SCREEN*; tickets
+from an internal page start internal and link back to it. Offered only to somebody the assistant
+would let propose changes there.
 
 ## Attachments
 
 Pages carry polymorphic attachments through the same pipeline as tickets and comments, with
 the same limits and the same authorization — a file on an unpublished page is internal
-because the page is.
+because the page is. An imported page's original file is one of them.
 
 ## Search
 

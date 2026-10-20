@@ -28,16 +28,18 @@ php artisan test --filter=test_a_customer_cannot_see_internal_tickets
 
 ## Current status
 
-Measured at commit `30bfc83` on 17 September 2026:
+Measured at commit `395baf7` on 20 October 2026:
 
 | Result | Count |
 |---|---|
-| **Passed** | **1,718** |
-| Failed | 3 |
-| Assertions | 6,436 |
-| Duration | 311 s |
+| **Passed** | **1,995** |
+| Failed | 2 |
+| Assertions | 7,610 |
 
-### The three failures
+The two failures are the `ThemePreferenceTest` pair below. The third test in the table is
+date-sensitive: it passes on days whose report period contains no `7`, as it did on this run.
+
+### The known failures
 
 > [!IMPORTANT]
 > All three are **test defects, not application defects.** None indicates a security or
@@ -111,9 +113,9 @@ asserting the absence of `(total 7)` — rather than to change any application b
 
 | Area | Files |
 |---|---|
-| AI | 31 files — capability modes, chat modes, knowledge scope, sessions, tools, attachments, voice, rich responses, apply mode, run caps, inheritance, OpenAI provider, token usage, audit log |
+| AI | 38 files — capability modes, chat modes, knowledge scope, sessions, context window and prompt caching, tools, attachments, voice, rich responses, apply mode, run caps, inheritance, Anthropic and OpenAI providers, token usage, audit log, batch tickets, importing a file into the docs, tickets from the page on screen |
 | Tickets | 13 files — creation, editing, movement, filtering, links, subtasks, attachments, events, rich text, checklist conversion, quick add, live conversation |
-| Documentation | 6 files — editor, save state, drag and drop, tree, workspace, visibility |
+| Documentation | 8 files — editor, save state, drag and drop, tree, workspace, visibility, importing files as pages, the file-to-Markdown converters |
 | Boards | 6 files — management, deletion, columns, labels, integrations, drag and drop |
 | Statistics | 6 files — team, customer, flow metrics, exports, chart export markup |
 | Notifications | 4 files — bell, ticket notifications, Slack, critical-ticket SMS |

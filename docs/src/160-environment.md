@@ -49,6 +49,10 @@ has to decide about, grouped by concern.
 | `ATTACHMENT_MAX_SIZE_KB` | `10240` | 10 MB per record attachment |
 | `ATTACHMENT_MAX_PER_OWNER` | `20` | |
 | `ATTACHMENT_URL_TTL_MINUTES` | `5` | Signed-URL lifetime |
+| `DOC_IMPORT_MAX_FILES` / `DOC_IMPORT_MAX_SIZE_KB` | `10` / `20480` | Importing files as documentation pages: files per drop, size of one |
+| `DOC_IMPORT_SYNC_MAX_KB` | `8192` | Larger imports are converted on the attachments queue |
+| `DOC_IMPORT_BODY_MAX_CHARACTERS` | `200000` | What one imported page holds; the rest stays in the attached original |
+| `DOC_IMPORT_MAX_TABLE_ROWS` / `DOC_IMPORT_PDF_MAX_PAGES` | `500` / `300` | Rows of a CSV or worksheet, pages of a PDF |
 | `AWS_ACCESS_KEY_ID` | — | `<AWS_ACCESS_KEY_ID>` |
 | `AWS_SECRET_ACCESS_KEY` | — | `<AWS_SECRET_ACCESS_KEY>` |
 | `AWS_BUCKET`, `AWS_DEFAULT_REGION` | — | |
@@ -90,8 +94,9 @@ has to decide about, grouped by concern.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `AI_SESSION_TOKEN_LIMIT` | `400000` | Per conversation. 0 = unlimited |
+| `AI_SESSION_TOKEN_LIMIT` | `0` | A spending cap per conversation, **off by default**. Not the context window — see section 9 |
 | `AI_DAILY_USER_TOKEN_LIMIT` | `2000000` | Per person per day |
+| `AI_CACHE_READ_WEIGHT` | `0.1` | What a token read from the provider's cache counts for, against both limits |
 | `AI_SESSION_HISTORY` | `25` | Sessions returned by `AiSessionManager::history()`; not currently listed in the interface |
 | `AI_DAILY_AUTO_RUN_CAP` | `20` | Per board. **No bypass exists** |
 | `AI_MAX_DAILY_AUTO_RUN_CAP` | `500` | Ceiling a board may configure |
@@ -106,7 +111,12 @@ has to decide about, grouped by concern.
 | `AI_CHAT_READING_MODEL` | `claude-sonnet-5` | |
 | `AI_CHAT_WRITING_MODEL` | `claude-opus-5` | |
 | `AI_CHAT_EVERYTHING_MODEL` | `claude-opus-5` | |
-| `AI_CHAT_HISTORY` | `20` | Turns replayed |
+| `AI_CHAT_HISTORY_MAX_MESSAGES` | `500` | Stored turns replayed, at most. The whole conversation is replayed up to the model's window. **Replaces `AI_CHAT_HISTORY`**, which is no longer read |
+| `AI_CHAT_CONTEXT_BUDGET` | `0.8` | Share of the model's context window one request may use |
+| `AI_CHAT_DEFAULT_CONTEXT_WINDOW` | `128000` | For a model the catalogue gives no window for (the OpenAI ids) |
+| `AI_CHAT_CONTEXT_MAX_TOKENS` | `0` | Hold every conversation below the model's window, to bound one question's cost. 0 = the model's own |
+| `AI_CHAT_CACHE` / `AI_CHAT_CACHE_TTL` | `true` / `5m` | Prompt caching (Anthropic); `1h` for conversations with long pauses |
+| `AI_CHAT_CONTEXT_PAGE_CHARS` | `40000` | The documentation page on screen, sent with the question |
 | `AI_CHAT_MAX_OUTPUT_TOKENS` | `4000` | |
 | `AI_CHAT_MAX_OUTPUT_TOKENS_OUTSIDE` | `8000` | Outside Project scope |
 | `AI_CHAT_MAX_OUTPUT_TOKENS_WRITING` | `16000` | A turn that may propose changes, so a batch of tickets is not cut off |
@@ -148,7 +158,7 @@ has to decide about, grouped by concern.
 | `AI_ATTACHMENTS_QUEUE` | `attachments` | **Must be served by a worker that can read the file** |
 | `AI_ATTACHMENT_MAX_SIZE_KB` | `20480` | 20 MB |
 | `AI_ATTACHMENT_MAX_PER_SESSION` | `10` | |
-| `AI_ATTACHMENT_FILE_CHARS` / `_TOTAL_CHARS` / `_DIGEST_CHARS` | `40000` / `120000` / `1200` | |
+| `AI_ATTACHMENT_FILE_CHARS` / `_TOTAL_CHARS` / `_DIGEST_CHARS` | `200000` / `400000` / `1200` | A file per request, all files per request, a summary when there is no room |
 | `AI_ATTACHMENT_CSV_ROWS` / `_COLUMNS` / `_SAMPLES` | `300` / `40` / `5` | |
 | `AI_ATTACHMENT_IMAGE_MAX_DIMENSION` / `_QUALITY` | `1568` / `82` | |
 | `AI_ATTACHMENT_AUDIO_ENABLED` | `true` | Needs an OpenAI key |

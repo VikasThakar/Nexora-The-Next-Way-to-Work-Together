@@ -1674,15 +1674,72 @@ persisted or sent anywhere.
 | Delete a page | Yes | Member only | **No** |
 | Publish or retract a page | Yes | Member only | **No** |
 | Attach a file | Yes | Member only | **No** |
+| Import a file as a page | Yes | Member only | **No** |
 
 Documentation is the delivery team's material, which they publish to customers a page at a
 time. **A customer never authors it.**
+
+## Importing files as pages
+
+A file somebody already has — a to-do list, a bug list, meeting notes, a spec — becomes a page
+without retyping it.
+
+| Where | How |
+|---|---|
+| Sidebar | **Import file** beside **+ New page**, and the whole sidebar takes a dropped file |
+| Empty documentation | **Import a file** beside **Create your first page**, and the card takes a dropped file |
+| A page's **More** menu | **Import a file inside this one** files the new page under it |
+| The assistant | "Import this into the docs and make the tickets" — section 9 |
+
+Each file becomes an **internal page** (`App\Actions\Docs\ImportDocument`), its title the
+document's own (a leading heading, Word's Title, YAML front matter, a text file's opening line)
+or else the file name, and **the original is attached to the page** — so anything a conversion
+could not keep is one click away. One file that cannot be read is named in the sidebar, and the
+rest still import.
+
+`App\Services\Docs\Import\DocumentImporter` turns each format into the Markdown a page stores,
+keeping the structure a to-do or bug list is made of:
+
+| Format | What is kept |
+|---|---|
+| Word `.docx` | Headings (from the styles, found by name or outline level), bullet and numbered lists with nesting, checkbox controls and box bullets as to-dos, bold/italic/strike, web links, tables, footnotes. Pictures are counted and left in the original |
+| PDF | The text, with running headers, footers and page numbers removed and wrapped lines joined into paragraphs; bullets and `[ ]` / `☐` as lists and to-dos. A scan (no text layer) is refused with a reason |
+| Text `.txt` | Bullets, numbering, checkboxes, `Bugs:`-style and capitalised headings, the author's line breaks |
+| Markdown | As written, less YAML front matter |
+| CSV / TSV | A table (delimiter detected), first 500 rows |
+| Excel `.xlsx` | A heading and a table per sheet, first 500 rows × 30 columns |
+| PowerPoint `.pptx` | A heading per slide, its points nested by level, speaker notes as a quote |
+
+The legacy `.doc`, `.xls` and `.ppt` are refused with "save it as .docx" — they are binary
+formats and reading them would mean a new parser for untrusted input.
+
+> [!IMPORTANT]
+> **Safety.** Office files are ZIPs of XML: they are read inside the existing zip-bomb limits
+> (`App\Support\Ooxml\OoxmlPackage`) with a streaming reader that refuses any part declaring a
+> document type and loads no DTD or entity (`App\Support\Xml\SafeXml`), so the XXE class of attack
+> does not arise. The type is decided by the extension **and** checked against the bytes. Output is
+> escaped for the renderer — `<` and `++` would otherwise vanish or turn into underline — and written
+> in the editor's own Markdown forms, so opening an imported page in the editor rewrites nothing.
+
+**Limits** (`config/attachments.php`, `imports`): 10 files per drop, 20 MB each; a body holds
+200,000 characters — past that it is cut at a paragraph and says the rest is in the original. A
+file over 8 MB is converted on the attachments queue (`ImportDocumentFile`) while the sidebar
+shows *Importing…*; a drop larger than the server's request limit goes up in batches.
+
+### Create tickets with AI
+
+A page with open to-dos shows **Create tickets with AI · N to-dos** in its header (and the item is
+in the **More** menu on every page). It opens the assistant on the page's board, in Writing, with
+"Create tickets for the to-dos and bugs on the page …" written in the composer — nothing is sent
+until the person presses Send. The page's text reaches the model as *THE PAGE ON SCREEN*; tickets
+from an internal page start internal and link back to it. Offered only to somebody the assistant
+would let propose changes there.
 
 ## Attachments
 
 Pages carry polymorphic attachments through the same pipeline as tickets and comments, with
 the same limits and the same authorization — a file on an unpublished page is internal
-because the page is.
+because the page is. An imported page's original file is one of them.
 
 ## Search
 
@@ -1823,7 +1880,7 @@ of their project, with no signal that it happened.
   |   BoardAccess           may this person see this board?         |
   |   AssistantContextBuilder / BoardContextBuilder /               |
   |   WorkspaceContextBuilder   context built AS THE ASKER          |
-  |   AiAttachmentContext   uploaded files, full once then digest   |
+  |   AiAttachmentContext   uploaded files, kept with their message |
   +----------------------------------------------------------------+
      |
      v
@@ -1859,7 +1916,8 @@ of their project, with no signal that it happened.
   +----------------------------------------------------------------+
   |  ANSWER          RichResponseParser -> prose / table / chart /  |
   |                  KPI blocks, plus AT MOST ONE proposal (a batch |
-  |                  of new tickets counts as one)                  |
+  |                  of tickets, or a file imported with its        |
+  |                  tickets, counts as one)                        |
   |                                                                  |
   |  A proposal is a PREVIEW. It becomes a change only when         |
   |  ExecuteChatAction re-resolves it, authorizes it against the    |
@@ -1899,6 +1957,13 @@ The workspace scope is much thinner per board on purpose: breadth multiplied by 
 a single-board context would spend the whole window on material the question probably does
 not need.
 
+**The page on screen.** When the person has a documentation page of the conversation's board
+open, its full text (up to 40,000 characters, `AI_CHAT_CONTEXT_PAGE_CHARS`) goes with the
+question as *THE PAGE ON SCREEN* — the draft for somebody who may edit the page, the saved
+body otherwise — read through `DocPageFinder` with the asker as the viewer
+(`PageContextResolver::pageOnScreen()`). That is what makes "create tickets from this page" work
+in Writing mode, which has no read tools to fetch the page with.
+
 The scope is held in the session as a **slug**, never a primary key, and is re-resolved
 through `BoardAccess` on every render. An unauthorized slug produces the same panel as no
 selection — never another board's conversation, and never an error that confirms the board
@@ -1918,7 +1983,10 @@ which does not change because they changed the subject.
 | `user_id`, `board_id` | Owner and scope. A null `board_id` is a workspace conversation |
 | `provider`, `model` | What this conversation is actually running on |
 | `capability_mode`, `chat_mode`, `knowledge_scope` | The three settings, as they stood |
-| `tokens_input`, `tokens_output`, `estimated_cost` | Metering |
+| `tokens_input`, `tokens_output`, `estimated_cost` | Metering. `tokens_input` is every token read, cached or not |
+| `tokens_cache_read`, `tokens_cache_write` | The parts of the input served from, and written to, the provider's cache |
+| `context_tokens` | How much of the model's window the conversation fills: the last exchange's input plus its answer. Set, not summed |
+| `history_anchor_message_id` | The first message still replayed once the conversation has outgrown the window; only moves forward |
 | `message_count`, `started_at`, `last_activity_at`, `ended_at` | Lifecycle |
 
 > [!IMPORTANT]
@@ -1936,26 +2004,76 @@ the person's current session for the selected board (or the workspace). **New co
 — the **+** in the panel header, a button beside *Clear conversation* on the full page — calls
 `startNewSession()`: the current session is *ended*, never deleted, and the next question
 starts with an empty context. It is disabled on a session nothing has been asked in
-(`AiSession::isFresh()`), which already is a fresh one. From 80% of the session token limit
-(`AiSession::isNearingTokenLimit()`) a note above the composer suggests starting a new one,
-before the ceiling refuses a question; at the ceiling the refusal offers the same remedy.
-Ended sessions are kept for metering and audit but are not listed anywhere in the interface.
+(`AiSession::isFresh()`), which already is a fresh one. A note above the composer
+(`components/ai/context-hint`) suggests starting a new one when the conversation nearly fills
+the model's window (`AiSession::isNearingContextWindow()`, from 80%), once its earliest messages
+have left the model's view (`hasDroppedHistory()`), or — only where a deployment has set a
+spending cap — from 80% of that cap. Ended sessions are kept for metering and audit but are not
+listed anywhere in the interface.
 
 Transcripts persist in `ai_chat_messages`; **prompts do not**. The system prompt and the
 context are rebuilt on every request and never stored, so editing a board's project context
 changes the next answer instead of being frozen into an old row.
 
+### The whole conversation, cached
+
+Each question replays **the whole conversation**, up to the session model's real context window
+— 1,000,000 tokens for Opus 5 and Sonnet 5, 200,000 for Haiku 4.5, from the model catalogue
+(`AiSession::contextWindow()`). `WorkspaceChatService::assemble()` budgets every request:
+`AI_CHAT_CONTEXT_BUDGET` (80%) of the window, less the system prompt and tool definitions, the
+final turn (board context, files, earlier changes, the question), room for the answer and room
+for what lookups bring back, estimated at three characters a token.
+
+```diagram
+   window x 0.8 ─┬─ system prompt + tools          (cached)
+                 ├─ the conversation so far        (cached; replayed in full)
+                 │    each question carries the files that came with it
+                 ├─ final turn: board context, page on screen, files,
+                 │    EARLIER CHANGES, the question
+                 └─ room for the answer and for lookup results
+```
+
+- **Trimmed in one jump.** When the conversation outgrows its budget (or
+  `AI_CHAT_HISTORY_MAX_MESSAGES`, 500 stored turns), its oldest part is dropped down to 60% of
+  the budget, from a question — and the trim point (`history_anchor_message_id`) then stays put.
+  Sliding forward a message at a time would change the beginning of every request and defeat the
+  cache. The model is told, in a fixed sentence, that the earlier part is not shown.
+- **Prompt caching** (Anthropic). `ClaudeService` places three breakpoints: the system prompt
+  (which covers the tools), the last replayed message, and — only when lookups were offered —
+  the final turn, so rounds two to four of a tool loop re-read it. A cached read costs a tenth of
+  a fresh token; writing costs a quarter more (twice as much with `AI_CHAT_CACHE_TTL=1h`). Only
+  the chat asks for caching; a one-shot ticket run never pays the write premium. OpenAI caches a
+  repeated prefix on its own.
+- **Files stay in the conversation.** A file goes in whole on the question it was first used with,
+  and that question records it (`metadata.files_sent`); the history replays it there on every
+  later turn, and the latest turn only points back to it (*PROVIDED IN FULL EARLIER*). A file whose
+  question has been trimmed away goes in whole again. That replaced "full text once, a digest
+  thereafter", which left the model with a 1,200-character excerpt by the second question.
+- **EARLIER CHANGES** is read from every proposal in the session, not only from replayed turns,
+  so trimming cannot make the model recreate tickets it already made.
+- **Too long anyway?** A provider 400 "prompt is too long" (`AiProviderException::contextTooLong()`)
+  is retried once with half the history, before anything has been shown.
+
 | Limit | Default | Variable |
 |---|---|---|
-| Tokens per session | 400,000 | `AI_SESSION_TOKEN_LIMIT` |
+| Tokens per session (a spending cap; **off**) | 0 | `AI_SESSION_TOKEN_LIMIT` |
 | Tokens per user per day | 2,000,000 | `AI_DAILY_USER_TOKEN_LIMIT` |
+| What a cached token counts for against both | 0.1 | `AI_CACHE_READ_WEIGHT` |
 | Sessions returned by `AiSessionManager::history()` | 25 | `AI_SESSION_HISTORY` |
-| Turns replayed as history | 20 | `AI_CHAT_HISTORY` |
+| Stored turns replayed, at most | 500 | `AI_CHAT_HISTORY_MAX_MESSAGES` |
+| Share of the model's window a request may use | 0.8 | `AI_CHAT_CONTEXT_BUDGET` |
+| Window for a model the catalogue gives none for | 128,000 | `AI_CHAT_DEFAULT_CONTEXT_WINDOW` |
+| Hold every conversation below the model's window | 0 (off) | `AI_CHAT_CONTEXT_MAX_TOKENS` |
+| Prompt caching, and how long the provider keeps it | on, 5m | `AI_CHAT_CACHE`, `AI_CHAT_CACHE_TTL` |
 | Output tokens per answer | 4,000 | `AI_CHAT_MAX_OUTPUT_TOKENS` |
 | Output tokens, Outside Project | 8,000 | `AI_CHAT_MAX_OUTPUT_TOKENS_OUTSIDE` |
+| Output tokens, a turn that may propose changes | 16,000 | `AI_CHAT_MAX_OUTPUT_TOKENS_WRITING` |
 
 Zero means unlimited, and is written as zero rather than null so the settings form has one
-shape.
+shape. The session and daily limits are **spending limits, not the context window**: limits count
+`input + output − 0.9 × cached reads`, so a conversation replayed from the cache spends an allowance
+at roughly the rate it spends money. A cap stored in *Admin → AI settings* or on a board still
+applies; the default is none.
 
 ## The retrieval tool loop
 
@@ -2041,18 +2159,19 @@ details.
 
 ## Write tools: propose, then confirm
 
-Eight action types (`App\Enums\AiActionType`), each exposed to the model as
+Nine action types (`App\Enums\AiActionType`), each exposed to the model as
 `propose_<name>`. The prefix is deliberate: the name itself tells the model that calling it
 does not perform the action.
 
 | Action | Destructive? | Notes |
 |---|---|---|
 | `propose_create_ticket` | No | Sets every field at once — title, description, priority, type, assignee, column, labels, and `customer_visible: false` to keep it internal |
-| `propose_create_tickets` | No | Several new tickets on one board, up to 30 per call; one preview, all or none |
+| `propose_create_tickets` | No | Several new tickets on one board, up to 30 per call; one preview, all or none. `source_page_slug` names the page they come from |
 | `propose_update_ticket` | No | Re-assign, move column, re-prioritise, re-label, edit title or body |
 | `propose_comment_ticket` | No | Staff comments default to the **internal** stream |
-| `propose_create_doc_page` | No | New pages are **always internal** until somebody publishes them separately |
+| `propose_create_doc_page` | No | New pages are **always internal** until somebody publishes them separately. `import_attachment_id` makes an attached file the body; `board` for a workspace conversation |
 | `propose_update_doc_page` | No | Title and body |
+| `propose_import_document` | No | A file attached to the conversation becomes a page **and** its open to-dos and bugs become tickets — one preview, all or none |
 | `propose_code_run` | No | Proposes pressing the existing AI-run button; every refusal that pipeline already has still applies |
 | `propose_delete_ticket` | **Yes** | Always confirmed, **by typing the ticket's key by hand** |
 
@@ -2122,7 +2241,8 @@ why, rather than getting a moved card, a dropped assignee and a vague error.
 those own still applies, and there is no second, weaker path into the same tables.
 
 **One proposal per turn is kept** — a preview showing two unrelated changes invites
-confirming both while reading one — **with one exception: new tickets.** "Break this plan into
+confirming both while reading one — **with two exceptions: new tickets, and a file imported with
+its tickets** (below). "Break this plan into
 tickets" is one request, so `propose_create_tickets` carries up to `AI_CHAT_MAX_TICKETS_PER_REPLY`
 (30) tickets in one call, and any ticket creations the model splits across several calls in a
 turn are merged into that one proposal for one board. Its preview lists every ticket; its
@@ -2145,6 +2265,45 @@ button reads *Create N tickets*; under AI Agent it runs at once, like a single t
 (`new_tickets_visible_to_customers`, visible unless the board says otherwise) — the same default as
 the New ticket form. The proposal can narrow it (`customer_visible: false` for staff-only work) and
 never widen it. Changing an existing ticket's visibility is not available to the assistant.
+Tickets made from an imported file, or from an **internal** page on screen, start internal unless
+the person said customers should see them, and each internal one ends with a link back to its page.
+
+### Importing a file into the documentation
+
+"Import this into the docs and make the tickets" is the second exception to one proposal per
+turn. The person attaches a document — PDF, Word, text, Markdown, CSV, Excel, PowerPoint — and the
+model calls `propose_import_document` once; a `propose_create_doc_page` plus ticket requests in the
+same reply are merged into the same proposal.
+
+```diagram
+   file attached ──► ProcessAiAttachment (queued)
+                       ├─ extracted_text   what the model reads (headings, lists, checkboxes)
+                       └─ markdown         the whole file as a page body (DocumentImporter)
+
+   propose_import_document { page: { title, import_attachment_id }, tickets: [...] }
+        │
+        ▼  ExecuteChatAction::doImportDocument()
+   prepare the page      authorize, take the prepared Markdown (or convert now),
+                         intro above it, cap at 200,000 characters
+   prepare every ticket  authorize and resolve, internal unless asked otherwise
+        │                (one refusal: nothing is written, and it names the ticket)
+        ▼
+   CreatePage (internal) + copy the original file onto the page
+   CreateTicket × N, in order, each internal one linking back to the page
+```
+
+- **The model never retypes the file.** The body is the server's conversion of the stored file —
+  the copy prepared when the file was read, so confirming never parses a large PDF inside
+  somebody's request — and the prompt forbids putting the file into `body_md`, which would be cut
+  off at the output ceiling and paraphrased where it was not.
+- **Tickets for what is open.** The prompt asks for one ticket per unchecked to-do and per bug, not
+  for items already ticked off; past 30 it says how many are left and continues with
+  `propose_create_tickets`, reading *EARLIER CHANGES* — which names the page and its tickets.
+- **The card** shows which file becomes the page and how many open to-dos it holds, then the
+  ticket list; the button reads *Import page and create N tickets*.
+- **From the documentation screen** a page's *Create tickets with AI* button opens the panel on
+  that page's board, in Writing, with the request written in the composer; the page's text reaches
+  the model as *THE PAGE ON SCREEN*. See section 8.
 
 Re-checking the capability mode at confirmation time is not theoretical: a person can have a
 preview on screen when an administrator switches the workspace to Observer, and the confirm
@@ -2221,7 +2380,7 @@ honest blank.
 
 | Table | Contents |
 |---|---|
-| `ai_usage_records` | One row per exchange: session, run, user, board, purpose (`chat` / `ticket_run`), provider, model, input and output tokens, whether the provider actually reported usage, estimated cost, duration |
+| `ai_usage_records` | One row per exchange: session, run, user, board, purpose (`chat` / `ticket_run`), provider, model, input and output tokens, cache read and write tokens, context size, whether the provider actually reported usage, estimated cost (cached tokens priced at their own rates), duration |
 | `ai_tool_invocations` | One row per tool call: tool, category, target, input, success, outcome, result size, duration |
 | `ai_sessions` | Rolled-up totals per conversation |
 | `ai_runs` | Per-run tokens, cost, duration, branch, pull request URL, error |
@@ -2592,9 +2751,9 @@ narrower allow-list (no archives, no macro-enabled Office formats) and a differe
 |---|---|
 | Per file | 20 MB |
 | Per conversation | 10 files |
-| Extracted text per file | 40,000 characters |
-| Extracted text per conversation | 120,000 characters |
-| Digest length | 1,200 characters |
+| Extracted text per file | 200,000 characters |
+| Extracted text per request | 400,000 characters, and never more than half the model's window |
+| Summary length, for a file there is no room for | 1,200 characters |
 | CSV rows quoted in the prompt | 300 (of 40 columns max) |
 | Image longest side | 1,568 px, JPEG quality 82 |
 
@@ -2610,20 +2769,29 @@ Both the **extension allow-list and the detected MIME type** must pass. A file c
                                                         ├──► ready
                                                         ├──► failed
                                                         └──► unsupported
-   First turn that uses it:   FULL TEXT
-   Every later turn:          DIGEST (name, kind, shape, outline, leading excerpt)
-   Unless the question names the filename:  FULL TEXT again
+   First turn that uses it:   FULL TEXT, and the question records it (files_sent)
+   Every later turn:          replayed IN FULL with that question, from the cache;
+                              the latest turn only points back to it
+   Its question trimmed away: FULL TEXT again, on the latest turn
+   No room left at all:       SUMMARY (name, kind, shape, outline, leading excerpt)
 ```
+
+The same job also keeps the file as a documentation page would hold it — the whole file as
+Markdown, in `ai_attachments.markdown` — so the assistant can import it into the docs without
+parsing it again (section 9). Word documents reach the model as Markdown too, with their
+headings, lists, checkboxes and tables, through the same converters the documentation import
+uses.
 
 Three decisions drive most of the cost and accuracy of an answer about a document:
 
-**Full text once, a digest thereafter.** A conversation about a forty-page specification
-would otherwise re-send it on every question, so the tenth follow-up costs ten times the
-first for no new information. The escape hatch is naming the file — *"what does
-requirements.pdf say about indemnity"* — which is how people naturally ask to go back.
+**A file stays with the message it came in on.** It is replayed with that question for as long
+as the question is in the model's view, so the tenth follow-up reads the whole document just
+as the first did — and from the provider's cache, at a tenth of the price. This replaced
+"full text once, a digest thereafter", which saved money and cost accuracy: by the second
+question a long to-do list was down to an excerpt, and "continue" could not finish it.
 
 **A budget, spent newest first.** When it runs out, the remaining files still appear as
-digests rather than vanishing: a model that is not told a file exists will answer as though
+summaries rather than vanishing: a model that is not told a file exists will answer as though
 it does not, which is worse than one that knows and says it has not read it. **Every
 truncation is stated in the prompt**, because a model handed half a contract and not told
 will summarise it as though it read the end.
@@ -2653,8 +2821,8 @@ configure it** — it does not fail, and it does not silently do nothing.
 > wrote, never a command**. Attachments enter the prompt in the same reference-data block as
 > the board context, under the same framing.
 
-`markSent()` is called only **after** the provider has actually answered, so a question that
-failed does not consume the one full send its attachment gets.
+`markSent()` and `files_sent` are written only **after** the provider has actually answered,
+so a question that failed is not remembered as having carried a document the model never read.
 
 <!-- pagebreak -->
 
@@ -3338,7 +3506,7 @@ Every component in the product carries both palettes. The one design rule worth 
 |---|---|---|---|
 | `ai` | `ExecuteAiRunJob` | The **worker** service | An AI run takes minutes. A worker chewing through a repository clone must never delay a broadcast or a notification |
 | `default` | Broadcasts, in-app notifications, GitHub webhook processing, Slack messages, SMS | The **worker** service | Millisecond work |
-| `attachments` | `ProcessAiAttachment` | **Inside the web container** | See below |
+| `attachments` | `ProcessAiAttachment`, `ImportDocumentFile` | **Inside the web container** | See below |
 
 ```diagram
    RAILWAY SERVICES
@@ -3386,7 +3554,8 @@ The `ai` queue must be **named explicitly and is listed first**. A worker starte
 | Job | Queue | Tries | Timeout | Notes |
 |---|---|---|---|---|
 | `ExecuteAiRunJob` | `ai` | 3 | 900s | `WithoutOverlapping` lock plus an authoritative status claim; backoff 30s, 120s |
-| `ProcessAiAttachment` | `attachments` | 2 | 600s | Reads, extracts, transcribes or re-encodes an upload |
+| `ProcessAiAttachment` | `attachments` | 2 | 600s | Reads, extracts, transcribes or re-encodes an upload; also keeps a document as page Markdown for the assistant's docs import |
+| `ImportDocumentFile` | `attachments` | 1 | 600s | Imports a documentation file over 8 MB as a page off the web request; reports to the screen through the cache (`doc-import:{id}`) and removes the stored file if it cannot be read |
 | `ProcessGitHubWebhookJob` | `default` | 3 | 60s | Parses a verified delivery into links |
 | `SendSmsJob` | `default` | 3 | — | Backoff 15s, 60s, 180s |
 
@@ -3749,11 +3918,11 @@ workspace-scoped and belong to no board. Stores `disk`, `path`, `filename`, `mim
 |---|---|---|
 | `ai_settings` | Workspace-wide AI configuration, a **single row** | `enabled`, `provider`, `model`, `capability_mode` (default `observer`), `session_token_limit`, `daily_user_token_limit` |
 | `ai_credentials` | One row per provider | `provider` **unique**, `secret` (**encrypted**), `last_four`, `hint`, `rotated_at` |
-| `ai_sessions` | One conversation | `uuid` unique, `user_id`, `board_id` (nullable), `provider`, `model`, `capability_mode`, `chat_mode`, `knowledge_scope`, token and cost totals |
+| `ai_sessions` | One conversation | `uuid` unique, `user_id`, `board_id` (nullable), `provider`, `model`, `capability_mode`, `chat_mode`, `knowledge_scope`, token and cost totals, `tokens_cache_read` / `tokens_cache_write`, `context_tokens` (how full the model's window is), `history_anchor_message_id` (the trim point; forward-only, deliberately not a foreign key) |
 | `ai_chat_messages` | Turns | `board_id` **nullable**, `ai_session_id`, `role`, `content`, `metadata` (holds the proposal) |
 | `ai_runs` | One ticket run | `uuid` unique, `trigger_source`, `mode`, `status`, `repository`, `model`, `result_comment_id`, `branch_name`, `pull_request_url`, tokens, cost, duration, `error_message` |
-| `ai_usage_records` | One row per billed exchange | `purpose` (`chat`/`ticket_run`), `provider`, `model`, tokens, **`usage_reported`**, `estimated_cost` |
-| `ai_attachments` | One uploaded file, processed | `attachment_id` **unique**, `kind`, `status`, `checksum`, `extracted_text`, `structured`, `summary`, `characters`, `token_estimate`, `truncated`, `context_sent_at` |
+| `ai_usage_records` | One row per billed exchange | `purpose` (`chat`/`ticket_run`), `provider`, `model`, tokens (input inclusive of cached), `tokens_cache_read` / `tokens_cache_write`, `context_tokens`, **`usage_reported`**, `estimated_cost` |
+| `ai_attachments` | One uploaded file, processed | `attachment_id` **unique**, `kind`, `status`, `checksum`, `extracted_text`, `structured`, `summary`, `characters`, `token_estimate`, `truncated`, `context_sent_at`, `markdown` / `markdown_truncated` (the whole file as a page body, for importing into the docs) |
 | `ai_tool_invocations` | **The AI audit log** | `tool`, `category`, `channel` (`assistant` \| `mcp`, indexed with `created_at`), `target`, `input`, `success`, `outcome`, `result_characters`, `duration_ms`. MCP rows have no session and usually no board |
 
 ## OAuth tables (remote MCP server)
@@ -4116,6 +4285,10 @@ has to decide about, grouped by concern.
 | `ATTACHMENT_MAX_SIZE_KB` | `10240` | 10 MB per record attachment |
 | `ATTACHMENT_MAX_PER_OWNER` | `20` | |
 | `ATTACHMENT_URL_TTL_MINUTES` | `5` | Signed-URL lifetime |
+| `DOC_IMPORT_MAX_FILES` / `DOC_IMPORT_MAX_SIZE_KB` | `10` / `20480` | Importing files as documentation pages: files per drop, size of one |
+| `DOC_IMPORT_SYNC_MAX_KB` | `8192` | Larger imports are converted on the attachments queue |
+| `DOC_IMPORT_BODY_MAX_CHARACTERS` | `200000` | What one imported page holds; the rest stays in the attached original |
+| `DOC_IMPORT_MAX_TABLE_ROWS` / `DOC_IMPORT_PDF_MAX_PAGES` | `500` / `300` | Rows of a CSV or worksheet, pages of a PDF |
 | `AWS_ACCESS_KEY_ID` | — | `<AWS_ACCESS_KEY_ID>` |
 | `AWS_SECRET_ACCESS_KEY` | — | `<AWS_SECRET_ACCESS_KEY>` |
 | `AWS_BUCKET`, `AWS_DEFAULT_REGION` | — | |
@@ -4157,8 +4330,9 @@ has to decide about, grouped by concern.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `AI_SESSION_TOKEN_LIMIT` | `400000` | Per conversation. 0 = unlimited |
+| `AI_SESSION_TOKEN_LIMIT` | `0` | A spending cap per conversation, **off by default**. Not the context window — see section 9 |
 | `AI_DAILY_USER_TOKEN_LIMIT` | `2000000` | Per person per day |
+| `AI_CACHE_READ_WEIGHT` | `0.1` | What a token read from the provider's cache counts for, against both limits |
 | `AI_SESSION_HISTORY` | `25` | Sessions returned by `AiSessionManager::history()`; not currently listed in the interface |
 | `AI_DAILY_AUTO_RUN_CAP` | `20` | Per board. **No bypass exists** |
 | `AI_MAX_DAILY_AUTO_RUN_CAP` | `500` | Ceiling a board may configure |
@@ -4173,7 +4347,12 @@ has to decide about, grouped by concern.
 | `AI_CHAT_READING_MODEL` | `claude-sonnet-5` | |
 | `AI_CHAT_WRITING_MODEL` | `claude-opus-5` | |
 | `AI_CHAT_EVERYTHING_MODEL` | `claude-opus-5` | |
-| `AI_CHAT_HISTORY` | `20` | Turns replayed |
+| `AI_CHAT_HISTORY_MAX_MESSAGES` | `500` | Stored turns replayed, at most. The whole conversation is replayed up to the model's window. **Replaces `AI_CHAT_HISTORY`**, which is no longer read |
+| `AI_CHAT_CONTEXT_BUDGET` | `0.8` | Share of the model's context window one request may use |
+| `AI_CHAT_DEFAULT_CONTEXT_WINDOW` | `128000` | For a model the catalogue gives no window for (the OpenAI ids) |
+| `AI_CHAT_CONTEXT_MAX_TOKENS` | `0` | Hold every conversation below the model's window, to bound one question's cost. 0 = the model's own |
+| `AI_CHAT_CACHE` / `AI_CHAT_CACHE_TTL` | `true` / `5m` | Prompt caching (Anthropic); `1h` for conversations with long pauses |
+| `AI_CHAT_CONTEXT_PAGE_CHARS` | `40000` | The documentation page on screen, sent with the question |
 | `AI_CHAT_MAX_OUTPUT_TOKENS` | `4000` | |
 | `AI_CHAT_MAX_OUTPUT_TOKENS_OUTSIDE` | `8000` | Outside Project scope |
 | `AI_CHAT_MAX_OUTPUT_TOKENS_WRITING` | `16000` | A turn that may propose changes, so a batch of tickets is not cut off |
@@ -4215,7 +4394,7 @@ has to decide about, grouped by concern.
 | `AI_ATTACHMENTS_QUEUE` | `attachments` | **Must be served by a worker that can read the file** |
 | `AI_ATTACHMENT_MAX_SIZE_KB` | `20480` | 20 MB |
 | `AI_ATTACHMENT_MAX_PER_SESSION` | `10` | |
-| `AI_ATTACHMENT_FILE_CHARS` / `_TOTAL_CHARS` / `_DIGEST_CHARS` | `40000` / `120000` / `1200` | |
+| `AI_ATTACHMENT_FILE_CHARS` / `_TOTAL_CHARS` / `_DIGEST_CHARS` | `200000` / `400000` / `1200` | A file per request, all files per request, a summary when there is no room |
 | `AI_ATTACHMENT_CSV_ROWS` / `_COLUMNS` / `_SAMPLES` | `300` / `40` / `5` | |
 | `AI_ATTACHMENT_IMAGE_MAX_DIMENSION` / `_QUALITY` | `1568` / `82` | |
 | `AI_ATTACHMENT_AUDIO_ENABLED` | `true` | Needs an OpenAI key |
@@ -4498,16 +4677,18 @@ php artisan test --filter=test_a_customer_cannot_see_internal_tickets
 
 ## Current status
 
-Measured at commit `30bfc83` on 17 September 2026:
+Measured at commit `395baf7` on 20 October 2026:
 
 | Result | Count |
 |---|---|
-| **Passed** | **1,718** |
-| Failed | 3 |
-| Assertions | 6,436 |
-| Duration | 311 s |
+| **Passed** | **1,995** |
+| Failed | 2 |
+| Assertions | 7,610 |
 
-### The three failures
+The two failures are the `ThemePreferenceTest` pair below. The third test in the table is
+date-sensitive: it passes on days whose report period contains no `7`, as it did on this run.
+
+### The known failures
 
 > [!IMPORTANT]
 > All three are **test defects, not application defects.** None indicates a security or
@@ -4581,9 +4762,9 @@ asserting the absence of `(total 7)` — rather than to change any application b
 
 | Area | Files |
 |---|---|
-| AI | 31 files — capability modes, chat modes, knowledge scope, sessions, tools, attachments, voice, rich responses, apply mode, run caps, inheritance, OpenAI provider, token usage, audit log |
+| AI | 38 files — capability modes, chat modes, knowledge scope, sessions, context window and prompt caching, tools, attachments, voice, rich responses, apply mode, run caps, inheritance, Anthropic and OpenAI providers, token usage, audit log, batch tickets, importing a file into the docs, tickets from the page on screen |
 | Tickets | 13 files — creation, editing, movement, filtering, links, subtasks, attachments, events, rich text, checklist conversion, quick add, live conversation |
-| Documentation | 6 files — editor, save state, drag and drop, tree, workspace, visibility |
+| Documentation | 8 files — editor, save state, drag and drop, tree, workspace, visibility, importing files as pages, the file-to-Markdown converters |
 | Boards | 6 files — management, deletion, columns, labels, integrations, drag and drop |
 | Statistics | 6 files — team, customer, flow metrics, exports, chart export markup |
 | Notifications | 4 files — bell, ticket notifications, Slack, critical-ticket SMS |

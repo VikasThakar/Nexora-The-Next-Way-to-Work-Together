@@ -333,9 +333,9 @@ narrower allow-list (no archives, no macro-enabled Office formats) and a differe
 |---|---|
 | Per file | 20 MB |
 | Per conversation | 10 files |
-| Extracted text per file | 40,000 characters |
-| Extracted text per conversation | 120,000 characters |
-| Digest length | 1,200 characters |
+| Extracted text per file | 200,000 characters |
+| Extracted text per request | 400,000 characters, and never more than half the model's window |
+| Summary length, for a file there is no room for | 1,200 characters |
 | CSV rows quoted in the prompt | 300 (of 40 columns max) |
 | Image longest side | 1,568 px, JPEG quality 82 |
 
@@ -351,20 +351,29 @@ Both the **extension allow-list and the detected MIME type** must pass. A file c
                                                         ├──► ready
                                                         ├──► failed
                                                         └──► unsupported
-   First turn that uses it:   FULL TEXT
-   Every later turn:          DIGEST (name, kind, shape, outline, leading excerpt)
-   Unless the question names the filename:  FULL TEXT again
+   First turn that uses it:   FULL TEXT, and the question records it (files_sent)
+   Every later turn:          replayed IN FULL with that question, from the cache;
+                              the latest turn only points back to it
+   Its question trimmed away: FULL TEXT again, on the latest turn
+   No room left at all:       SUMMARY (name, kind, shape, outline, leading excerpt)
 ```
+
+The same job also keeps the file as a documentation page would hold it — the whole file as
+Markdown, in `ai_attachments.markdown` — so the assistant can import it into the docs without
+parsing it again (section 9). Word documents reach the model as Markdown too, with their
+headings, lists, checkboxes and tables, through the same converters the documentation import
+uses.
 
 Three decisions drive most of the cost and accuracy of an answer about a document:
 
-**Full text once, a digest thereafter.** A conversation about a forty-page specification
-would otherwise re-send it on every question, so the tenth follow-up costs ten times the
-first for no new information. The escape hatch is naming the file — *"what does
-requirements.pdf say about indemnity"* — which is how people naturally ask to go back.
+**A file stays with the message it came in on.** It is replayed with that question for as long
+as the question is in the model's view, so the tenth follow-up reads the whole document just
+as the first did — and from the provider's cache, at a tenth of the price. This replaced
+"full text once, a digest thereafter", which saved money and cost accuracy: by the second
+question a long to-do list was down to an excerpt, and "continue" could not finish it.
 
 **A budget, spent newest first.** When it runs out, the remaining files still appear as
-digests rather than vanishing: a model that is not told a file exists will answer as though
+summaries rather than vanishing: a model that is not told a file exists will answer as though
 it does not, which is worse than one that knows and says it has not read it. **Every
 truncation is stated in the prompt**, because a model handed half a contract and not told
 will summarise it as though it read the end.
@@ -394,7 +403,7 @@ configure it** — it does not fail, and it does not silently do nothing.
 > wrote, never a command**. Attachments enter the prompt in the same reference-data block as
 > the board context, under the same framing.
 
-`markSent()` is called only **after** the provider has actually answered, so a question that
-failed does not consume the one full send its attachment gets.
+`markSent()` and `files_sent` are written only **after** the provider has actually answered,
+so a question that failed is not remembered as having carried a document the model never read.
 
 <!-- pagebreak -->
