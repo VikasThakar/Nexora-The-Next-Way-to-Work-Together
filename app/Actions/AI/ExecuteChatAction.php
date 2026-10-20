@@ -35,8 +35,11 @@ use App\Services\AI\AiCapabilityGuard;
 use App\Services\AI\Audit\AiAuditLogger;
 use App\Services\AI\ProposalTargets;
 use App\Services\AI\WorkspaceChatService;
+use App\Services\AttachmentStorage;
 use App\Services\BoardAccess;
 use App\Services\DocPageFinder;
+use App\Services\Docs\Import\DocumentImporter;
+use App\Services\Docs\Import\DocumentImportException;
 use App\Services\TicketFinder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Collection;
@@ -100,9 +103,15 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  *
  * The surface, and what stays off it
  * ----------------------------------
- * Eight action types. They can raise a ticket or a batch of them, edit one,
+ * Nine action types. They can raise a ticket or a batch of them, edit one,
  * re-prioritise, re-assign, move it between columns, re-label it, comment on
- * it, delete it, and write documentation pages.
+ * it, delete it, write documentation pages, and import a file the person
+ * attached into the documentation together with tickets for its to-dos.
+ *
+ * A file becomes a page body on the server (DocumentImporter), from the copy
+ * prepared when the file was read, so a long document is never retyped by the
+ * model — and tickets made from an internal page or an imported file start
+ * internal unless the person said customers should see them.
  *
  * Visibility is bounded rather than reachable. A new ticket starts from the
  * board's own default — the same one the New ticket form starts from — and
@@ -136,6 +145,8 @@ class ExecuteChatAction
         private readonly AiAuditLogger $audit,
         private readonly BoardAccess $boards,
         private readonly AttachFilesToTicket $attachFiles,
+        private readonly AttachmentStorage $storage,
+        private readonly DocumentImporter $importer,
     ) {}
 
     /**
@@ -241,8 +252,9 @@ class ExecuteChatAction
                 AiActionType::CreateTicket => $this->doCreateTicket($board, $input, $actor, $message),
                 AiActionType::CreateTickets => $this->doCreateTickets($board, $input, $actor, $message),
                 AiActionType::UpdateTicket => $this->doUpdateTicket($board, $input, $actor, $message),
-                AiActionType::CreateDocPage => $this->doCreatePage($board, $input, $actor),
+                AiActionType::CreateDocPage => $this->doCreatePage($board, $input, $actor, $message),
                 AiActionType::UpdateDocPage => $this->doUpdatePage($board, $input, $actor),
+                AiActionType::ImportDocument => $this->doImportDocument($board, $input, $actor, $message),
                 AiActionType::CodeRun => $this->doCodeRun($board, $input, $actor),
                 AiActionType::CommentTicket => $this->doCommentTicket($board, $input, $actor),
                 AiActionType::DeleteTicket => $this->doDeleteTicket($board, $input, $actor),
@@ -605,9 +617,26 @@ class ExecuteChatAction
             throw new RuntimeException('That is more than '.$max.' tickets for one request. Nothing was created.');
         }
 
+        /*
+         * The documentation page the tickets come from, when the model said.
+         *
+         * Read as the confirming person sees it. An internal page's to-dos are
+         * internal work, so its tickets start internal unless the person said
+         * customers should see them, and each links back to the page.
+         */
+        $source = null;
+
+        if (($slug = $this->optionalString($input, 'source_page_slug')) !== null) {
+            $source = $this->pages->findOrFail($board, $slug, $actor);
+        }
+
         $prepared = [];
 
         foreach ($entries as $index => $entry) {
+            if ($source instanceof DocPage && ! $source->customer_visible) {
+                $entry['customer_visible'] = ($entry['customer_visible'] ?? false) === true;
+            }
+
             try {
                 $prepared[] = $this->prepareTicket($board, $entry, $actor, $message);
             } catch (AuthorizationException|RuntimeException $exception) {
@@ -626,6 +655,10 @@ class ExecuteChatAction
         $created = [];
 
         foreach ($prepared as $ticket) {
+            if ($source instanceof DocPage) {
+                $ticket = $this->linkedToPage($ticket, $source, route('docs.show', ['board' => $board, 'slug' => $source->slug]));
+            }
+
             try {
                 $created[] = $this->createPrepared($board, $ticket, $actor)['ticket'];
             } catch (Throwable $exception) {
@@ -1005,10 +1038,155 @@ class ExecuteChatAction
     }
 
     /**
+     * A new documentation page — written by the model, or a file the person
+     * attached, converted.
+     *
      * @param  array<string, mixed>  $input
-     * @return array{label: string, url: ?string}
+     * @return array{label: string, url: ?string, target: string}
      */
-    private function doCreatePage(Board $board, array $input, User $actor): array
+    private function doCreatePage(Board $board, array $input, User $actor, AiChatMessage $message): array
+    {
+        $prepared = $this->preparePage($board, $input, $actor, $message);
+        $page = $this->createPreparedPage($board, $prepared, $actor);
+
+        return [
+            'label' => 'Created page “'.$page->title.'”'
+                .($prepared['source'] !== null ? ' from '.$prepared['source'] : '')
+                .' (internal until published)'
+                .($prepared['truncated'] ? ' — the file was longer than a page holds, so the end is in the attached original' : ''),
+            'url' => route('docs.show', ['board' => $board, 'slug' => $page->slug]),
+            'target' => mb_substr($page->slug, 0, 190),
+        ];
+    }
+
+    /**
+     * A file put into the documentation, and tickets for its to-dos and bugs,
+     * as one change.
+     *
+     * Everything is prepared first — the page authorized and its body
+     * converted, every ticket authorized and resolved — and only then is
+     * anything written: the page, then the tickets in order. A refusal at the
+     * preparation stage therefore leaves nothing behind and names the part
+     * that was refused.
+     *
+     * The tickets start internal unless the person said customers should see
+     * them. They come from a page that is internal until somebody publishes
+     * it, and a ticket's description is the first thing a customer reads; an
+     * internal note copied out of a document must not reach them because a
+     * board's default happens to be "visible". Each internal ticket links back
+     * to the page it came from.
+     *
+     * As with a batch, there is no outer transaction — CreateTicket's
+     * observers broadcast and notify — so a failure part-way through says
+     * exactly what exists: the page, and which tickets.
+     *
+     * @param  array<string, mixed>  $input
+     * @return array{label: string, url: ?string, target: string, page: array{title: string, url: string}, items: list<array{key: string, title: string, url: string}>}
+     */
+    private function doImportDocument(Board $board, array $input, User $actor, AiChatMessage $message): array
+    {
+        $pageInput = is_array($input['page'] ?? null) ? $input['page'] : [];
+
+        $entries = array_values(array_filter(
+            is_array($input['tickets'] ?? null) ? $input['tickets'] : [],
+            static fn ($entry): bool => is_array($entry),
+        ));
+
+        $max = AiActionType::maxTicketsPerReply();
+
+        if (count($entries) > $max) {
+            throw new RuntimeException('That is more than '.$max.' tickets for one request. Nothing was imported.');
+        }
+
+        $page = $this->preparePage($board, $pageInput, $actor, $message);
+
+        $tickets = [];
+
+        foreach ($entries as $index => $entry) {
+            // Internal unless the person said customers should see it.
+            $entry['customer_visible'] = ($entry['customer_visible'] ?? false) === true;
+
+            try {
+                $tickets[] = $this->prepareTicket($board, $entry, $actor, $message);
+            } catch (AuthorizationException|RuntimeException $exception) {
+                $reason = $exception->getMessage();
+                $which = 'Ticket '.($index + 1).$this->quotedTitle($entry).': '.$reason
+                    .(str_contains($reason, 'Nothing was') ? '' : ' Nothing was imported.');
+
+                throw $exception instanceof AuthorizationException
+                    ? new AuthorizationException($which)
+                    : new RuntimeException($which);
+            }
+        }
+
+        $created = $this->createPreparedPage($board, $page, $actor);
+        $pageUrl = route('docs.show', ['board' => $board, 'slug' => $created->slug]);
+
+        $made = [];
+
+        foreach ($tickets as $ticket) {
+            $ticket = $this->linkedToPage($ticket, $created, $pageUrl);
+
+            try {
+                $made[] = $this->createPrepared($board, $ticket, $actor)['ticket'];
+            } catch (Throwable $exception) {
+                $done = $made === []
+                    ? 'Created the page “'.$created->title.'” but no tickets'
+                    : 'Created the page “'.$created->title.'” and '.implode(', ', array_map(fn (Ticket $t): string => $t->key(), $made));
+
+                throw new RuntimeException(
+                    $done.', then it stopped: '.$exception->getMessage().'. The remaining '
+                    .(count($tickets) - count($made)).' tickets were not created.'
+                );
+            }
+        }
+
+        $label = 'Imported “'.$created->title.'”'.($page['source'] !== null ? ' ('.$page['source'].')' : '').' into the docs';
+        $target = $created->slug;
+
+        if ($made !== []) {
+            $range = count($made) === 1 ? $made[0]->key() : $made[0]->key().' to '.$made[count($made) - 1]->key();
+            $visible = count(array_filter($made, fn (Ticket $t): bool => (bool) $t->customer_visible));
+
+            $label .= ' and created '.count($made).' '.(count($made) === 1 ? 'ticket' : 'tickets').': '.$range
+                .' ('.match (true) {
+                    $visible === 0 => 'internal',
+                    $visible === count($made) => 'visible to customers',
+                    default => $visible.' visible to customers, '.(count($made) - $visible).' internal',
+                }.')';
+
+            $target .= ', '.$range;
+        }
+
+        if ($page['truncated']) {
+            $label .= ' — the file was longer than a page holds, so the end is in the attached original';
+        }
+
+        return [
+            'label' => $label,
+            'url' => $pageUrl,
+            'target' => mb_substr($target, 0, 190),
+            'page' => ['title' => $created->title, 'url' => $pageUrl],
+            'items' => array_map(fn (Ticket $t): array => [
+                'key' => $t->key(),
+                'title' => $t->title,
+                'url' => route('tickets.show', ['board' => $board, 'number' => $t->number]),
+            ], $made),
+        ];
+    }
+
+    /**
+     * Everything a new page needs, authorized and resolved, nothing written.
+     *
+     * The body is the model's `body_md`, or — when `import_attachment_id`
+     * names a file from this conversation — that file's whole contents as
+     * Markdown, with `body_md` as an introduction above it. The original file
+     * goes on the page with any others named in `attachment_ids`.
+     *
+     * @param  array<string, mixed>  $input
+     * @return array{attributes: array{title: string, body_md: ?string, parent_id: ?int}, files: Collection<int, Attachment>, source: ?string, truncated: bool}
+     */
+    private function preparePage(Board $board, array $input, User $actor, AiChatMessage $message): array
     {
         Gate::forUser($actor)->authorize('create', [DocPage::class, $board]);
 
@@ -1021,21 +1199,132 @@ class ExecuteChatAction
             // Through DocPageFinder, so a parent the confirming user cannot see
             // — including one hidden by the ancestor rule — 404s rather than
             // silently becoming a root page under somebody else's tree.
-            $parentId = $this->pages->findOrFail($board, $parentSlug, $actor)->getKey();
+            $parentId = (int) $this->pages->findOrFail($board, $parentSlug, $actor)->getKey();
         }
 
-        // CreatePage always makes a page internal; publishing is a separate
-        // action with its own ability, and the chat has no way to reach it.
-        $page = $this->createPage->handle($board, [
-            'title' => mb_substr($title, 0, 200),
-            'body_md' => $this->optionalString($input, 'body_md'),
-            'parent_id' => $parentId,
-        ], $actor);
+        $body = $this->optionalString($input, 'body_md');
+        $files = $this->attachmentsFrom($message, $input, $actor);
+        $source = null;
+        $truncated = false;
+
+        $importId = $input['import_attachment_id'] ?? null;
+
+        if (is_int($importId) || (is_string($importId) && ctype_digit($importId))) {
+            [$markdown, $record, $truncated] = $this->importedBody($message, (int) $importId, $actor);
+
+            $body = trim(($body !== null ? $body."\n\n---\n\n" : '').$markdown);
+            $source = $record->filename();
+
+            if ($record->attachment instanceof Attachment && ! $files->contains(fn (Attachment $file): bool => $file->is($record->attachment))) {
+                $files->prepend($record->attachment);
+            }
+        }
+
+        // What one page holds, as the editor enforces it.
+        $limit = max(10000, (int) config('attachments.imports.body_max_characters', 200000));
+
+        if ($body !== null && mb_strlen($body) > $limit) {
+            $body = rtrim(mb_substr($body, 0, $limit - 120))
+                ."\n\n---\n\n*The rest did not fit on one page. The whole original is attached to this page.*";
+            $truncated = true;
+        }
 
         return [
-            'label' => 'Created page “'.$page->title.'” (internal until published)',
-            'url' => route('docs.show', ['board' => $board, 'slug' => $page->slug]),
+            'attributes' => [
+                'title' => mb_substr($title, 0, 200),
+                'body_md' => $body,
+                'parent_id' => $parentId,
+            ],
+            'files' => $files->take(max(1, (int) config('attachments.max_per_owner', 20)))->values(),
+            'source' => $source,
+            'truncated' => $truncated,
         ];
+    }
+
+    /**
+     * A conversation's file as a page body: the copy prepared when it was
+     * read, or a conversion now for a file read before that existed.
+     *
+     * @return array{0: string, 1: AiAttachment, 2: bool}
+     */
+    private function importedBody(AiChatMessage $message, int $id, User $actor): array
+    {
+        $session = $message->session;
+
+        $record = $session === null ? null : AiAttachment::query()
+            ->visibleTo($actor)
+            ->forSession($session)
+            ->whereKey($id)
+            ->with('attachment')
+            ->first();
+
+        if (! $record instanceof AiAttachment || ! $record->attachment instanceof Attachment) {
+            throw new RuntimeException(
+                'The proposal names a file that is not attached to this conversation. Nothing was changed — '
+                .'attach the file again and ask once more.'
+            );
+        }
+
+        if (! $record->isImportable()) {
+            throw new RuntimeException(
+                '“'.$record->filename().'” cannot become a documentation page'
+                .($record->status->isReady() ? ' — pages are made from documents, not pictures or recordings.' : ': it could not be read.')
+                .' Nothing was changed.'
+            );
+        }
+
+        if ($record->markdown !== null) {
+            return [$record->markdown, $record, (bool) $record->markdown_truncated];
+        }
+
+        try {
+            $document = $this->importer->fromAttachment($record->attachment);
+        } catch (DocumentImportException $exception) {
+            throw new RuntimeException('“'.$record->filename().'” could not be imported: '.$exception->getMessage().' Nothing was changed.');
+        }
+
+        return [$document->markdown, $record, $document->truncated];
+    }
+
+    /**
+     * Write one prepared page: CreatePage, then its files.
+     *
+     * @param  array{attributes: array{title: string, body_md: ?string, parent_id: ?int}, files: Collection<int, Attachment>, source: ?string, truncated: bool}  $prepared
+     */
+    private function createPreparedPage(Board $board, array $prepared, User $actor): DocPage
+    {
+        // CreatePage always makes a page internal; publishing is a separate
+        // action with its own ability, and the chat has no way to reach it.
+        $page = $this->createPage->handle($board, $prepared['attributes'], $actor);
+
+        // Copied rather than moved: the conversation still refers to them.
+        foreach ($prepared['files'] as $file) {
+            $this->storage->copy($file, $page, $board, $actor);
+        }
+
+        return $page;
+    }
+
+    /**
+     * A prepared ticket whose description ends with a link to the page it came
+     * from — for an internal ticket only, because a customer who follows a link
+     * to an internal page meets a 404 and learns that the page exists.
+     *
+     * @param  array{attributes: array<string, mixed>, files: Collection<int, Attachment>}  $ticket
+     * @return array{attributes: array<string, mixed>, files: Collection<int, Attachment>}
+     */
+    private function linkedToPage(array $ticket, DocPage $page, string $url): array
+    {
+        if (($ticket['attributes']['customer_visible'] ?? false) === true) {
+            return $ticket;
+        }
+
+        $link = '*From the docs page ['.str_replace(['[', ']'], ['\\[', '\\]'], $page->title).']('.$url.')*';
+        $description = trim((string) ($ticket['attributes']['description_md'] ?? ''));
+
+        $ticket['attributes']['description_md'] = $description === '' ? $link : $description."\n\n---\n\n".$link;
+
+        return $ticket;
     }
 
     /**

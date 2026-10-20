@@ -60,6 +60,21 @@ enum AiActionType: string
     case UpdateDocPage = 'update_doc_page';
 
     /*
+     * A file put into the documentation, and its to-dos and bugs turned into
+     * tickets, as one request.
+     *
+     * "Import this to the docs and make the tickets" is one thing to ask, so it
+     * is one proposal with one preview: the page — its body the file's whole
+     * contents, converted server-side (import_attachment_id), never retyped by
+     * the model — and the tickets beneath it. Like a batch of tickets it is all
+     * or nothing at the point of authorization: the page and every ticket are
+     * checked before anything is written. The tickets start INTERNAL unless the
+     * person says otherwise, because they come from a page that is itself
+     * internal.
+     */
+    case ImportDocument = 'import_document';
+
+    /*
      * Ask for a coding session on a ticket.
      *
      * The odd one out in this enum, and worth reading carefully. The other
@@ -148,6 +163,7 @@ enum AiActionType: string
             self::UpdateTicket => 'Update a ticket',
             self::CreateDocPage => 'Create a documentation page',
             self::UpdateDocPage => 'Update a documentation page',
+            self::ImportDocument => 'Import a file into the documentation',
             self::CodeRun => 'Start an AI coding session',
             self::CommentTicket => 'Comment on a ticket',
             self::DeleteTicket => 'Delete a ticket',
@@ -162,6 +178,7 @@ enum AiActionType: string
             self::UpdateTicket => 'Apply ticket changes',
             self::CreateDocPage => 'Create page',
             self::UpdateDocPage => 'Apply page changes',
+            self::ImportDocument => 'Import page',
             self::CodeRun => 'Start coding session',
             self::CommentTicket => 'Post comment',
             self::DeleteTicket => 'Delete permanently',
@@ -189,8 +206,20 @@ enum AiActionType: string
                 .'title or body, and attaching files from this conversation (attachment_ids) — send every field '
                 .'the person asked to change in one call. Omitted fields are left alone. Each field is authorized '
                 .'separately against the person asking, so some may be refused while others succeed.',
-            self::CreateDocPage => 'Propose a new documentation page on this board. New pages are always internal until somebody publishes them separately.',
+            self::CreateDocPage => 'Propose a new documentation page. New pages are always internal until somebody publishes them '
+                .'separately. To put a file the person attached into the documentation, pass its id in '
+                .'import_attachment_id — the whole file becomes the page body, converted for you — and never retype '
+                .'a file into body_md. When they also want tickets from it, use propose_import_document instead, '
+                .'which does both in one step.',
             self::UpdateDocPage => 'Propose changes to the title or body of an existing documentation page, identified by its slug. Nothing is written until the user accepts.',
+            self::ImportDocument => 'Put a file the person attached into the documentation AND create tickets from it, in one '
+                .'step — what "import this into the docs and make the tickets" asks for. The page takes the whole '
+                .'file: pass the file\'s id in page.import_attachment_id (it is converted to the page body for you, '
+                .'headings, lists and checkboxes kept) and do not retype it into body_md, which is only for a short '
+                .'introduction above it. In `tickets`, put one ticket for each open to-do and each bug the file '
+                .'describes — not the ones already ticked off — up to '.self::maxTicketsPerReply().', each with every '
+                .'field you can tell from the file. The tickets are internal unless the person says customers should '
+                .'see them. The page and the tickets are authorized together: if any part cannot be done, nothing is.',
             self::CodeRun => 'Propose starting an AI coding session on a ticket. In suggest mode Claude reads the '
                 .'ticket and the repository and posts an internal analysis note. In apply mode it works in an '
                 .'isolated clone, on a new branch, runs the configured tests and opens a DRAFT pull request for a '
@@ -272,6 +301,7 @@ enum AiActionType: string
                 'type' => 'object',
                 'properties' => [
                     'board' => ['type' => 'string', 'description' => 'The board to create them all on — its name, slug or ticket prefix. Omit when the conversation is already about one board; required when it is about the whole workspace. One board per call.'],
+                    'source_page_slug' => ['type' => 'string', 'description' => 'When the tickets come from a documentation page — THE PAGE ON SCREEN — its slug. Internal tickets then link back to the page.'],
                     'tickets' => [
                         'type' => 'array',
                         'minItems' => 1,
@@ -337,11 +367,34 @@ enum AiActionType: string
             self::CreateDocPage => [
                 'type' => 'object',
                 'properties' => [
-                    'title' => ['type' => 'string', 'description' => 'Page title, at most 200 characters.'],
-                    'body_md' => ['type' => 'string', 'description' => 'Markdown body of the page.'],
-                    'parent_slug' => ['type' => 'string', 'description' => 'Slug of an existing page to nest this one under. Omit for a top-level page.'],
+                    ...self::pageProperties(),
+                    'board' => ['type' => 'string', 'description' => 'The board whose documentation it goes in — its name, slug or ticket prefix. Omit when the conversation is already about one board; required when it is about the whole workspace.'],
                 ],
                 'required' => ['title'],
+            ],
+
+            self::ImportDocument => [
+                'type' => 'object',
+                'properties' => [
+                    'board' => ['type' => 'string', 'description' => 'The board to import into — its name, slug or ticket prefix. Omit when the conversation is already about one board; required when it is about the whole workspace. The page and the tickets go on the same board.'],
+                    'page' => [
+                        'type' => 'object',
+                        'description' => 'The documentation page the file becomes.',
+                        'properties' => self::pageProperties(),
+                        'required' => ['title'],
+                    ],
+                    'tickets' => [
+                        'type' => 'array',
+                        'maxItems' => self::maxTicketsPerReply(),
+                        'description' => 'A ticket for each open to-do and each bug in the file, in the order they appear. Each takes the same fields as propose_create_ticket. Omit or leave empty to import the page alone.',
+                        'items' => [
+                            'type' => 'object',
+                            'properties' => self::ticketProperties(),
+                            'required' => ['title'],
+                        ],
+                    ],
+                ],
+                'required' => ['page'],
             ],
 
             self::CodeRun => [
@@ -361,6 +414,7 @@ enum AiActionType: string
                 'type' => 'object',
                 'properties' => [
                     'slug' => ['type' => 'string', 'description' => 'Slug of the page to change.'],
+                    'board' => ['type' => 'string', 'description' => 'The board the page is on — its name, slug or ticket prefix. Omit when the conversation is already about one board.'],
                     'title' => ['type' => 'string', 'description' => 'Replacement title. Omit to leave unchanged.'],
                     'body_md' => ['type' => 'string', 'description' => 'Replacement Markdown body. Omit to leave unchanged.'],
                 ],
@@ -400,6 +454,34 @@ enum AiActionType: string
                 'description' => 'Files from this conversation to put on the ticket, by the id shown next to each entry under ATTACHED FILES (e.g. "ATTACHMENT 1 (id 57)" → 57). Include every attachment the ticket is about; when the person dropped screenshots and asked for a ticket, that is all of them. Images are embedded in the description so they are visible; other files are attached.',
             ],
             'customer_visible' => ['type' => 'boolean', 'description' => 'New tickets are visible to the board\'s customers by default. Pass false when the person says the ticket is internal, or when it is clearly staff-only — a security problem, credentials, internal notes, anything about another customer. Passing true cannot make a ticket more visible than the board allows.'],
+        ];
+    }
+
+    /**
+     * The fields of a new documentation page.
+     *
+     * Shared by propose_create_doc_page and the page of propose_import_document.
+     * `import_attachment_id` is what makes a long file a page without the model
+     * typing it out: the server converts the stored file (DocumentImporter) and
+     * uses that as the body. A model that retyped a forty-page document into
+     * `body_md` would be cut off long before the end, and would paraphrase what
+     * it did not drop.
+     *
+     * @return array<string, mixed>
+     */
+    public static function pageProperties(): array
+    {
+        return [
+            'title' => ['type' => 'string', 'description' => 'Page title, at most 200 characters. When importing a file, its own title or a clear name for it.'],
+            'body_md' => ['type' => 'string', 'description' => 'Markdown body. When import_attachment_id is given this is only an optional short introduction placed above the imported file — never a copy of it.'],
+            'parent_slug' => ['type' => 'string', 'description' => 'Slug of an existing page to nest this one under. Omit for a top-level page.'],
+            'import_attachment_id' => ['type' => 'integer', 'description' => 'The id of a file attached to this conversation (shown under ATTACHED FILES, e.g. "ATTACHMENT 1 (id 57)" → 57) whose whole contents become the page body, converted to Markdown with its headings, lists, checkboxes and tables. The original file is attached to the page too.'],
+            'attachment_ids' => [
+                'type' => 'array',
+                'maxItems' => 20,
+                'items' => ['type' => 'integer'],
+                'description' => 'Other files from this conversation to attach to the page, by id.',
+            ],
         ];
     }
 

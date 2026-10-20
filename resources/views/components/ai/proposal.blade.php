@@ -38,9 +38,27 @@
         // and its button says how many will be created.
         $batch = $type === \App\Enums\AiActionType::CreateTickets;
         $batchTickets = $batch ? array_values(array_filter((array) ($input['tickets'] ?? []), 'is_array')) : [];
-        $confirmLabel = $batch
-            ? 'Create '.count($batchTickets).' '.\Illuminate\Support\Str::plural('ticket', count($batchTickets))
-            : ($type?->confirmLabel() ?? 'Confirm');
+
+        // A file imported into the docs, with its tickets: the page, then the
+        // list. The body is the file's own text, converted on the server, so
+        // the card says which file and how much is in it rather than showing
+        // forty pages of it.
+        $import = $type === \App\Enums\AiActionType::ImportDocument;
+        $importPage = $import && is_array($input['page'] ?? null) ? $input['page'] : [];
+        $importTickets = $import ? array_values(array_filter((array) ($input['tickets'] ?? []), 'is_array')) : [];
+
+        // The file a page is made from, on an import or a plain page request.
+        $sourceId = $import ? ($importPage['import_attachment_id'] ?? null) : ($input['import_attachment_id'] ?? null);
+        $source = is_int($sourceId) || (is_string($sourceId) && ctype_digit($sourceId))
+            ? \App\Models\AiAttachment::query()->visibleTo(auth()->user())->whereKey((int) $sourceId)->first()
+            : null;
+        $sourceTasks = $source?->markdown === null ? null : preg_match_all('/^\s*- \[ \]\s/m', (string) $source->markdown);
+
+        $confirmLabel = match (true) {
+            $batch => 'Create '.count($batchTickets).' '.\Illuminate\Support\Str::plural('ticket', count($batchTickets)),
+            $import && $importTickets !== [] => 'Import page and create '.count($importTickets).' '.\Illuminate\Support\Str::plural('ticket', count($importTickets)),
+            default => $type?->confirmLabel() ?? 'Confirm',
+        };
 
         // What was left out of this proposal and why — said on the card.
         $notes = array_values(array_filter((array) ($action['notes'] ?? []), 'is_string'));
@@ -66,57 +84,64 @@
                 {{ $type?->label() ?? 'Action' }}
             @elseif ($batch && $batchTickets !== [])
                 Proposed: {{ $confirmLabel }}@if (filled($input['board'] ?? null)) on {{ $input['board'] }}@endif
+            @elseif ($import)
+                Proposed: import “{{ \Illuminate\Support\Str::limit((string) ($importPage['title'] ?? 'Untitled'), 120) }}” into the
+                {{ filled($input['board'] ?? null) ? $input['board'].' docs' : 'docs' }}
+                @if ($importTickets !== [])
+                    and create {{ count($importTickets) }} {{ \Illuminate\Support\Str::plural('ticket', count($importTickets)) }}
+                @endif
             @else
                 Proposed: {{ $type?->label() ?? 'unknown action' }}
             @endif
         </p>
 
         @if ($batch && $batchTickets !== [])
-            {{--
-                The preview of a batch: every ticket, in the order it will be
-                numbered, with what was asked for it. Descriptions fold away so
-                thirty tickets still read as a list.
-            --}}
-            <ol class="mt-2 max-h-96 list-decimal space-y-2 overflow-y-auto pl-5 text-xs">
-                @foreach ($batchTickets as $entry)
-                    @php
-                        $meta = array_filter([
-                            is_string($entry['type'] ?? null) ? $entry['type'] : null,
-                            is_string($entry['priority'] ?? null) ? $entry['priority'].' priority' : null,
-                            is_string($entry['column'] ?? null) ? 'in '.$entry['column'] : null,
-                            is_string($entry['assignee'] ?? null) ? 'for '.$entry['assignee'] : null,
-                            is_array($entry['labels'] ?? null) && $entry['labels'] !== []
-                                ? implode(', ', array_filter($entry['labels'], 'is_string')) : null,
-                            is_array($entry['attachment_ids'] ?? null) && $entry['attachment_ids'] !== []
-                                ? count($entry['attachment_ids']).' '.\Illuminate\Support\Str::plural('file', count($entry['attachment_ids'])) : null,
-                        ]);
-                    @endphp
+            <x-ai.proposal-tickets :tickets="$batchTickets" />
+        @endif
 
-                    <li class="text-slate-700">
-                        <span class="font-medium text-slate-800">{{ \Illuminate\Support\Str::limit((string) ($entry['title'] ?? 'Untitled'), 200) }}</span>
-                        @if (($entry['customer_visible'] ?? true) === false)
-                            <x-ui.internal-badge />
-                        @endif
+        @if ($import)
+            {{-- The page: which file becomes it, and how much is in it. --}}
+            <div class="mt-2 rounded-md border border-brand-100 bg-surface px-2.5 py-2 text-xs text-slate-700">
+                <p>
+                    <span class="font-medium text-slate-800">New page</span>
+                    @if (filled($importPage['parent_slug'] ?? null))
+                        inside {{ $importPage['parent_slug'] }}
+                    @endif
+                    &middot; internal until published
+                </p>
 
-                        @if ($meta !== [])
-                            <span class="block text-slate-500">{{ implode(' · ', $meta) }}</span>
+                @if ($source)
+                    <p class="mt-1">
+                        Its body is the whole of
+                        <span class="inline-flex items-center gap-1 rounded border border-slate-200 bg-surface-sunken px-1.5 py-0.5">
+                            <span aria-hidden="true">{{ $source->kind->icon() }}</span>{{ $source->filename() }}
+                        </span>
+                        @if ($source->summary)
+                            ({{ $source->summary }}@if ($sourceTasks), {{ $sourceTasks }} open {{ \Illuminate\Support\Str::plural('to-do', $sourceTasks) }}@endif)
                         @endif
+                        &mdash; headings, lists and checkboxes kept, and the file attached.
+                    </p>
+                @elseif (filled($importPage['import_attachment_id'] ?? null))
+                    <p class="mt-1 text-amber-800">The file it names is not on this conversation.</p>
+                @endif
 
-                        @if (filled($entry['description_md'] ?? null) && is_string($entry['description_md']))
-                            <details class="mt-0.5">
-                                <summary class="cursor-pointer text-slate-500 hover:text-slate-700">Description</summary>
-                                <p class="mt-1 whitespace-pre-wrap">{{ \Illuminate\Support\Str::limit($entry['description_md'], 1200) }}</p>
-                            </details>
-                        @endif
-                    </li>
-                @endforeach
-            </ol>
+                @if (filled($importPage['body_md'] ?? null) && is_string($importPage['body_md']))
+                    <details class="mt-1">
+                        <summary class="cursor-pointer text-slate-500 hover:text-slate-700">{{ $source ? 'Introduction above it' : 'Body' }}</summary>
+                        <p class="mt-1 whitespace-pre-wrap">{{ \Illuminate\Support\Str::limit($importPage['body_md'], 1200) }}</p>
+                    </details>
+                @endif
+            </div>
+
+            @if ($importTickets !== [])
+                <x-ai.proposal-tickets :tickets="$importTickets" internal-by-default />
+            @endif
         @endif
 
         {{-- The preview. Everything the model proposed, so what is
-             being confirmed is visible before confirming it. A batch has its
-             own list above instead. --}}
-        @unless ($batch)
+             being confirmed is visible before confirming it. A batch and an
+             import have their own preview above instead. --}}
+        @unless ($batch || $import)
         @php
             // The files a proposal names, looked up so the preview shows
             // pictures and names rather than numbers. Scoped to what this
@@ -167,8 +192,19 @@
                 </div>
             @endif
 
+            {{-- A page made from a file says which file, not its id. --}}
+            @if ($source)
+                <div>
+                    <dt class="font-medium text-slate-600">body</dt>
+                    <dd class="text-slate-700">
+                        the whole of {{ $source->filename() }}@if ($source->summary) ({{ $source->summary }})@endif, converted, with the file attached
+                    </dd>
+                </div>
+            @endif
+
             @foreach ($input as $field => $value)
-                @continue($field === 'attachment_ids')
+                @continue(in_array($field, ['attachment_ids', 'import_attachment_id'], true))
+                @continue($source && $field === 'body_md')
 
                 @php
                     // Arrays are flattened to a readable list rather than
@@ -241,6 +277,9 @@
                         @if ($batch)
                             Create all {{ count($batchTickets) }} now, as you? If any one of them cannot be
                             created, none are, and you will see which one and why.
+                        @elseif ($import)
+                            Import the page{{ $importTickets !== [] ? ' and create all '.count($importTickets).' tickets' : '' }}
+                            now, as you? If any part cannot be done, nothing is, and you will see why.
                         @else
                             Confirm this change? It will be made now, as you, and recorded in the
                             ticket or page history.
@@ -280,7 +319,7 @@
             <p class="mt-2 text-xs text-emerald-800">
                 {{ $action['result']['label'] ?? 'Done.' }}
                 @if (! empty($action['result']['url']))
-                    &middot; <a href="{{ $action['result']['url'] }}" wire:navigate class="underline">{{ $batch ? 'Open board' : 'Open' }}</a>
+                    &middot; <a href="{{ $action['result']['url'] }}" wire:navigate class="underline">{{ $batch ? 'Open board' : ($import ? 'Open page' : 'Open') }}</a>
                 @endif
             </p>
 

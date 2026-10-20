@@ -1118,6 +1118,14 @@ class WorkspaceChatService
             return 'Create '.count($titles).' tickets ('.implode('; ', $shown).($more > 0 ? '; and '.$more.' more' : '').')';
         }
 
+        if ($type === AiActionType::ImportDocument) {
+            $page = is_array($input['page'] ?? null) ? $input['page'] : [];
+            $count = count(array_filter((array) ($input['tickets'] ?? []), 'is_array'));
+
+            return 'Import '.(is_string($page['title'] ?? null) ? '"'.mb_strimwidth($page['title'], 0, 80, '…').'"' : 'a file')
+                .' into the docs'.($count > 0 ? ' with '.$count.' '.($count === 1 ? 'ticket' : 'tickets') : '');
+        }
+
         $subject = match (true) {
             is_string($input['title'] ?? null) => '"'.mb_strimwidth($input['title'], 0, 80, '…').'"',
             is_int($input['number'] ?? null) => '#'.$input['number'],
@@ -1165,7 +1173,11 @@ class WorkspaceChatService
      * there, and an unknown proposal would only be a confirm button that
      * cannot work.
      *
-     * Then one rule with one exception:
+     * Then one rule with two exceptions:
+     *
+     *   a page and its tickets are merged. A `propose_import_document`, or one
+     *   `propose_create_doc_page` with ticket creations beside it, is "put this
+     *   in the docs and make the tickets" — one `import_document` proposal;
      *
      *   ticket creations are merged. Several `propose_create_ticket` calls,
      *   one or more `propose_create_tickets`, or a mix, are one request — "make
@@ -1220,12 +1232,29 @@ class WorkspaceChatService
                 : 'A request that arrived without any details has been left out.';
         }
 
-        $allCreates = array_filter(
+        $creates = array_values(array_filter(
             $usable,
-            static fn (array $p): bool => ! in_array($p['type'], [AiActionType::CreateTicket, AiActionType::CreateTickets], true),
-        ) === [];
+            static fn (array $p): bool => in_array($p['type'], [AiActionType::CreateTicket, AiActionType::CreateTickets], true),
+        ));
 
-        if ($allCreates && (count($usable) > 1 || $usable[0]['type'] === AiActionType::CreateTickets)) {
+        $pages = array_values(array_filter($usable, static fn (array $p): bool => $p['type'] === AiActionType::CreateDocPage));
+        $imports = array_values(array_filter($usable, static fn (array $p): bool => $p['type'] === AiActionType::ImportDocument));
+
+        /*
+         * The second exception: a page and its tickets.
+         *
+         * "Import this into the docs and make the tickets" may arrive as one
+         * propose_import_document, or as a page request plus ticket requests
+         * in the same reply. Either way it is one request, so it becomes one
+         * import proposal — page and tickets confirmed together.
+         */
+        $onlyImportParts = count($creates) + count($pages) + count($imports) === count($usable);
+
+        if ($onlyImportParts && ($imports !== [] || (count($pages) === 1 && $creates !== []))) {
+            return $this->importProposal($imports, $pages, $creates, $notes);
+        }
+
+        if (count($creates) === count($usable) && (count($usable) > 1 || $usable[0]['type'] === AiActionType::CreateTickets)) {
             return $this->ticketBatch($usable, $notes);
         }
 
@@ -1250,30 +1279,133 @@ class WorkspaceChatService
      */
     private function ticketBatch(array $proposals, array $notes): array
     {
-        $board = null;
-        $boardKey = null;
+        $board = $this->boardNamed($proposals[0]['input']);
+
+        $tickets = $this->collectTickets($proposals, $board, $notes);
+
+        if ($tickets === []) {
+            return $this->failedProposal(AiActionType::CreateTickets, 'The request had no tickets in it, so nothing was proposed.');
+        }
+
+        $tickets = $this->capTickets($tickets, $notes);
+
+        $input = $board === null ? ['tickets' => $tickets] : ['board' => $board, 'tickets' => $tickets];
+
+        // The page the tickets come from, when the model said.
+        foreach ($proposals as $proposal) {
+            $source = $proposal['input']['source_page_slug'] ?? null;
+
+            if (is_string($source) && trim($source) !== '') {
+                $input['source_page_slug'] = trim($source);
+
+                break;
+            }
+        }
+
+        return $this->proposal(AiActionType::CreateTickets, $input, $notes);
+    }
+
+    /**
+     * A page and its tickets, as one `import_document` proposal.
+     *
+     * The page is the first propose_import_document's, or the one
+     * propose_create_doc_page's; its board is the proposal's board. Tickets
+     * from the import itself and from any ticket requests in the same reply
+     * are gathered under it — a ticket request that names no board belongs to
+     * the import's, and one that names another board is left out and said so.
+     *
+     * @param  list<array{type: AiActionType, input: array<string, mixed>}>  $imports
+     * @param  list<array{type: AiActionType, input: array<string, mixed>}>  $pages
+     * @param  list<array{type: AiActionType, input: array<string, mixed>}>  $creates
+     * @param  list<string>  $notes
+     * @return array<string, mixed>
+     */
+    private function importProposal(array $imports, array $pages, array $creates, array $notes): array
+    {
+        if ($imports !== []) {
+            $base = $imports[0]['input'];
+            $page = is_array($base['page'] ?? null) ? $base['page'] : [];
+            $tickets = array_values(array_filter((array) ($base['tickets'] ?? []), 'is_array'));
+
+            if (count($imports) > 1 || $pages !== []) {
+                $notes[] = 'Only one file is imported per request; the other was left out. Ask for it separately.';
+            }
+        } else {
+            $base = $pages[0]['input'];
+            $page = $base;
+            $tickets = [];
+        }
+
+        $board = $this->boardNamed($base);
+        unset($page['board']);
+
+        $tickets = array_map(static function (array $entry): array {
+            unset($entry['board']);
+
+            return $entry;
+        }, $tickets);
+
+        $tickets = array_values(array_filter(array_merge(
+            $tickets,
+            $this->collectTickets($creates, $board, $notes, unnamedMatches: true),
+        )));
+
+        if (! is_string($page['title'] ?? null) || trim($page['title']) === '') {
+            return $this->failedProposal(AiActionType::ImportDocument, 'The request did not say what to call the page, so nothing was proposed. Ask again.');
+        }
+
+        $input = ['page' => $page, 'tickets' => $this->capTickets($tickets, $notes)];
+
+        return $this->proposal(AiActionType::ImportDocument, $board === null ? $input : ['board' => $board] + $input, $notes);
+    }
+
+    /**
+     * The board a request named, if it named one.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    private function boardNamed(array $input): ?string
+    {
+        return is_string($input['board'] ?? null) && trim($input['board']) !== '' ? trim($input['board']) : null;
+    }
+
+    /**
+     * The tickets of several requests that are for `$board`.
+     *
+     * One board per proposal, because one board is what a confirmation is
+     * authorized against. Requests for another board are left out, and a note
+     * says how many. `$unnamedMatches` lets a request that names no board
+     * count as `$board`'s — right when the proposal's board was named by
+     * another part of the same request.
+     *
+     * @param  list<array{type: AiActionType, input: array<string, mixed>}>  $proposals
+     * @param  list<string>  $notes
+     * @return list<array<string, mixed>>
+     */
+    private function collectTickets(array $proposals, ?string $board, array &$notes, bool $unnamedMatches = false): array
+    {
+        $key = $board === null ? null : mb_strtolower($board);
         $tickets = [];
         $elsewhere = 0;
 
-        foreach ($proposals as $index => $proposal) {
+        foreach ($proposals as $proposal) {
             $input = $proposal['input'];
-            $named = is_string($input['board'] ?? null) && trim($input['board']) !== '' ? trim($input['board']) : null;
+            $named = $this->boardNamed($input);
 
             $entries = $proposal['type'] === AiActionType::CreateTickets
                 ? array_values(array_filter((array) ($input['tickets'] ?? []), 'is_array'))
                 : [$input];
 
-            if ($index === 0) {
-                $board = $named;
-                $boardKey = $named === null ? null : mb_strtolower($named);
-            } elseif (($named === null ? null : mb_strtolower($named)) !== $boardKey) {
+            $matches = ($named === null && $unnamedMatches) || ($named === null ? null : mb_strtolower($named)) === $key;
+
+            if (! $matches) {
                 $elsewhere += count($entries);
 
                 continue;
             }
 
             foreach ($entries as $entry) {
-                unset($entry['board']);
+                unset($entry['board'], $entry['source_page_slug']);
 
                 if ($entry !== []) {
                     $tickets[] = $entry;
@@ -1286,22 +1418,28 @@ class WorkspaceChatService
                 .' for another board '.($elsewhere === 1 ? 'was' : 'were').' left out. Ask for those separately.';
         }
 
-        if ($tickets === []) {
-            return $this->failedProposal(AiActionType::CreateTickets, 'The request had no tickets in it, so nothing was proposed.');
-        }
+        return $tickets;
+    }
 
+    /**
+     * At most the per-reply maximum, saying how many more there were.
+     *
+     * @param  list<array<string, mixed>>  $tickets
+     * @param  list<string>  $notes
+     * @return list<array<string, mixed>>
+     */
+    private function capTickets(array $tickets, array &$notes): array
+    {
         $max = AiActionType::maxTicketsPerReply();
 
-        if (count($tickets) > $max) {
-            $notes[] = 'Only the first '.$max.' tickets fit in one request; '.(count($tickets) - $max)
-                .' more were left out. Ask to continue for the rest.';
-
-            $tickets = array_slice($tickets, 0, $max);
+        if (count($tickets) <= $max) {
+            return $tickets;
         }
 
-        $input = $board === null ? ['tickets' => $tickets] : ['board' => $board, 'tickets' => $tickets];
+        $notes[] = 'Only the first '.$max.' tickets fit in one request; '.(count($tickets) - $max)
+            .' more were left out. Ask to continue for the rest.';
 
-        return $this->proposal(AiActionType::CreateTickets, $input, $notes);
+        return array_slice($tickets, 0, $max);
     }
 
     /**

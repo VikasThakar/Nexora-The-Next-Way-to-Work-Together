@@ -494,7 +494,9 @@ class AiAttachmentContext
             '',
             'Each file has an id. To put files on a ticket — a screenshot the person dropped in '
                 .'and asked you to file, say — pass those ids in the `attachment_ids` field of '
-                .'propose_create_ticket or propose_update_ticket.',
+                .'propose_create_ticket or propose_update_ticket. To make a document into a '
+                .'documentation page, pass its id as `import_attachment_id` to '
+                .'propose_import_document (page and tickets) or propose_create_doc_page (page alone).',
             '',
         ];
 

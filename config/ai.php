@@ -984,10 +984,17 @@ return [
          * Truncation is always announced in the prompt. A model that is handed
          * the first half of a document and not told is a model that will
          * confidently summarise the whole of it.
+         *
+         * Large enough for a whole working document — a to-do list, a bug
+         * list, a spec — because the model now reads the conversation in full
+         * against a million-token window, and a file stays in the conversation
+         * with the message it came in on (served from the provider's cache).
+         * The request is still budgeted against the model's window; see
+         * App\Services\AI\WorkspaceChatService::assemble().
          */
         'context' => [
-            'per_file_characters' => (int) env('AI_ATTACHMENT_FILE_CHARS', 40000),
-            'total_characters' => (int) env('AI_ATTACHMENT_TOTAL_CHARS', 120000),
+            'per_file_characters' => (int) env('AI_ATTACHMENT_FILE_CHARS', 200000),
+            'total_characters' => (int) env('AI_ATTACHMENT_TOTAL_CHARS', 400000),
 
             /*
              * How much of a document survives into its digest.
