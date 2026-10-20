@@ -68,6 +68,14 @@ abstract class WriteTool extends Tool
 {
     use ResolvesWorkspaceSubjects;
 
+    /**
+     * What this call turned out to be about, once resolved — so the audit
+     * row of a refused or failed change still names the ticket and board.
+     */
+    private ?string $resolvedTarget = null;
+
+    private ?Board $resolvedBoard = null;
+
     public function __construct(
         protected readonly AiToolContext $context,
         protected readonly string $via,
@@ -170,6 +178,8 @@ abstract class WriteTool extends Tool
         $started = hrtime(true);
         $user = $this->context->user;
         $raw = $request->all();
+        $this->resolvedTarget = null;
+        $this->resolvedBoard = null;
 
         $limiter = 'mcp-write:'.$user->getKey();
         $limit = max(1, (int) config('mcp.server.write_rate_limit', 30));
@@ -242,7 +252,12 @@ abstract class WriteTool extends Tool
             throw new NotFoundHttpException;
         }
 
-        return $ticket->loadMissing(['board', 'column', 'assignee', 'labels']);
+        $ticket->loadMissing(['board', 'column', 'assignee', 'labels']);
+
+        $this->resolvedTarget = $ticket->key();
+        $this->resolvedBoard = $ticket->board;
+
+        return $ticket;
     }
 
     /**
@@ -258,6 +273,8 @@ abstract class WriteTool extends Tool
         if (! $board instanceof Board) {
             throw new NotFoundHttpException;
         }
+
+        $this->resolvedBoard = $board;
 
         return $board;
     }
@@ -318,7 +335,7 @@ abstract class WriteTool extends Tool
         if ($updatedAt->getTimestamp() > $seen->getTimestamp() + 1) {
             throw new RuntimeException(
                 $what.' was changed at '.McpPresentation::time($updatedAt, McpPresentation::timezone())
-                .', after it was read. Nothing was changed — read it again, check what changed, and then make the change.'
+                .', after it was read. Read it again, check what changed, and then make the change.'
             );
         }
     }
@@ -437,8 +454,8 @@ abstract class WriteTool extends Tool
             outcome: $outcome->outcome,
             success: $outcome->succeeded(),
             user: $user,
-            board: $outcome->board,
-            target: $outcome->target !== null ? mb_substr($outcome->target, 0, 190) : null,
+            board: $outcome->board ?? $this->resolvedBoard,
+            target: ($target = $outcome->target ?? $this->resolvedTarget) !== null ? mb_substr($target, 0, 190) : null,
             input: array_diff_key($input, ['confirmation' => true]),
             note: $user->name.' via '.$this->via.': '.($outcome->note ?? Str::limit($this->plain($outcome->text), 240)),
             resultCharacters: mb_strlen($outcome->text),

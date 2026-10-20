@@ -141,7 +141,7 @@ class GetTicketTool implements AiToolContract
         if ($mcp) {
             $lines[] = 'Created: '.McpPresentation::time($ticket->created_at, $timezone);
             $lines[] = 'Last updated: '.($ticket->updated_at?->toIso8601String() ?? 'unknown')
-                .' ('.McpPresentation::time($ticket->updated_at, $timezone).')';
+                .' — '.McpPresentation::time($ticket->updated_at, $timezone);
         } else {
             $lines[] = 'Created: '.($ticket->created_at?->toDateTimeString() ?? 'unknown');
             $lines[] = 'Last updated: '.($ticket->updated_at?->toDateTimeString() ?? 'unknown');

@@ -235,6 +235,15 @@ class McpWriteToolsTest extends TestCase
         $this->assertStringContainsString('after it was read', $this->mcpText($stale));
         $this->assertSame('Original', $ticket->refresh()->title);
 
+        // The refusal is audited against the ticket it was about.
+        $this->assertDatabaseHas('ai_tool_invocations', [
+            'tool' => 'update_ticket',
+            'outcome' => AiToolInvocation::OUTCOME_ERROR,
+            'success' => false,
+            'target' => $ticket->key(),
+            'board_id' => $board->id,
+        ]);
+
         $fresh = $this->mcpTool('update_ticket', [
             'ticket' => $ticket->key(),
             'title' => 'From a fresh read',
@@ -307,6 +316,22 @@ class McpWriteToolsTest extends TestCase
         $changed = $this->mcpTool('add_comment', [...$arguments, 'body' => 'Something else entirely', 'confirmation' => $code]);
         $this->assertStringContainsString('Confirmation needed', $this->mcpText($changed));
         $this->assertSame(1, Comment::query()->where('stream', CommentStream::Customer->value)->count());
+    }
+
+    public function test_a_customer_thread_comment_on_an_internal_ticket_does_not_claim_the_customer_reads_it(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $ticket = $this->ticketOn($board, $team, ['customer_visible' => false]);
+
+        $pending = $this->mcpAs($team)->mcpTool('add_comment', [
+            'ticket' => $ticket->key(),
+            'body' => 'For the customer, later.',
+            'visible_to_customer' => true,
+        ]);
+
+        $this->assertStringContainsString('the ticket is internal now', $this->mcpText($pending));
+        $this->assertStringNotContainsString('customer will read', $this->mcpText($pending));
     }
 
     // -----------------------------------------------------------------

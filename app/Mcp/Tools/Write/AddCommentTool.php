@@ -68,9 +68,15 @@ final class AddCommentTool extends WriteTool
         // insists on that too.
         $toCustomer = ! $this->context->staff || ($input['visible_to_customer'] ?? false) === true;
 
+        // On an internal ticket the customer thread is not read by anybody
+        // yet — only once the ticket is shared. Said so, rather than claimed.
+        $readers = $ticket->customer_visible
+            ? 'the **customer will read**'
+            : 'on the **customer thread** — the ticket is internal now, so customers will read it only if it is shared —';
+
         if ($this->context->staff && $toCustomer) {
             $pending = $this->confirmation($input, $ticket->key(), $board,
-                '💬 This posts a comment the **customer will read** on '.McpPresentation::ticketLink($ticket)
+                '💬 This posts a comment '.$readers.' on '.McpPresentation::ticketLink($ticket)
                 .' '.McpPresentation::inline((string) $ticket->title).":\n\n> "
                 .str_replace("\n", "\n> ", Str::limit(trim((string) $input['body']), 1500))
             );
@@ -86,9 +92,12 @@ final class AddCommentTool extends WriteTool
             'customer_visible' => $toCustomer,
         ]);
 
-        $where = ! $this->context->staff
-            ? 'the team will see it'
-            : ($toCustomer ? '👁️ on the customer thread — the customer can read it' : '🔒 internal note — only the team sees it');
+        $where = match (true) {
+            ! $this->context->staff => 'the team will see it',
+            ! $toCustomer => '🔒 internal note — only the team sees it',
+            (bool) $ticket->customer_visible => '👁️ on the customer thread — the customer can read it',
+            default => '👁️ on the customer thread — the ticket is internal, so customers see it only if it is shared',
+        };
 
         return WriteOutcome::ok(
             '✅ **Comment posted on '.McpPresentation::ticketLink($ticket).' '.McpPresentation::inline((string) $ticket->title).'** — '.$where
