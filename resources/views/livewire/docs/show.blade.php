@@ -467,7 +467,10 @@
                 {{-- ------------------------------------------------- --}}
                 <header class="border-b border-slate-100 px-5 py-4 sm:px-8">
                     <div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
-                        <div class="flex min-w-0 flex-1 items-start gap-2">
+                        {{-- A minimum width, so on a narrow column (the assistant
+                             open beside it) the buttons wrap below the title
+                             rather than squeezing it to a letter. --}}
+                        <div class="flex min-w-[14rem] flex-1 items-start gap-2">
                             @if ($canEditPage)
                                 <x-docs.icon-picker :current="$icon" method="setIcon" size="lg" class="-ml-1.5" />
                             @elseif (filled($page->icon))

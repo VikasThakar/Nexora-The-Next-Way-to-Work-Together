@@ -405,6 +405,7 @@
                         </div>
 
                     <form wire:submit="send" class="space-y-2">
+                        {{-- Enter sends; Shift+Enter is left alone, so it writes a new line. --}}
                         <x-ui.textarea
                             x-ref="composer"
                             wire:model="draft"
@@ -413,8 +414,7 @@
                             aria-label="Ask Nexora AI"
                             :invalid="$errors->has('draft')"
                             :disabled="$sending"
-                            @keydown.enter.prevent="$wire.send()"
-                            @keydown.shift.enter.stop
+                            @keydown.enter.exact.prevent="$wire.send()"
                             x-on:paste="paste($event)"
                         >{{ $draft }}</x-ui.textarea>
 

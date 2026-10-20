@@ -109,6 +109,14 @@ class DocumentImporterTest extends TestCase
         $this->assertStringContainsString('Body \\<b>bold\\</b>.', $document->markdown);
     }
 
+    public function test_a_text_files_opening_line_on_its_own_is_its_title(): void
+    {
+        $document = $this->import(FakeFiles::text("Known issues\n\n- Search ignores accents", 'bug-list.txt'));
+
+        $this->assertSame('Known issues', $document->title);
+        $this->assertSame('- Search ignores accents', $document->markdown);
+    }
+
     public function test_without_a_heading_the_title_comes_from_the_file_name(): void
     {
         $document = $this->import(FakeFiles::text('Just a line.', 'sprint_notes-v2.txt'));

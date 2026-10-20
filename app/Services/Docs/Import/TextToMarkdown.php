@@ -63,6 +63,16 @@ final class TextToMarkdown
                 continue;
             }
 
+            // A short first line standing on its own is the document's title:
+            // "Known issues", then a blank line, then the list.
+            if ($blocks === [] && $paragraph === [] && $next === '' && $index + 1 < $count
+                && mb_strlen($trimmed) <= 80 && ! str_ends_with($trimmed, '.') && self::item($raw) === null
+                && preg_match('/^#{1,6}\s/', $trimmed) !== 1) {
+                $blocks[] = ['type' => 'heading', 'level' => 1, 'text' => MarkdownText::inline(rtrim($trimmed, ': '))];
+
+                continue;
+            }
+
             // Setext: "Title" underlined with === or ---.
             if ($paragraph === [] && $next !== '' && preg_match('/^(=+|-+)$/', $next) === 1 && mb_strlen($next) >= 3
                 && self::item($raw) === null) {
