@@ -75,6 +75,8 @@ class AiToolRunner
         $prose = [];
         $inputTokens = null;
         $outputTokens = null;
+        $cacheReadTokens = null;
+        $cacheWriteTokens = null;
         $invocations = [];
         $spent = 0;
         $rounds = 0;
@@ -95,6 +97,8 @@ class AiToolRunner
             // question with three lookups actually cost.
             $inputTokens = $this->add($inputTokens, $completion->inputTokens);
             $outputTokens = $this->add($outputTokens, $completion->outputTokens);
+            $cacheReadTokens = $this->add($cacheReadTokens, $completion->cacheReadTokens);
+            $cacheWriteTokens = $this->add($cacheWriteTokens, $completion->cacheWriteTokens);
 
             $calls = array_values(array_filter(
                 $completion->toolCalls,
@@ -147,6 +151,8 @@ class AiToolRunner
 
                 $inputTokens = $this->add($inputTokens, $completion->inputTokens);
                 $outputTokens = $this->add($outputTokens, $completion->outputTokens);
+                $cacheReadTokens = $this->add($cacheReadTokens, $completion->cacheReadTokens);
+                $cacheWriteTokens = $this->add($cacheWriteTokens, $completion->cacheWriteTokens);
 
                 break;
             }
@@ -219,7 +225,7 @@ class AiToolRunner
         }
 
         return new AiToolRun(
-            completion: $this->merge($completion, $prose, $inputTokens, $outputTokens),
+            completion: $this->merge($completion, $prose, $inputTokens, $outputTokens, $cacheReadTokens, $cacheWriteTokens),
             rounds: $rounds,
             invocations: $invocations,
         );
@@ -253,6 +259,11 @@ class AiToolRunner
     /**
      * One completion describing the whole exchange.
      *
+     * The token counts are sums, because every round was billed. How full the
+     * model's window is, though, is not a sum: each round resent everything
+     * before it, so the last round alone says how much the conversation now
+     * takes up.
+     *
      * @param  list<string>  $prose
      */
     private function merge(
@@ -260,6 +271,8 @@ class AiToolRunner
         array $prose,
         ?int $inputTokens,
         ?int $outputTokens,
+        ?int $cacheReadTokens = null,
+        ?int $cacheWriteTokens = null,
     ): AiCompletion {
         if ($last === null) {
             // Unreachable: the loop always runs at least once, and a provider
@@ -280,6 +293,9 @@ class AiToolRunner
             stopReason: $last->stopReason,
             toolCalls: $last->toolCalls,
             metadata: $last->metadata,
+            cacheReadTokens: $cacheReadTokens,
+            cacheWriteTokens: $cacheWriteTokens,
+            contextTokens: $last->contextSize(),
         );
     }
 

@@ -394,6 +394,36 @@ class AiTokenUsageTest extends TestCase
         $this->assertSame($callsBefore, $fake->calls);
     }
 
+    /**
+     * Tokens read back from the provider's cache count as a tenth against the
+     * daily allowance, roughly what they cost. A conversation replayed in full
+     * on every question would otherwise spend the allowance ten times faster
+     * than money.
+     */
+    public function test_cached_tokens_count_as_a_tenth_against_the_daily_ceiling(): void
+    {
+        $this->fakeAiProvider();
+
+        $board = $this->boardWithColumns([$team = $this->teamMember()]);
+
+        app(UpdateGlobalAiSettings::class)->handle(['daily_user_token_limit' => 300000]);
+        app(AiConfigurationResolver::class)->flush();
+
+        // A million tokens read, 900,000 of them from the cache: 190,000.
+        AiUsageRecord::factory()->by($team)->tokens(1000000, 0)->create(['tokens_cache_read' => 900000]);
+
+        $this->assertSame(190000, app(AiUsageRecorder::class)->spentTodayBy($team));
+
+        Livewire::actingAs($team)
+            ->test(Assistant::class)
+            ->call('reveal', $board->slug)
+            ->call('selectScope', $board->slug)
+            ->set('draft', 'A question.')
+            ->call('send')
+            ->assertHasNoErrors()
+            ->assertDontSee('daily AI limit');
+    }
+
     public function test_the_daily_ceiling_counts_only_this_persons_usage(): void
     {
         $this->fakeAiProvider();

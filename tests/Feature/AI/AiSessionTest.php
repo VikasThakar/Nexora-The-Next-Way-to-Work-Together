@@ -633,6 +633,98 @@ class AiSessionTest extends TestCase
             ->assertDontSee('This conversation is getting long.');
     }
 
+    /**
+     * Without a spending cap — the default — the note is about the model's
+     * window, not about what has been spent: a conversation that has spent a
+     * great deal but still fits says nothing, and one that nearly fills what
+     * the model can read at once says so.
+     */
+    public function test_a_conversation_nearing_the_models_window_suggests_a_new_one(): void
+    {
+        $fake = $this->fakeAiProvider();
+        $fake->inputTokens = 5000000;
+        $fake->outputTokens = 200;
+        $fake->cacheReadTokens = 4900000;
+
+        config(['ai.limits.session_tokens' => 0, 'ai.chat.context_max_tokens' => 0]);
+
+        $board = $this->boardWithColumns([$team = $this->teamMember()]);
+
+        $panel = Livewire::actingAs($team)
+            ->test(Assistant::class)
+            ->call('reveal', $board->slug)
+            ->call('selectScope', $board->slug)
+            ->set('draft', 'First question.')
+            ->call('send')
+            ->assertDontSee('This conversation is getting long.');
+
+        $session = AiSession::query()->sole();
+
+        // What the last exchange saw, against Opus 5's million-token window.
+        $session->forceFill(['context_tokens' => 700000])->save();
+        $panel->call('$refresh')->assertDontSee('nearly as long as the assistant can read at once');
+
+        $session->forceFill(['context_tokens' => 850000])->save();
+        $panel->call('$refresh')->assertSee('nearly as long as the assistant can read at once');
+
+        Livewire::actingAs($team)
+            ->test(Chat::class, ['board' => $board])
+            ->assertSee('nearly as long as the assistant can read at once')
+            ->call('startNewSession')
+            ->assertDontSee('nearly as long as the assistant can read at once');
+    }
+
+    public function test_a_trimmed_conversation_says_its_beginning_is_out_of_view(): void
+    {
+        $session = AiSession::factory()->create(['context_tokens' => 1000, 'history_anchor_message_id' => 5]);
+
+        $this->assertTrue($session->hasDroppedHistory());
+        $this->assertFalse($session->isNearingContextWindow());
+
+        $html = view('components.ai.context-hint', [
+            'session' => $session,
+            'configuration' => app(AiConfigurationResolver::class)->forBoard(null),
+        ])->render();
+
+        $this->assertStringContainsString('no longer in the assistant', $html);
+    }
+
+    /**
+     * The window comes from the model catalogue, with a conservative figure
+     * for a model it says nothing about, and a deployment may hold every
+     * conversation below the real window.
+     */
+    public function test_the_context_window_follows_the_model(): void
+    {
+        $opus = AiSession::factory()->create(['model' => 'claude-opus-5']);
+        $unknown = AiSession::factory()->create(['model' => 'gpt-5.1']);
+
+        $this->assertSame(1000000, $opus->contextWindow());
+        $this->assertSame(128000, $unknown->contextWindow());
+
+        config(['ai.chat.context_max_tokens' => 200000]);
+
+        $this->assertSame(200000, $opus->contextWindow());
+    }
+
+    /**
+     * Tokens read back from the provider's cache count as a tenth against a
+     * cap, roughly what they cost.
+     */
+    public function test_cached_tokens_count_as_a_tenth_against_a_cap(): void
+    {
+        $session = AiSession::factory()->create([
+            'tokens_input' => 1000000,
+            'tokens_output' => 10000,
+            'tokens_cache_read' => 900000,
+        ]);
+
+        $this->assertSame(1010000, $session->totalTokens());
+        $this->assertSame(200000, $session->meteredTokens());
+        $this->assertFalse($session->hasReachedTokenLimit(400000));
+        $this->assertTrue($session->hasReachedTokenLimit(200000));
+    }
+
     public function test_nearing_the_limit_follows_the_same_rules_as_reaching_it(): void
     {
         $session = AiSession::factory()->create(['tokens_input' => 700, 'tokens_output' => 100]);

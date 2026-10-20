@@ -92,7 +92,7 @@
             <p class="mt-1 text-xs text-slate-400">
                 about {{ number_format($attachment->token_estimate) }} tokens of context
                 @if ($attachment->wasSentInFull())
-                    · already sent, so later questions reference it rather than re-sending it
+                    · in the conversation, so later questions read it from there
                 @endif
             </p>
         @endif

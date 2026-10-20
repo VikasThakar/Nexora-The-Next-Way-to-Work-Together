@@ -215,6 +215,43 @@ class OpenAiProviderTest extends TestCase
     // Usage, and the honest blank
     // -----------------------------------------------------------------
 
+    /**
+     * OpenAI caches a repeated prefix on its own and reports the cached part
+     * inside `prompt_tokens`. The input stays inclusive and the cached part is
+     * reported beside it, the same shape the Anthropic adapter produces.
+     */
+    public function test_cached_prompt_tokens_are_reported(): void
+    {
+        Http::fake(['api.openai.com/*' => Http::response($this->answer([
+            'usage' => ['prompt_tokens_details' => ['cached_tokens' => 1024]],
+        ]))]);
+
+        $completion = $this->provider()->complete($this->prompt());
+
+        $this->assertSame(1200, $completion->inputTokens);
+        $this->assertSame(1024, $completion->cacheReadTokens);
+        $this->assertNull($completion->cacheWriteTokens);
+    }
+
+    /**
+     * The `cache` flag on a message is the application's own and never part of
+     * the request OpenAI receives.
+     */
+    public function test_the_cache_flag_is_not_sent(): void
+    {
+        Http::fake(['api.openai.com/*' => Http::response($this->answer())]);
+
+        $this->provider()->complete(new AiPrompt(
+            model: 'gpt-5.1',
+            system: 'Be brief.',
+            messages: [['role' => 'user', 'content' => 'Hello', 'cache' => true]],
+            maxOutputTokens: 100,
+            cache: true,
+        ));
+
+        Http::assertSent(static fn ($request): bool => ! str_contains($request->body(), '"cache"'));
+    }
+
     public function test_a_response_with_no_usage_block_reports_null(): void
     {
         $answer = $this->answer();

@@ -369,27 +369,13 @@
                     </p>
                 @else
                     {{--
-                        The cue to start afresh, before the ceiling refuses a
-                        question halfway through a thought. Shown from 80% of
-                        the conversation's token allowance; the remedy is the
+                        The cue to start afresh, when the conversation is
+                        nearly as long as the model can read at once (or near
+                        a spending cap, where one is set). The remedy is the
                         same + as in the header, offered where the person is
                         about to type.
                     --}}
-                    @if ($session?->isOpen() && $session->isNearingTokenLimit($configuration->sessionTokenLimit))
-                        <div role="status" class="mb-2 flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                            <span>This conversation is getting long. Start a new one for a fresh context.</span>
-                            <button
-                                type="button"
-                                wire:click="startNewSession"
-                                wire:loading.attr="disabled"
-                                wire:target="send,startNewSession"
-                                @disabled($sending)
-                                class="shrink-0 font-medium text-amber-900 underline decoration-dotted disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                New conversation
-                            </button>
-                        </div>
-                    @endif
+                    <x-ai.context-hint :session="$session" :configuration="$configuration" :sending="$sending" compact />
 
                     {{--
                         The composer: attachments above the box, so a list of

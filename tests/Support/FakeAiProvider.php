@@ -37,6 +37,11 @@ class FakeAiProvider implements AiProviderInterface
 
     public ?int $outputTokens = 350;
 
+    /** The parts of the input the provider says it served from, and wrote to, its cache. */
+    public ?int $cacheReadTokens = null;
+
+    public ?int $cacheWriteTokens = null;
+
     public ?string $model = 'claude-opus-5';
 
     public ?string $stopReason = 'end_turn';
@@ -44,6 +49,14 @@ class FakeAiProvider implements AiProviderInterface
     public bool $configured = true;
 
     public ?AiProviderException $throws = null;
+
+    /**
+     * Failures to raise once each, before answering normally — a request the
+     * provider refuses and the caller retries.
+     *
+     * @var list<AiProviderException>
+     */
+    public array $throwsOnce = [];
 
     public int $calls = 0;
 
@@ -103,6 +116,10 @@ class FakeAiProvider implements AiProviderInterface
             throw $this->throws;
         }
 
+        if ($this->throwsOnce !== []) {
+            throw array_shift($this->throwsOnce);
+        }
+
         [$text, $toolCalls] = $this->next();
 
         return new AiCompletion(
@@ -113,6 +130,8 @@ class FakeAiProvider implements AiProviderInterface
             stopReason: $this->stopReason,
             toolCalls: $toolCalls,
             metadata: ['provider' => 'fake'],
+            cacheReadTokens: $this->cacheReadTokens,
+            cacheWriteTokens: $this->cacheWriteTokens,
         );
     }
 
@@ -131,6 +150,10 @@ class FakeAiProvider implements AiProviderInterface
 
         if ($this->throws !== null) {
             throw $this->throws;
+        }
+
+        if ($this->throwsOnce !== []) {
+            throw array_shift($this->throwsOnce);
         }
 
         // An empty leading call, as the real provider makes on message_start.
@@ -153,6 +176,8 @@ class FakeAiProvider implements AiProviderInterface
             stopReason: $this->stopReason,
             toolCalls: $toolCalls,
             metadata: ['provider' => 'fake', 'streamed' => true],
+            cacheReadTokens: $this->cacheReadTokens,
+            cacheWriteTokens: $this->cacheWriteTokens,
         );
     }
 

@@ -193,24 +193,34 @@ return [
     | Session and token limits
     |--------------------------------------------------------------------------
     |
-    | Context management, and the cost control that comes with it. A long
-    | conversation costs more per question than a short one, because the whole
-    | transcript is re-sent every time; these are the ceilings that make
-    | somebody start a fresh session instead of accumulating for ever.
+    | Cost control. These are spending limits, not the model's context window:
+    | how much of a conversation the model reads is decided by the window
+    | itself (see `chat.context_*` below), and a conversation is never cut off
+    | for being long — its oldest messages leave the model's view instead.
     |
     | Both are defaults for the global settings row, which is what is actually
     | enforced (see App\Services\AI\AiSessionManager). Zero means unlimited, and
     | is written as zero rather than null so the settings form has one shape.
     |
+    | Tokens the provider serves from its cache count for `cache_read_weight`
+    | of a token (a tenth), roughly what they cost. The whole conversation is
+    | resent with every question, mostly from the cache, and counting each of
+    | those tokens in full would spend an allowance ten times faster than money.
+    |
     */
 
     'limits' => [
         // Total tokens one assistant session may spend before it must be
-        // replaced with a new one.
-        'session_tokens' => (int) env('AI_SESSION_TOKEN_LIMIT', 400000),
+        // replaced with a new one. Off by default: the daily limit below is
+        // the cost control, and a conversation that has grown long is handled
+        // by the context window rather than by refusing to continue it.
+        'session_tokens' => (int) env('AI_SESSION_TOKEN_LIMIT', 0),
 
         // Total tokens one person may spend across all sessions in a day.
         'daily_user_tokens' => (int) env('AI_DAILY_USER_TOKEN_LIMIT', 2000000),
+
+        // What a token read back from the provider's cache counts for.
+        'cache_read_weight' => (float) env('AI_CACHE_READ_WEIGHT', 0.1),
 
         // How many previous sessions the panel lists.
         'session_history' => (int) env('AI_SESSION_HISTORY', 25),
@@ -271,10 +281,20 @@ return [
     | A model that is not listed produces a null cost rather than a guess. An
     | invented number in a cost report is worse than an honest blank.
     |
+    | Cached tokens are priced from the input rate: a read from the provider's
+    | cache costs a tenth of it, writing to a five-minute cache a quarter more,
+    | and writing to a one-hour cache twice as much. Those are Anthropic's
+    | published multipliers. A model whose rates differ can carry its own
+    | `cache_read` and `cache_write` (per million) next to `input`/`output`.
+    |
     */
 
     'pricing' => [
         'currency' => 'USD',
+
+        'cache_read_multiplier' => 0.1,
+        'cache_write_multiplier' => 1.25,
+        'cache_write_multiplier_1h' => 2.0,
 
         'per_million_tokens' => [
             'claude-fable-5' => ['input' => 10.00, 'output' => 50.00],
@@ -548,8 +568,54 @@ return [
             ],
         ],
 
-        // How many stored turns are replayed as conversation history.
-        'history_limit' => (int) env('AI_CHAT_HISTORY', 20),
+        /*
+         * How much of a conversation the model reads.
+         *
+         * All of it, up to the model's real context window — a million tokens
+         * for Opus 5 and Sonnet 5 — rather than a fixed number of turns. Each
+         * request is budgeted against the window: `context_budget` of it, less
+         * the system prompt, the tools, the question with its board context and
+         * room for the answer. What does not fit is the oldest part, and it is
+         * dropped in one jump down to `history_trim_to` of the budget rather
+         * than a message at a time, so the beginning of the request stays the
+         * same for the provider's cache (see App\Services\AI\WorkspaceChatService
+         * ::replayableHistory()).
+         *
+         *   history_max_messages     a backstop on the number of stored turns
+         *                            replayed, whatever their size
+         *   default_context_window   for a model the catalogue gives no window
+         *                            for (the OpenAI ids)
+         *   context_max_tokens       hold every conversation below the model's
+         *                            window, to bound what one question costs;
+         *                            0 = the model's own window
+         *   history_chars_per_token  the estimate used for budgeting. Lower than
+         *                            the usual four on purpose: current Claude
+         *                            tokenizers produce more tokens per character,
+         *                            and an underestimate is a refused request
+         *   context_warning_ratio    when the panel starts saying so
+         */
+        'history_max_messages' => max(2, (int) env('AI_CHAT_HISTORY_MAX_MESSAGES', 500)),
+        'context_budget' => (float) env('AI_CHAT_CONTEXT_BUDGET', 0.8),
+        'history_trim_to' => 0.6,
+        'default_context_window' => (int) env('AI_CHAT_DEFAULT_CONTEXT_WINDOW', 128000),
+        'context_max_tokens' => (int) env('AI_CHAT_CONTEXT_MAX_TOKENS', 0),
+        'history_chars_per_token' => 3,
+        'context_warning_ratio' => 0.8,
+
+        /*
+         * Prompt caching.
+         *
+         * Every question resends the conversation so far. Marked as cacheable,
+         * the provider keeps it and serves the repeat at a tenth of the price;
+         * writing it costs a quarter more than a fresh token, once. `ttl` is how
+         * long the provider keeps it: '5m', refreshed by every question, or
+         * '1h' for conversations with long pauses — which costs twice a fresh
+         * token to write. Anthropic only; OpenAI caches on its own.
+         */
+        'cache' => [
+            'enabled' => (bool) env('AI_CHAT_CACHE', true),
+            'ttl' => env('AI_CHAT_CACHE_TTL', '5m') === '1h' ? '1h' : '5m',
+        ],
 
         'max_output_tokens' => (int) env('AI_CHAT_MAX_OUTPUT_TOKENS', 4000),
 

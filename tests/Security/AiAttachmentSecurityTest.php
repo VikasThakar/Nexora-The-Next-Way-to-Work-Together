@@ -200,7 +200,7 @@ class AiAttachmentSecurityTest extends TestCase
             ->withText('INTERNAL-ONLY specification text')
             ->create();
 
-        $built = app(AiAttachmentContext::class)->build($session, $customer, 'what does it say?');
+        $built = app(AiAttachmentContext::class)->build($session, $customer);
 
         $this->assertSame('', $built['text']);
         $this->assertSame([], $built['media']);

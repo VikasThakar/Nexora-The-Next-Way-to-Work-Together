@@ -327,21 +327,21 @@
         <form wire:submit="save">
             <x-ui.card
                 title="Session and token limits"
-                description="Context management first, cost control second. A conversation that has grown too large gives worse answers as well as dearer ones."
+                description="Cost control. These limit what is spent, not what the assistant can read: a conversation is read in full up to the model's own context window, and the oldest messages leave its view only past that."
             >
                 <div class="grid gap-4 sm:grid-cols-2">
                     <x-ui.field
                         label="Tokens per session"
                         for="session-limit"
                         :error="$errors->first('sessionTokenLimit')"
-                        hint="Leave blank to inherit the deployment default. 0 means no limit. When a conversation reaches it, the assistant asks for a new session."
+                        hint="No limit by default. Leave blank to inherit the deployment default; 0 means no limit. When a conversation reaches a limit you set, the assistant asks for a new session. Tokens read back from the cache count as a tenth."
                     >
                         <x-ui.input
                             id="session-limit"
                             type="number"
                             min="0"
                             wire:model="sessionTokenLimit"
-                            :placeholder="number_format((int) config('ai.limits.session_tokens'))"
+                            :placeholder="(int) config('ai.limits.session_tokens') === 0 ? 'No limit' : number_format((int) config('ai.limits.session_tokens'))"
                             :invalid="$errors->has('sessionTokenLimit')"
                         />
                     </x-ui.field>
@@ -350,7 +350,7 @@
                         label="Tokens per person per day"
                         for="daily-limit"
                         :error="$errors->first('dailyUserTokenLimit')"
-                        hint="Across every session and every ticket run they trigger. Blank inherits the deployment default; 0 means no limit. Not overridable per board."
+                        hint="Across every session and every ticket run they trigger. Blank inherits the deployment default; 0 means no limit. Tokens read back from the cache count as a tenth. Not overridable per board."
                     >
                         <x-ui.input
                             id="daily-limit"

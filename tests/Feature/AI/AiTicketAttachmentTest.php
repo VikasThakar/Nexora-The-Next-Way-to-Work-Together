@@ -56,7 +56,7 @@ class AiTicketAttachmentTest extends TestCase
 
         $record = $this->attach($session, $team, FakeFiles::text('Ship it.', 'plan.txt'));
 
-        $built = app(AiAttachmentContext::class)->build($session, $team, 'What is in the plan?');
+        $built = app(AiAttachmentContext::class)->build($session, $team);
 
         $this->assertStringContainsString('ATTACHMENT 1 (id '.$record->getKey().'): "plan.txt"', $built['text']);
         $this->assertStringContainsString('attachment_ids', $built['text']);

@@ -10,6 +10,7 @@ use Anthropic\Core\Exceptions\APIStatusException;
 use Anthropic\Core\Exceptions\APITimeoutException;
 use Anthropic\ErrorType;
 use Anthropic\Messages\Base64ImageSource;
+use Anthropic\Messages\CacheControlEphemeral;
 use Anthropic\Messages\ImageBlockParam;
 use Anthropic\Messages\InputJSONDelta;
 use Anthropic\Messages\Message;
@@ -22,6 +23,7 @@ use Anthropic\Messages\TextBlock;
 use Anthropic\Messages\TextBlockParam;
 use Anthropic\Messages\TextDelta;
 use Anthropic\Messages\Tool;
+use Anthropic\Messages\Usage;
 use Anthropic\Messages\ToolResultBlockParam;
 use Anthropic\Messages\ToolUseBlock;
 use Anthropic\Messages\ToolUseBlockParam;
@@ -122,7 +124,7 @@ class ClaudeService implements AiProviderInterface
                 messages: $this->messages($prompt),
                 model: $prompt->model,
                 outputConfig: $this->outputConfig($prompt),
-                system: $prompt->system,
+                system: $this->system($prompt),
                 // Adaptive thinking: the model decides how much reasoning a
                 // given ticket deserves. Depth is steered by effort above.
                 thinking: ['type' => 'adaptive'],
@@ -179,6 +181,8 @@ class ClaudeService implements AiProviderInterface
         $responseId = null;
         $inputTokens = null;
         $outputTokens = null;
+        $cacheReadTokens = null;
+        $cacheWriteTokens = null;
         $stopReason = null;
         $refusalCategory = null;
 
@@ -190,7 +194,7 @@ class ClaudeService implements AiProviderInterface
                 messages: $this->messages($prompt),
                 model: $prompt->model,
                 outputConfig: $this->outputConfig($prompt),
-                system: $prompt->system,
+                system: $this->system($prompt),
                 thinking: ['type' => 'adaptive'],
                 tools: $this->tools($prompt),
             );
@@ -199,7 +203,11 @@ class ClaudeService implements AiProviderInterface
                 if ($event instanceof RawMessageStartEvent) {
                     $model = $event->message->model;
                     $responseId = $event->message->id;
-                    $inputTokens = $event->message->usage->inputTokens;
+                    // Counted inclusively; see AiCompletion. The cached
+                    // parts are known from the start of the stream.
+                    $cacheReadTokens = $event->message->usage->cacheReadInputTokens;
+                    $cacheWriteTokens = $event->message->usage->cacheCreationInputTokens;
+                    $inputTokens = $this->inputTokens($event->message->usage);
 
                     $onText('');
 
@@ -247,6 +255,15 @@ class ClaudeService implements AiProviderInterface
                     $refusalCategory = $event->delta->stopDetails?->category;
                     $outputTokens = $event->usage->outputTokens;
 
+                    // The closing usage is cumulative and wins when it is
+                    // there; each part of it is optional in this SDK.
+                    $cacheReadTokens = $event->usage->cacheReadInputTokens ?? $cacheReadTokens;
+                    $cacheWriteTokens = $event->usage->cacheCreationInputTokens ?? $cacheWriteTokens;
+
+                    if ($event->usage->inputTokens !== null) {
+                        $inputTokens = $event->usage->inputTokens + (int) $cacheReadTokens + (int) $cacheWriteTokens;
+                    }
+
                     $onText('');
 
                     continue;
@@ -292,6 +309,8 @@ class ClaudeService implements AiProviderInterface
                 'response_id' => $responseId,
                 'streamed' => true,
             ],
+            cacheReadTokens: $cacheReadTokens,
+            cacheWriteTokens: $cacheWriteTokens,
         );
 
         // Identical handling to the blocking path, deliberately: a refusal is
@@ -312,6 +331,59 @@ class ClaudeService implements AiProviderInterface
     // -----------------------------------------------------------------
 
     /**
+     * The system prompt, as a cache breakpoint when the prompt asks for one.
+     *
+     * Tools are rendered before the system prompt, so a breakpoint here covers
+     * the tool definitions as well — the whole unchanging head of a chat
+     * request. A plain string otherwise, which is what every one-shot caller
+     * has always sent.
+     *
+     * @return string|list<TextBlockParam>
+     */
+    private function system(AiPrompt $prompt): string|array
+    {
+        $cache = $this->cacheControl($prompt);
+
+        if ($cache === null || trim($prompt->system) === '') {
+            return $prompt->system;
+        }
+
+        return [TextBlockParam::with(text: $prompt->system, cacheControl: $cache)];
+    }
+
+    /**
+     * The breakpoint to place, or null when this prompt is not cached.
+     *
+     * A breakpoint only pays when the same beginning is sent again within the
+     * cache's lifetime, so it is placed only when the caller says it will be —
+     * see AiPrompt. Five minutes unless the caller asked for an hour; an hour
+     * costs twice a fresh token to write instead of a quarter more.
+     */
+    private function cacheControl(AiPrompt $prompt): ?CacheControlEphemeral
+    {
+        if (! $prompt->cache) {
+            return null;
+        }
+
+        return $prompt->cacheTtl === '1h'
+            ? CacheControlEphemeral::with(ttl: '1h')
+            : CacheControlEphemeral::with();
+    }
+
+    /**
+     * Every token the model read: fresh, read from the cache, and written to it.
+     *
+     * Anthropic's own `input_tokens` counts only the first of those once caching
+     * is in play. See AiCompletion for why the application keeps the total.
+     */
+    private function inputTokens(Usage $usage): int
+    {
+        return $usage->inputTokens
+            + (int) $usage->cacheReadInputTokens
+            + (int) $usage->cacheCreationInputTokens;
+    }
+
+    /**
      * @return list<array{role: string, content: string}|MessageParam>
      */
     private function messages(AiPrompt $prompt): array
@@ -328,11 +400,35 @@ class ClaudeService implements AiProviderInterface
             throw AiProviderException::transport('The prompt had no leading user message.');
         }
 
-        $messages = $prompt->hasMedia() ? $this->withMedia($messages, $prompt) : $messages;
+        $cache = $this->cacheControl($prompt);
+        $last = array_key_last($messages);
+        $built = [];
+
+        foreach ($messages as $index => $message) {
+            $role = (string) $message['role'];
+            $content = (string) $message['content'];
+
+            // The `cache` key is this application's, not the API's: it is
+            // turned into a breakpoint or dropped, never sent as it is.
+            $breakpoint = $cache !== null && ($message['cache'] ?? false) === true ? $cache : null;
+
+            if ($index === $last && $prompt->hasMedia()) {
+                $built[] = $this->withMedia($role, $content, $prompt, $breakpoint);
+
+                continue;
+            }
+
+            $built[] = $breakpoint === null
+                ? ['role' => $role, 'content' => $content]
+                : MessageParam::with(
+                    content: [TextBlockParam::with(text: $content, cacheControl: $breakpoint)],
+                    role: $role,
+                );
+        }
 
         return $prompt->hasToolExchanges()
-            ? $this->withToolExchanges($messages, $prompt)
-            : $messages;
+            ? $this->withToolExchanges($built, $prompt)
+            : $built;
     }
 
     /**
@@ -420,20 +516,28 @@ class ClaudeService implements AiProviderInterface
      * the question last — but the role is taken from the message rather than
      * assumed, so this stays correct if that ever changes.
      *
-     * @param  list<array{role: string, content: string}>  $messages
-     * @return list<array{role: string, content: string}|MessageParam>
+     * A breakpoint goes on the *last* block. On the text it would leave the
+     * pictures outside the cached part, and every later round of a tool loop
+     * would pay for them again in full.
      */
-    private function withMedia(array $messages, AiPrompt $prompt): array
+    private function withMedia(string $role, string $content, AiPrompt $prompt, ?CacheControlEphemeral $breakpoint): MessageParam
     {
-        $last = array_pop($messages);
-
-        $blocks = [TextBlockParam::with(text: (string) $last['content'])];
+        $images = [];
 
         foreach ($prompt->media as $media) {
             if (! $media instanceof AiMedia) {
                 continue;
             }
 
+            $images[] = $media;
+        }
+
+        $blocks = [TextBlockParam::with(
+            text: $content,
+            cacheControl: $images === [] ? $breakpoint : null,
+        )];
+
+        foreach ($images as $index => $media) {
             /*
              * Base64 rather than a URL, deliberately. A URL source would mean
              * handing the provider a link to a private file — public, or signed
@@ -446,15 +550,11 @@ class ClaudeService implements AiProviderInterface
                     data: $media->base64,
                     mediaType: $media->mediaType,
                 ),
+                cacheControl: $index === array_key_last($images) ? $breakpoint : null,
             );
         }
 
-        $messages[] = MessageParam::with(
-            content: $blocks,
-            role: (string) ($last['role'] ?? 'user'),
-        );
-
-        return array_values($messages);
+        return MessageParam::with(content: $blocks, role: $role);
     }
 
     /**
@@ -516,7 +616,7 @@ class ClaudeService implements AiProviderInterface
 
         $completion = new AiCompletion(
             text: trim(implode("\n\n", $text)),
-            inputTokens: $message->usage->inputTokens,
+            inputTokens: $this->inputTokens($message->usage),
             outputTokens: $message->usage->outputTokens,
             model: $message->model,
             stopReason: $message->stopReason,
@@ -525,6 +625,8 @@ class ClaudeService implements AiProviderInterface
                 'provider' => $this->name(),
                 'response_id' => $message->id,
             ],
+            cacheReadTokens: $message->usage->cacheReadInputTokens,
+            cacheWriteTokens: $message->usage->cacheCreationInputTokens,
         );
 
         // A refusal is a considered answer rather than a fault, but it is not a
@@ -556,6 +658,12 @@ class ClaudeService implements AiProviderInterface
 
         if ($this->isOutOfCredit($exception, $message)) {
             return AiProviderException::outOfCredit($this->name());
+        }
+
+        // "prompt is too long: 1040000 tokens > 1000000 maximum". A 400, but
+        // one the chat can recover from by sending less; see contextTooLong().
+        if ($status === 400 && str_contains(mb_strtolower($message), 'prompt is too long')) {
+            return AiProviderException::contextTooLong();
         }
 
         return match (true) {

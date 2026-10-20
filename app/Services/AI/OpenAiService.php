@@ -110,6 +110,7 @@ class OpenAiService implements AiProviderInterface
         $responseId = null;
         $inputTokens = null;
         $outputTokens = null;
+        $cachedTokens = null;
         $finishReason = null;
 
         /** @var array<int, array{id: string, name: string, arguments: string}> $toolCalls */
@@ -124,6 +125,7 @@ class OpenAiService implements AiProviderInterface
                 if (is_array($frame['usage'] ?? null)) {
                     $inputTokens = $this->intOrNull($frame['usage']['prompt_tokens'] ?? null);
                     $outputTokens = $this->intOrNull($frame['usage']['completion_tokens'] ?? null);
+                    $cachedTokens = $this->intOrNull($frame['usage']['prompt_tokens_details']['cached_tokens'] ?? null);
                 }
 
                 $choice = $frame['choices'][0] ?? null;
@@ -169,6 +171,7 @@ class OpenAiService implements AiProviderInterface
             outputTokens: $outputTokens,
             finishReason: $finishReason,
             streamed: true,
+            cachedTokens: $cachedTokens,
         );
     }
 
@@ -462,6 +465,7 @@ class OpenAiService implements AiProviderInterface
             outputTokens: $this->intOrNull($body['usage']['completion_tokens'] ?? null),
             finishReason: is_string($choice['finish_reason'] ?? null) ? $choice['finish_reason'] : null,
             streamed: false,
+            cachedTokens: $this->intOrNull($body['usage']['prompt_tokens_details']['cached_tokens'] ?? null),
         );
     }
 
@@ -471,6 +475,11 @@ class OpenAiService implements AiProviderInterface
      * Streaming and blocking share it so they cannot drift: a refusal, an empty
      * answer and a tool call are interpreted identically, exactly as
      * ClaudeService arranges for its two paths.
+     *
+     * OpenAI caches a repeated prefix by itself and reports the cached part
+     * inside `prompt_tokens`, so the input count is already inclusive and the
+     * cached figure is a subset of it — the same shape AiCompletion asks for.
+     * Nothing is written to its cache at a premium, so there is no write count.
      *
      * @param  list<AiToolCall>  $toolCalls
      */
@@ -483,6 +492,7 @@ class OpenAiService implements AiProviderInterface
         ?int $outputTokens,
         ?string $finishReason,
         bool $streamed,
+        ?int $cachedTokens = null,
     ): AiCompletion {
         $completion = new AiCompletion(
             text: trim($text),
@@ -499,6 +509,7 @@ class OpenAiService implements AiProviderInterface
                 'response_id' => $responseId,
                 'streamed' => $streamed ?: null,
             ], static fn ($value): bool => $value !== null),
+            cacheReadTokens: $cachedTokens,
         );
 
         if ($completion->wasRefused()) {

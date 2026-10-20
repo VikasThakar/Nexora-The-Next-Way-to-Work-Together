@@ -29,9 +29,20 @@ class CostCalculationService
      *
      * Returned as a string so it goes into the decimal column without a float
      * round trip — a run costing $0.000075 must not become 7.5E-5.
+     *
+     * `$inputTokens` is every token read, cached or not (see AiCompletion), so
+     * the cached parts are taken out of it before the fresh rate is applied
+     * and priced at their own rates instead. Without cache figures this is
+     * exactly the calculation it has always been.
      */
-    public function estimate(?string $model, ?int $inputTokens, ?int $outputTokens): ?string
-    {
+    public function estimate(
+        ?string $model,
+        ?int $inputTokens,
+        ?int $outputTokens,
+        ?int $cacheReadTokens = null,
+        ?int $cacheWriteTokens = null,
+        ?string $cacheTtl = null,
+    ): ?string {
         if ($inputTokens === null && $outputTokens === null) {
             return null;
         }
@@ -42,10 +53,55 @@ class CostCalculationService
             return null;
         }
 
-        $cost = ((int) $inputTokens / 1_000_000) * $rates['input']
+        $read = max(0, (int) $cacheReadTokens);
+        $write = max(0, (int) $cacheWriteTokens);
+        $fresh = max(0, (int) $inputTokens - $read - $write);
+
+        $cost = ($fresh / 1_000_000) * $rates['input']
+            + ($read / 1_000_000) * $this->cacheReadRate($model, $rates['input'])
+            + ($write / 1_000_000) * $this->cacheWriteRate($model, $rates['input'], $cacheTtl)
             + ((int) $outputTokens / 1_000_000) * $rates['output'];
 
         return number_format($cost, 6, '.', '');
+    }
+
+    /**
+     * Per million tokens read from the provider's cache.
+     */
+    private function cacheReadRate(?string $model, float $inputRate): float
+    {
+        $own = $this->ownRate($model, 'cache_read');
+
+        return is_numeric($own)
+            ? (float) $own
+            : $inputRate * (float) config('ai.pricing.cache_read_multiplier', 0.1);
+    }
+
+    /**
+     * Per million tokens written to the provider's cache, for its lifetime.
+     */
+    private function cacheWriteRate(?string $model, float $inputRate, ?string $ttl): float
+    {
+        $own = $this->ownRate($model, 'cache_write');
+
+        if (is_numeric($own) && $ttl !== '1h') {
+            return (float) $own;
+        }
+
+        return $inputRate * (float) ($ttl === '1h'
+            ? config('ai.pricing.cache_write_multiplier_1h', 2.0)
+            : config('ai.pricing.cache_write_multiplier', 1.25));
+    }
+
+    /**
+     * A rate a model carries for itself, read from the table directly: model
+     * ids contain dots (gpt-5.1), which config()'s dot notation would split.
+     */
+    private function ownRate(?string $model, string $key): mixed
+    {
+        $rates = ((array) config('ai.pricing.per_million_tokens', []))[(string) $model] ?? null;
+
+        return is_array($rates) ? ($rates[$key] ?? null) : null;
     }
 
     /**

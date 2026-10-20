@@ -10,6 +10,7 @@ use App\Enums\AiKnowledgeScope;
 use App\Enums\AiProvider;
 use App\Models\Concerns\BelongsToBoard;
 use App\Services\BoardAccess;
+use App\Support\AiModelCatalogue;
 use Database\Factories\AiSessionFactory;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
@@ -87,6 +88,10 @@ class AiSession extends Model
             'knowledge_scope' => AiKnowledgeScope::class,
             'tokens_input' => 'integer',
             'tokens_output' => 'integer',
+            'tokens_cache_read' => 'integer',
+            'tokens_cache_write' => 'integer',
+            'context_tokens' => 'integer',
+            'history_anchor_message_id' => 'integer',
             'estimated_cost' => 'decimal:6',
             'message_count' => 'integer',
             'started_at' => 'datetime',
@@ -210,11 +215,43 @@ class AiSession extends Model
     }
 
     /**
+     * Tokens as a limit counts them, or null when nothing was ever reported.
+     *
+     * Every token, except that one read back from the provider's cache counts
+     * for `ai.limits.cache_read_weight` of one (a tenth by default) — roughly
+     * what it costs. A conversation that is replayed in full on every question
+     * would otherwise spend a person's allowance at ten times the rate it spends
+     * money. The same rule as AiUsageRecorder::spentTodayBy().
+     */
+    public function meteredTokens(): ?int
+    {
+        $total = $this->totalTokens();
+
+        if ($total === null) {
+            return null;
+        }
+
+        return self::meter($total, $this->tokens_cache_read);
+    }
+
+    /**
+     * The metering rule, in one place.
+     */
+    public static function meter(int $total, ?int $cacheRead): int
+    {
+        $weight = min(1.0, max(0.0, (float) config('ai.limits.cache_read_weight', 0.1)));
+
+        return max(0, (int) round($total - (1 - $weight) * max(0, (int) $cacheRead)));
+    }
+
+    /**
      * Has this conversation spent its allowance?
      *
-     * A limit of zero means unlimited. Unknown usage counts as within budget:
-     * refusing a conversation because a provider declines to report tokens
-     * would turn the limit into a provider-detection mechanism.
+     * A limit of zero means unlimited, which is the default: the cap is a cost
+     * control a deployment may switch on, not a limit on how long somebody can
+     * talk. Unknown usage counts as within budget: refusing a conversation
+     * because a provider declines to report tokens would turn the limit into a
+     * provider-detection mechanism.
      */
     public function hasReachedTokenLimit(int $limit): bool
     {
@@ -222,7 +259,7 @@ class AiSession extends Model
             return false;
         }
 
-        $total = $this->totalTokens();
+        $total = $this->meteredTokens();
 
         return $total !== null && $total >= $limit;
     }
@@ -241,9 +278,62 @@ class AiSession extends Model
             return false;
         }
 
-        $total = $this->totalTokens();
+        $total = $this->meteredTokens();
 
         return $total !== null && $total >= $limit * 0.8;
+    }
+
+    /**
+     * How many tokens the model this conversation runs on can read at once.
+     *
+     * From the model catalogue, where Anthropic's current models carry their
+     * real window (a million tokens for Opus 5 and Sonnet 5). A model the
+     * catalogue gives no figure for — the OpenAI ids, which are configured as a
+     * bare list — gets `ai.chat.default_context_window`, a conservative figure.
+     * `ai.chat.context_max_tokens` lets a deployment hold every conversation
+     * below the real window, to keep the cost of one question bounded.
+     */
+    public function contextWindow(): int
+    {
+        $window = AiModelCatalogue::find($this->model)?->contextWindow
+            ?? (int) config('ai.chat.default_context_window', 128000);
+
+        $ceiling = (int) config('ai.chat.context_max_tokens', 0);
+
+        if ($ceiling > 0) {
+            $window = min($window, $ceiling);
+        }
+
+        return max(8000, $window);
+    }
+
+    /**
+     * Is the conversation close to filling the model's window?
+     *
+     * Read from the last exchange, which is what the model actually saw. Past
+     * this point the oldest messages are about to leave the model's view, and
+     * the panel says so — before it happens rather than after.
+     */
+    public function isNearingContextWindow(): bool
+    {
+        if ($this->context_tokens === null) {
+            return false;
+        }
+
+        $ratio = min(1.0, max(0.1, (float) config('ai.chat.context_warning_ratio', 0.8)));
+
+        return $this->context_tokens >= $this->contextWindow() * $ratio;
+    }
+
+    /**
+     * Has the beginning of the conversation already left the model's view?
+     *
+     * True once the history has been trimmed to fit the window; see
+     * App\Services\AI\WorkspaceChatService::replayableHistory().
+     */
+    public function hasDroppedHistory(): bool
+    {
+        return $this->history_anchor_message_id !== null;
     }
 
     /**

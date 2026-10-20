@@ -17,6 +17,9 @@ use RuntimeException;
  */
 class AiProviderException extends RuntimeException
 {
+    /** Set only by contextTooLong(); see there. */
+    private bool $contextOverflow = false;
+
     public static function notConfigured(): self
     {
         return new self(
@@ -96,5 +99,34 @@ class AiProviderException extends RuntimeException
             'The AI provider declined to answer this request'
             .($category !== null ? ' ('.$category.')' : '').'.'
         );
+    }
+
+    /**
+     * The request was longer than the model can read at once.
+     *
+     * Its own type of failure because, unlike every other status, the caller
+     * can do something about it straight away: send less of the conversation.
+     * App\Services\AI\WorkspaceChatService catches it and retries once with an
+     * earlier part of the history left out. The 400 arrives before anything
+     * has streamed, so a retry cannot repeat text the person already saw.
+     */
+    public static function contextTooLong(): self
+    {
+        return (new self(
+            'The conversation is longer than the AI model can read at once. '
+            .'Start a new conversation for a fresh context.'
+        ))->markContextOverflow();
+    }
+
+    public function isContextOverflow(): bool
+    {
+        return $this->contextOverflow;
+    }
+
+    private function markContextOverflow(): self
+    {
+        $this->contextOverflow = true;
+
+        return $this;
     }
 }

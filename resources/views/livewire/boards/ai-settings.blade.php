@@ -239,7 +239,7 @@
                             label="Tokens per session"
                             for="ai-session-limit-override"
                             :error="$errors->first('sessionTokenLimitOverride')"
-                            hint="Blank inherits the workspace limit. 0 means no limit on this board."
+                            hint="A spending cap per conversation, not a limit on what the assistant reads. Blank inherits the workspace limit (none by default). 0 means no limit on this board."
                         >
                             <x-ui.input
                                 id="ai-session-limit-override"

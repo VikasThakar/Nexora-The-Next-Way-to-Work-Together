@@ -14,8 +14,18 @@ namespace App\Services\AI\Data;
  *
  * The type is deliberately small. It carries what a provider-neutral request
  * needs and nothing that would smuggle a vendor concept through: no beta flags,
- * no cache breakpoints, no content-block unions. When Claude-specific tuning is
- * wanted it belongs in the adapter, keyed off these fields.
+ * no content-block unions. When Claude-specific tuning is wanted it belongs in
+ * the adapter, keyed off these fields.
+ *
+ * Caching is expressed the same way, as intent rather than syntax. `cache`
+ * says "this prompt will be sent again with the same beginning — reuse it",
+ * and a message carrying `cache => true` marks the end of a part that will not
+ * change. ClaudeService turns those into cache breakpoints; OpenAiService
+ * ignores them, because OpenAI caches a repeated prefix on its own. A message
+ * stays a role and a string either way, so nothing that reads messages has to
+ * learn about content blocks. Only callers that really do resend the same
+ * beginning set it — the workspace chat does, a one-shot ticket run does not,
+ * because a cache entry nobody reads again is a 25% surcharge.
  *
  * `tools` describes functions the model may call. Two kinds live in that list
  * and they behave very differently, which is worth knowing before reading the
@@ -44,11 +54,13 @@ namespace App\Services\AI\Data;
 final readonly class AiPrompt
 {
     /**
-     * @param  list<array{role: string, content: string}>  $messages
+     * @param  list<array{role: string, content: string, cache?: bool}>  $messages
      * @param  list<AiTool>  $tools
      * @param  list<AiToolExchange>  $toolExchanges  completed tool rounds, in order
      * @param  list<AiMedia>  $media  attached to the final user message
      * @param  array<string, mixed>  $metadata  diagnostics only, never sent
+     * @param  bool  $cache  ask the provider to reuse this prompt's unchanging beginning
+     * @param  string|null  $cacheTtl  how long to keep it: '5m' (default) or '1h'
      */
     public function __construct(
         public string $model,
@@ -60,6 +72,8 @@ final readonly class AiPrompt
         public array $media = [],
         public array $toolExchanges = [],
         public array $metadata = [],
+        public bool $cache = false,
+        public ?string $cacheTtl = null,
     ) {}
 
     /**
@@ -115,6 +129,10 @@ final readonly class AiPrompt
             media: $this->media,
             toolExchanges: [...$this->toolExchanges, $exchange],
             metadata: $this->metadata,
+            // Carried, or rounds two to four of a tool loop would resend the
+            // whole conversation at full price.
+            cache: $this->cache,
+            cacheTtl: $this->cacheTtl,
         );
     }
 }

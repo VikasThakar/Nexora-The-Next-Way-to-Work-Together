@@ -53,6 +53,9 @@ class AiUsageRecorder
      * `$startedAt` is when the request was made rather than when it finished,
      * so the duration is the provider's latency and not the time it took to
      * store the answer.
+     *
+     * `$cacheTtl` is how long the request asked the provider to keep what it
+     * cached, which decides what writing it cost; see CostCalculationService.
      */
     public function record(
         AiUsagePurpose $purpose,
@@ -64,6 +67,7 @@ class AiUsageRecorder
         ?User $user = null,
         ?Board $board = null,
         ?Carbon $startedAt = null,
+        ?string $cacheTtl = null,
     ): AiUsageRecord {
         $startedAt ??= now();
         $completedAt = now();
@@ -86,7 +90,8 @@ class AiUsageRecorder
             $board,
             $startedAt,
             $completedAt,
-            $reported
+            $reported,
+            $cacheTtl
         ): AiUsageRecord {
             $record = new AiUsageRecord;
 
@@ -99,11 +104,17 @@ class AiUsageRecorder
             $record->model = $servingModel;
             $record->tokens_input = $completion->inputTokens;
             $record->tokens_output = $completion->outputTokens;
+            $record->tokens_cache_read = $completion->cacheReadTokens;
+            $record->tokens_cache_write = $completion->cacheWriteTokens;
+            $record->context_tokens = $completion->contextSize();
             $record->usage_reported = $reported;
             $record->estimated_cost = $this->costs->estimate(
                 $servingModel,
                 $completion->inputTokens,
                 $completion->outputTokens,
+                $completion->cacheReadTokens,
+                $completion->cacheWriteTokens,
+                $cacheTtl,
             );
             $record->duration_ms = max(0, (int) $startedAt->diffInMilliseconds($completedAt));
             $record->started_at = $startedAt;
@@ -187,6 +198,20 @@ class AiUsageRecorder
             $locked->tokens_output = (int) $locked->tokens_output + (int) $record->tokens_output;
         }
 
+        if ($record->tokens_cache_read !== null) {
+            $locked->tokens_cache_read = (int) $locked->tokens_cache_read + (int) $record->tokens_cache_read;
+        }
+
+        if ($record->tokens_cache_write !== null) {
+            $locked->tokens_cache_write = (int) $locked->tokens_cache_write + (int) $record->tokens_cache_write;
+        }
+
+        // Set, not added: how full the window is now is what the latest
+        // exchange saw, whatever the ones before it saw.
+        if ($record->context_tokens !== null) {
+            $locked->context_tokens = $record->context_tokens;
+        }
+
         if ($record->estimated_cost !== null) {
             // Summed as a string-safe decimal: these are fractions of a cent
             // and a float round trip would round them away.
@@ -206,6 +231,9 @@ class AiUsageRecorder
         // question renders the total including it.
         $session->tokens_input = $locked->tokens_input;
         $session->tokens_output = $locked->tokens_output;
+        $session->tokens_cache_read = $locked->tokens_cache_read;
+        $session->tokens_cache_write = $locked->tokens_cache_write;
+        $session->context_tokens = $locked->context_tokens;
         $session->estimated_cost = $locked->estimated_cost;
         $session->last_activity_at = $locked->last_activity_at;
     }
@@ -219,12 +247,21 @@ class AiUsageRecorder
      * *limit* check even though it would be the wrong answer for a display:
      * a limit that counted unknown usage as infinite would refuse every
      * question on a provider that does not report tokens.
+     *
+     * Tokens read back from the provider's cache count at a fraction of one,
+     * by the same rule as a session's own limit (AiSession::meter()). The
+     * weighting is applied here rather than in SQL so it reads the same on
+     * every database the application runs on.
      */
     public function spentTodayBy(User $user): int
     {
-        return (int) AiUsageRecord::query()
+        $totals = AiUsageRecord::query()
             ->spentBySince($user->getKey(), now()->startOfDay())
             ->selectRaw('coalesce(sum(tokens_input), 0) + coalesce(sum(tokens_output), 0) as total')
-            ->value('total');
+            ->selectRaw('coalesce(sum(tokens_cache_read), 0) as cache_read')
+            ->toBase()
+            ->first();
+
+        return AiSession::meter((int) ($totals->total ?? 0), (int) ($totals->cache_read ?? 0));
     }
 }

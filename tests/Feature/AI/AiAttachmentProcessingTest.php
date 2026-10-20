@@ -99,8 +99,9 @@ class AiAttachmentProcessingTest extends TestCase
     /**
      * The outline is what makes a digest useful.
      *
-     * A follow-up question about a document already discussed can be answered —
-     * or honestly declined — from its section list, without re-sending it.
+     * A document there is no room for in a request is described rather than
+     * dropped, and its section list lets the model answer "does it cover X"
+     * — or decline honestly — without the body.
      */
     public function test_a_markdown_outline_appears_in_the_digest(): void
     {
@@ -109,14 +110,22 @@ class AiAttachmentProcessingTest extends TestCase
             'contract.md'
         ));
 
-        $record->context_sent_at = now();
-        $record->save();
+        // A newer, larger file spends the whole budget, so the contract has to
+        // be summarised.
+        app(AiAttachmentPipeline::class)->attach(
+            FakeFiles::text(str_repeat("Newer notes.\n", 400), 'notes.txt'),
+            $record->session,
+            $record->user,
+        );
 
-        $built = app(AiAttachmentContext::class)->build($record->session, $record->user, 'what next?');
+        config(['ai.attachments.context.total_characters' => 2000]);
+
+        $built = app(AiAttachmentContext::class)->build($record->session, $record->user);
 
         $this->assertStringContainsString('Sections:', $built['text']);
         $this->assertStringContainsString('Indemnity', $built['text']);
-        $this->assertStringContainsString('ALREADY PROVIDED EARLIER', $built['text']);
+        $this->assertStringContainsString('NOT INCLUDED IN FULL', $built['text']);
+        $this->assertNotContains((int) $record->getKey(), $built['sent']);
     }
 
     // -----------------------------------------------------------------
@@ -321,7 +330,7 @@ class AiAttachmentProcessingTest extends TestCase
         $session->model = 'claude-opus-5';
         $session->save();
 
-        $built = app(AiAttachmentContext::class)->build($session, $record->user, 'what is this?');
+        $built = app(AiAttachmentContext::class)->build($session, $record->user);
 
         $this->assertCount(1, $built['media']);
 
@@ -353,7 +362,7 @@ class AiAttachmentProcessingTest extends TestCase
         $session->model = 'test-blind';
         $session->save();
 
-        $built = app(AiAttachmentContext::class)->build($session, $record->user, 'what is this?');
+        $built = app(AiAttachmentContext::class)->build($session, $record->user);
 
         $this->assertSame([], $built['media']);
 

@@ -135,7 +135,11 @@
 
                     @if ($message->role->isAssistant() && data_get($message->metadata, 'tokens_output') !== null)
                         <span class="ml-auto text-slate-400">
-                            {{ number_format((int) data_get($message->metadata, 'tokens_input', 0)) }} in /
+                            {{ number_format((int) data_get($message->metadata, 'tokens_input', 0)) }} in
+                            @if ((int) data_get($message->metadata, 'tokens_cache_read', 0) > 0)
+                                ({{ number_format((int) data_get($message->metadata, 'tokens_cache_read')) }} cached)
+                            @endif
+                            /
                             {{ number_format((int) data_get($message->metadata, 'tokens_output', 0)) }} out
                         </span>
                     @endif
@@ -187,24 +191,9 @@
                 class="mb-3 empty:hidden rounded-lg border border-brand-200 bg-brand-50/40 p-3 text-sm whitespace-pre-wrap text-slate-700"
             ></div>
 
-            {{-- The cue to start afresh before the ceiling refuses a question,
-                 from 80% of the conversation's token allowance — the same
-                 note the panel shows above its composer. --}}
-            @if ($session->isOpen() && $session->isNearingTokenLimit($configuration->sessionTokenLimit))
-                <div role="status" class="mb-3 flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                    <span>This conversation is getting long. Start a new one for a fresh context.</span>
-                    <button
-                        type="button"
-                        wire:click="startNewSession"
-                        wire:loading.attr="disabled"
-                        wire:target="send,startNewSession"
-                        @disabled($sending)
-                        class="shrink-0 font-medium text-amber-900 underline decoration-dotted disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                        New conversation
-                    </button>
-                </div>
-            @endif
+            {{-- The cue to start afresh — the same note the panel shows above
+                 its composer. --}}
+            <x-ai.context-hint :session="$session" :configuration="$configuration" :sending="$sending" />
 
             {{--
                 Attachments above the box rather than beside it, and the whole

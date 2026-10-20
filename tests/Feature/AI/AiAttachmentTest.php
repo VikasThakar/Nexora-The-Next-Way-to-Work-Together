@@ -373,13 +373,15 @@ class AiAttachmentTest extends TestCase
     }
 
     /**
-     * The whole document once, a summary afterwards.
+     * A document joins the conversation with the message it came in on.
      *
-     * The requirement not to re-send a document every turn. Without this a
-     * conversation about one specification pays for that specification on
-     * every question.
+     * Sent whole once, remembered on that question, and replayed with it on
+     * every later turn — so the second question still reads the whole file,
+     * exactly once, from the history the provider caches. The latest turn only
+     * points back to it. This is what lets "continue" finish a long to-do list:
+     * a 1,200-character summary on turn two could not.
      */
-    public function test_a_document_is_sent_in_full_once_and_referenced_thereafter(): void
+    public function test_a_document_stays_in_the_conversation_with_the_message_it_came_in_on(): void
     {
         $fake = $this->fakeAiProvider();
 
@@ -388,15 +390,8 @@ class AiAttachmentTest extends TestCase
 
         $component = Livewire::actingAs($team)
             ->test(Chat::class, ['board' => $board])
-            /*
-             * The marker sits past the digest window on purpose.
-             *
-             * A digest carries an opening excerpt, so a *short* file's digest
-             * legitimately contains the whole file — which would make this
-             * test pass for the wrong reason. The filler puts the marker
-             * beyond ai.attachments.context.digest_characters, so its absence
-             * on the second turn is evidence the body was not re-sent.
-             */
+            // The marker sits past what any summary would quote, so finding it
+            // on the second turn is evidence the whole body is there.
             ->set('uploads', [FakeFiles::text(
                 str_repeat('filler line for the digest window.
 ', 120).'DISTINCTIVE-BODY-TEXT at the end.',
@@ -409,19 +404,29 @@ class AiAttachmentTest extends TestCase
 
         $component->set('draft', 'And the risks?')->call('send');
 
-        $second = $fake->lastPayload();
+        $second = $fake->lastPrompt();
+        $payload = $fake->lastPayload();
 
-        $this->assertStringNotContainsString('DISTINCTIVE-BODY-TEXT', $second);
-        $this->assertStringContainsString('ALREADY PROVIDED EARLIER', $second);
-        // The file is still named, so the model knows it exists.
-        $this->assertStringContainsString('spec.txt', $second);
+        $this->assertSame(1, substr_count($payload, 'DISTINCTIVE-BODY-TEXT'));
+        $this->assertStringContainsString('PROVIDED IN FULL EARLIER', $payload);
+
+        // In the history, with the question it was attached to — not in the
+        // latest turn.
+        $first = $second->messages[0];
+        $this->assertSame('user', $first['role']);
+        $this->assertStringContainsString('DISTINCTIVE-BODY-TEXT', $first['content']);
+        $this->assertStringContainsString('Summarise it', $first['content']);
+        $this->assertStringNotContainsString('DISTINCTIVE-BODY-TEXT', $second->messages[array_key_last($second->messages)]['content']);
+
+        $question = AiChatMessage::query()->where('content', 'Summarise it')->sole();
+        $this->assertSame([(int) AiAttachment::query()->sole()->getKey()], $question->metadata['files_sent']);
     }
 
     /**
-     * Naming the file sends it again.
+     * Naming the file reaches its whole text.
      *
-     * The escape hatch for the rule above, and the natural way somebody asks to
-     * go back to a document.
+     * The natural way somebody goes back to a document. It is already in the
+     * conversation, with the message it came in on.
      */
     public function test_mentioning_the_filename_re_sends_the_document(): void
     {
@@ -461,6 +466,12 @@ class AiAttachmentTest extends TestCase
             ->call('send');
 
         $this->assertFalse(AiAttachment::query()->sole()->wasSentInFull());
+
+        // Nor is the question remembered as having carried it, so the retry
+        // sends the file again rather than pointing at a turn the model never
+        // answered.
+        $question = AiChatMessage::query()->where('content', 'Summarise it')->sole();
+        $this->assertNull(data_get($question->metadata, 'files_sent'));
     }
 
     public function test_an_unreadable_attachment_is_named_in_the_prompt_rather_than_hidden(): void
@@ -513,7 +524,7 @@ class AiAttachmentTest extends TestCase
                 ->create();
         }
 
-        $built = app(AiAttachmentContext::class)->build($session, $team, 'summarise everything');
+        $built = app(AiAttachmentContext::class)->build($session, $team);
 
         $this->assertLessThanOrEqual(2, count($built['sent']));
         $this->assertStringContainsString('NOT INCLUDED IN FULL', $built['text']);
@@ -533,7 +544,7 @@ class AiAttachmentTest extends TestCase
             ->truncated()
             ->create();
 
-        $built = app(AiAttachmentContext::class)->build($session, $team, 'summarise');
+        $built = app(AiAttachmentContext::class)->build($session, $team);
 
         // The sentence that stops a model summarising the end of a document it
         // was only shown the beginning of.
@@ -714,7 +725,7 @@ class AiAttachmentTest extends TestCase
 
         $this->assertCount(1, $context->forSession($session, $team));
 
-        $built = $context->build($session, $team, 'What does the file say?');
+        $built = $context->build($session, $team);
 
         $this->assertSame(1, count($built['sent']));
         $this->assertGreaterThan(0, $built['tokens']);
