@@ -96,6 +96,11 @@ ENV APP_ENV=production \
 # PNG and GIF come with gd; JPEG and WebP have to be asked for, and the
 # assistant's allow-list accepts all four.
 #
+# `zip`, `xmlreader` and `dom` read Word, Excel and PowerPoint files — for the
+# assistant and for importing a file as a documentation page. The last two ship
+# with the base image; all three are asserted anyway, because a missing one
+# only shows as "that document could not be read" on somebody's upload.
+#
 # Comments stay out of the RUN body below. Docker does strip a full-line comment
 # inside a line continuation, but a `#` that ends up mid-line after the newlines
 # are joined would swallow the rest of the command — and a build that silently
@@ -130,7 +135,10 @@ RUN set -eux; \
         zip; \
     apk del .build-deps; \
     rm -rf /var/cache/apk/*; \
-    php -m | grep -qx gd
+    php -m | grep -qx gd; \
+    php -m | grep -qx zip; \
+    php -m | grep -qx xmlreader; \
+    php -m | grep -qx dom
 
 # ---------------------------------------------------------------------------
 # Worker tooling: git for the isolated checkout, Claude Code for apply mode.

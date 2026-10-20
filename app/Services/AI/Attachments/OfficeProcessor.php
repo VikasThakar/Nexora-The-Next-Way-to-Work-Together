@@ -8,34 +8,39 @@ use App\Enums\AiAttachmentKind;
 use App\Models\Attachment;
 use App\Services\AI\Attachments\Concerns\NormalisesText;
 use App\Services\AI\Attachments\Concerns\ReadsStoredFiles;
-use Throwable;
-use ZipArchive;
+use App\Services\Docs\Import\ConvertedDocument;
+use App\Services\Docs\Import\Converters\DocxConverter;
+use App\Services\Docs\Import\Converters\PptxConverter;
+use App\Services\Docs\Import\Converters\XlsxConverter;
+use App\Services\Docs\Import\DocumentImportException;
+use App\Support\Ooxml\OoxmlPackage;
 
 /**
  * Office documents: .docx, .xlsx, .pptx.
  *
- * "Common document formats where safely supported" — and the safety is the
- * interesting half of that sentence, so it is worth being explicit about what
- * this does and does not touch.
+ * Read by the same converters that turn a file into a documentation page, so
+ * the model sees what a page would show — Markdown with the document's
+ * headings, lists, checkboxes and tables — rather than a run of words with the
+ * structure stripped out. A to-do list read as structure is a list of to-dos;
+ * read as flat text it is a paragraph.
  *
- * An OOXML file is a ZIP of XML parts. The text is read by opening the archive,
- * pulling out the specific parts that hold prose, and stripping the tags. What
- * is *not* touched is everything that makes these formats dangerous:
+ * "Common document formats where safely supported", and the safety is the
+ * interesting half of that sentence:
  *
  *   - no macro storage is read. A .docm or .xlsm is not in the allow-list at
  *     all, and even here `vbaProject.bin` is never opened;
  *   - no external references are followed. Fields, OLE links and remote images
- *     are markup we drop, not URLs we fetch;
+ *     are markup we drop, not URLs we fetch; only web and mail links are kept,
+ *     as text;
  *   - nothing is executed, and no external converter is invoked. There is no
  *     LibreOffice process, so there is no LibreOffice attack surface;
- *   - XML is parsed with a regular expression rather than an XML parser, which
- *     is the one place in this codebase where that is the *safer* choice: it
- *     cannot resolve an external entity, so the whole XXE class of attack
- *     against an uploaded document does not arise.
- *
- * Entry limits are enforced while reading, which is what stops a zip bomb: a
- * few kilobytes of archive that expands to gigabytes of XML is trivial to
- * produce, and the defence is to stop reading, not to detect it.
+ *   - XML is read with App\Support\Xml\SafeXml, which refuses a part that
+ *     declares a document type, loads no DTD, substitutes no entity and
+ *     fetches nothing — so the XXE class of attack against an uploaded
+ *     document does not arise — and streams, so a large part does not become
+ *     a large tree in memory;
+ *   - archive limits are enforced while reading (App\Support\Ooxml\OoxmlPackage),
+ *     which is what stops a zip bomb.
  *
  * The legacy formats — .doc, .xls, .ppt — are deliberately absent. They are
  * OLE compound documents rather than ZIPs, reading them means a real parser,
@@ -48,12 +53,6 @@ class OfficeProcessor implements AiAttachmentProcessor
     use NormalisesText;
     use ReadsStoredFiles;
 
-    /** Uncompressed bytes read from one archive, at most. The zip-bomb bound. */
-    private const MAX_UNCOMPRESSED_BYTES = 40 * 1024 * 1024;
-
-    /** Parts read from one archive, at most: a slide deck is one part per slide. */
-    private const MAX_PARTS = 400;
-
     public function kind(): AiAttachmentKind
     {
         return AiAttachmentKind::Document;
@@ -61,7 +60,7 @@ class OfficeProcessor implements AiAttachmentProcessor
 
     public function process(Attachment $attachment): AiAttachmentExtraction
     {
-        if (! class_exists(ZipArchive::class)) {
+        if (! OoxmlPackage::available()) {
             return AiAttachmentExtraction::unsupported(
                 'Reading Office documents needs the PHP zip extension, which this '
                 .'deployment does not have. Attaching the file as a PDF works instead.'
@@ -70,20 +69,26 @@ class OfficeProcessor implements AiAttachmentProcessor
 
         $extension = strtolower(pathinfo($attachment->filename ?? '', PATHINFO_EXTENSION));
 
-        $result = $this->withLocalCopy($attachment, function (string $path) use ($extension): ?array {
-            return $this->read($path, $extension);
-        });
+        try {
+            $converted = $this->withLocalCopy($attachment, fn (string $path): ?ConvertedDocument => match ($extension) {
+                'docx' => (new DocxConverter)->convert($path),
+                'xlsx' => (new XlsxConverter(max(10, (int) config('ai.attachments.csv.max_rows_in_prompt', 300))))->convert($path),
+                'pptx' => (new PptxConverter)->convert($path),
+                default => null,
+            });
+        } catch (DocumentImportException $exception) {
+            return AiAttachmentExtraction::failed($exception->getMessage());
+        }
 
-        if ($result === null) {
+        if (! $converted instanceof ConvertedDocument) {
             return AiAttachmentExtraction::failed(
                 'That document could not be opened. It may be corrupt, or saved in an older '
                 .'format — re-saving it as .docx, .xlsx or .pptx will fix it.'
             );
         }
 
-        [$text, $parts] = $result;
-
-        $text = $this->normalise($text);
+        $text = $this->normalise($converted->markdown);
+        $parts = $this->parts($text, $extension);
 
         if (trim($text) === '') {
             return AiAttachmentExtraction::ready(
@@ -94,11 +99,11 @@ class OfficeProcessor implements AiAttachmentProcessor
 
         [$text, $truncated] = $this->truncate($text);
 
-        $words = str_word_count($text);
+        $words = str_word_count((string) preg_replace('/[#*_`>\[\]|\\\\-]/', ' ', $text));
 
         return AiAttachmentExtraction::ready(
             text: $text,
-            structured: ['parts' => $parts, 'words' => $words],
+            structured: ['parts' => $parts, 'words' => $words, 'headings' => $this->headings($text)],
             summary: number_format($words).' '.($words === 1 ? 'word' : 'words')
                 .($parts > 1 ? ', '.$parts.' '.$this->partNoun($extension, $parts) : ''),
             truncated: $truncated,
@@ -108,181 +113,31 @@ class OfficeProcessor implements AiAttachmentProcessor
     // -----------------------------------------------------------------
 
     /**
-     * Open the archive and read the parts that hold prose.
-     *
-     * @return array{0: string, 1: int}|null the text and how many parts it came
-     *                                       from, or null if it could not be
-     *                                       opened at all
+     * Slides or sheets, counted from the headings the converter wrote for
+     * them; a Word document is one part.
      */
-    private function read(string $path, string $extension): ?array
+    private function parts(string $markdown, string $extension): int
     {
-        $zip = new ZipArchive;
-
-        if ($zip->open($path, ZipArchive::RDONLY) !== true) {
-            return null;
-        }
-
-        try {
-            $names = $this->partsFor($zip, $extension);
-
-            if ($names === []) {
-                return null;
-            }
-
-            $chunks = [];
-            $bytes = 0;
-            $parts = 0;
-
-            foreach ($names as $name) {
-                if ($parts >= self::MAX_PARTS || $bytes >= self::MAX_UNCOMPRESSED_BYTES) {
-                    break;
-                }
-
-                /*
-                 * The declared uncompressed size, checked *before* reading.
-                 *
-                 * This is the zip-bomb check and it has to come first: asking
-                 * for the contents of an entry that claims to be 8 GB is how
-                 * the worker dies, and the claim is available for free from the
-                 * archive index.
-                 */
-                $stat = $zip->statName($name);
-                $size = (int) ($stat['size'] ?? 0);
-
-                if ($size <= 0 || $bytes + $size > self::MAX_UNCOMPRESSED_BYTES) {
-                    continue;
-                }
-
-                $xml = $zip->getFromName($name);
-
-                if (! is_string($xml) || $xml === '') {
-                    continue;
-                }
-
-                $bytes += strlen($xml);
-                $parts++;
-
-                $text = $this->textFromXml($xml);
-
-                if (trim($text) !== '') {
-                    $chunks[] = $text;
-                }
-            }
-
-            return [implode("\n\n", $chunks), $parts];
-        } catch (Throwable) {
-            return null;
-        } finally {
-            $zip->close();
-        }
+        return match ($extension) {
+            'pptx' => max(1, preg_match_all('/^## Slide \d+/m', $markdown)),
+            'xlsx' => max(1, preg_match_all('/^## /m', $markdown)),
+            default => 1,
+        };
     }
 
     /**
-     * Which entries hold the text, for each format.
+     * The outline, as the attachment digest shows it.
      *
-     * Named explicitly rather than "every .xml in the archive": the archive
-     * also contains settings, themes, relationships and revision metadata, and
-     * reading those would fill a prompt with markup nobody asked about.
-     *
-     * @return list<string>
+     * @return list<array{level: int, text: string}>
      */
-    private function partsFor(ZipArchive $zip, string $extension): array
+    private function headings(string $markdown): array
     {
-        if ($extension === 'docx') {
-            return array_values(array_filter(
-                ['word/document.xml', 'word/footnotes.xml', 'word/endnotes.xml'],
-                static fn (string $name): bool => $zip->locateName($name) !== false
-            ));
-        }
+        preg_match_all('/^(#{1,6})\s+(.+)$/m', $markdown, $matches, PREG_SET_ORDER);
 
-        if ($extension === 'xlsx') {
-            // The shared string table holds every text cell in the workbook,
-            // and the sheets hold the numbers. Both are wanted.
-            $names = array_values(array_filter(
-                ['xl/sharedStrings.xml'],
-                static fn (string $name): bool => $zip->locateName($name) !== false
-            ));
-
-            return array_merge($names, $this->matching($zip, '#^xl/worksheets/sheet\d+\.xml$#'));
-        }
-
-        if ($extension === 'pptx') {
-            return array_merge(
-                $this->matching($zip, '#^ppt/slides/slide\d+\.xml$#'),
-                $this->matching($zip, '#^ppt/notesSlides/notesSlide\d+\.xml$#'),
-            );
-        }
-
-        return [];
-    }
-
-    /**
-     * Archive entries whose names match a pattern, in numeric order.
-     *
-     * Sorted naturally, because `slide10.xml` sorts before `slide2.xml`
-     * alphabetically and a deck read in that order reads like a deck somebody
-     * shuffled.
-     *
-     * @return list<string>
-     */
-    private function matching(ZipArchive $zip, string $pattern): array
-    {
-        $names = [];
-
-        for ($index = 0; $index < $zip->numFiles; $index++) {
-            $name = $zip->getNameIndex($index);
-
-            if (is_string($name) && preg_match($pattern, $name) === 1) {
-                $names[] = $name;
-            }
-        }
-
-        natsort($names);
-
-        return array_values($names);
-    }
-
-    /**
-     * Strip the markup, keeping the breaks that carry meaning.
-     *
-     * Deliberately a regular expression and not DOMDocument or SimpleXML. Both
-     * of those resolve entities, and an uploaded document that declares an
-     * external entity is the classic XXE — a file that reads /etc/passwd or
-     * makes the server fetch a URL. There is no configuration of a regular
-     * expression that does either.
-     *
-     * The trade-off is that this cannot understand nesting, which for
-     * extracting prose is not something it needs to.
-     */
-    private function textFromXml(string $xml): string
-    {
-        // Paragraph, line-break, table-row and cell boundaries become newlines
-        // and tabs before the tags go, or a table would come out as one long
-        // run of words.
-        $xml = (string) preg_replace(
-            '#</(w:p|a:p|w:tr|row|text:p)>#',
-            "\n",
-            $xml
-        );
-
-        $xml = (string) preg_replace('#<(w:br|w:cr|a:br)\s*/?>#', "\n", $xml);
-        $xml = (string) preg_replace('#</(w:tc|c)>#', "\t", $xml);
-
-        // Everything else.
-        $text = (string) preg_replace('#<[^>]*>#', '', $xml);
-
-        /*
-         * Only the five predefined XML entities are decoded, and nothing else.
-         *
-         * html_entity_decode with ENT_XML1 does not resolve a DOCTYPE-declared
-         * entity — it has no document to resolve one against — so a declared
-         * external entity survives as literal text rather than being fetched.
-         */
-        $text = html_entity_decode($text, ENT_QUOTES | ENT_XML1, 'UTF-8');
-
-        $text = (string) preg_replace('/[ \t]{2,}/', ' ', $text);
-
-        return trim($text);
+        return array_slice(array_map(
+            static fn (array $match): array => ['level' => strlen($match[1]), 'text' => trim($match[2])],
+            $matches,
+        ), 0, 60);
     }
 
     private function partNoun(string $extension, int $count): string

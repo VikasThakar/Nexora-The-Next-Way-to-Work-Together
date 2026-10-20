@@ -222,6 +222,104 @@ class EditorHtml
                 $list->setAttribute('data-type', 'taskList');
             }
         }
+
+        $this->splitMixedLists($root);
+    }
+
+    /**
+     * A list holding both to-dos and ordinary items, split into one list each.
+     *
+     * CommonMark merges two lists that use the same bullet and are separated
+     * only by a blank line, so "- One\n- Two\n\n- [ ] Open" is one list of
+     * three. TipTap's task list holds task items only: handed that list it
+     * drops the checkboxes, and the next save writes them away. Splitting it
+     * at the boundary gives the editor two lists, and the Markdown it writes
+     * back is the Markdown it was given.
+     */
+    private function splitMixedLists(DOMElement $root): void
+    {
+        foreach (['ul', 'ol'] as $tag) {
+            foreach (iterator_to_array($root->getElementsByTagName($tag)) as $list) {
+                if (! $list instanceof DOMElement || $list->getAttribute('data-type') !== 'taskList') {
+                    continue;
+                }
+
+                $runs = [];
+
+                foreach (iterator_to_array($list->childNodes) as $child) {
+                    if (! $child instanceof DOMElement || $child->nodeName !== 'li') {
+                        continue;
+                    }
+
+                    $task = $child->hasAttribute('data-checked');
+
+                    if ($runs === [] || $runs[array_key_last($runs)]['task'] !== $task) {
+                        $runs[] = ['task' => $task, 'items' => []];
+                    }
+
+                    $runs[array_key_last($runs)]['items'][] = $child;
+                }
+
+                if (count($runs) < 2 || ! $list->parentNode instanceof DOMNode) {
+                    continue;
+                }
+
+                foreach ($runs as $run) {
+                    $part = $list->ownerDocument->createElement($list->nodeName);
+
+                    if ($run['task']) {
+                        $part->setAttribute('data-type', 'taskList');
+                    }
+
+                    foreach ($run['items'] as $item) {
+                        $this->tighten($item);
+                        $part->appendChild($item);
+                    }
+
+                    $list->parentNode->insertBefore($part, $list);
+                }
+
+                $list->parentNode->removeChild($list);
+            }
+        }
+    }
+
+    /**
+     * An item's paragraph unwrapped, as it is in a tight list.
+     *
+     * Merging made the list loose, which wraps each item's text in a <p>; each
+     * part of the split was tight as written, and is put back that way — a
+     * loose item comes back out of the converter with blank lines around it.
+     */
+    private function tighten(DOMElement $item): void
+    {
+        $paragraphs = [];
+
+        foreach ($item->childNodes as $child) {
+            if ($child instanceof DOMElement && $child->nodeName === 'p') {
+                $paragraphs[] = $child;
+            }
+        }
+
+        if (count($paragraphs) !== 1) {
+            return;
+        }
+
+        $paragraph = $paragraphs[0];
+
+        // The line breaks a loose list puts around its paragraph, which would
+        // otherwise come back as stray spaces.
+        foreach (iterator_to_array($item->childNodes) as $child) {
+            if ($child instanceof DOMText && trim($child->textContent) === '') {
+                $item->removeChild($child);
+            }
+        }
+
+        while ($paragraph->firstChild !== null) {
+            $item->insertBefore($paragraph->firstChild, $paragraph);
+        }
+
+        $item->removeChild($paragraph);
     }
 
     /**
@@ -271,8 +369,10 @@ class EditorHtml
                 return $child;
             }
 
-            // TipTap wraps its checkbox one level down, inside a <label>.
-            if (in_array($child->nodeName, ['label', 'span', 'div'], true)) {
+            // TipTap wraps its checkbox one level down, inside a <label>, and
+            // CommonMark puts it inside the item's first <p> when the list is
+            // loose — items separated by blank lines, or two lists it merged.
+            if (in_array($child->nodeName, ['label', 'span', 'div', 'p'], true)) {
                 return $this->leadingCheckbox($child);
             }
 

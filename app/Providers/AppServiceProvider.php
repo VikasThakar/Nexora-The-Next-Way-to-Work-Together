@@ -34,6 +34,7 @@ use App\Services\AI\AiCredentialVault;
 use App\Services\AI\AiProviderInterface;
 use App\Services\AI\Attachments\AiAttachmentClassifier;
 use App\Services\AI\Attachments\AiAttachmentPipeline;
+use App\Services\Docs\Import\DocumentImporter;
 use App\Services\AI\Attachments\AiAttachmentProcessor;
 use App\Services\AI\Attachments\AudioProcessor;
 use App\Services\AI\Attachments\CsvProcessor;
@@ -205,6 +206,7 @@ class AppServiceProvider extends ServiceProvider
                 $app->make(AttachmentStorage::class),
                 $app->make(AiAttachmentClassifier::class),
                 $app->tagged(AiAttachmentProcessor::class),
+                $app->make(DocumentImporter::class),
             );
         });
 

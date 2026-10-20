@@ -153,16 +153,130 @@ class FakeFiles
             $values
         ));
 
+        // One header row naming each value by its shared-string index, as
+        // Excel writes it, then a row of numbers.
+        $header = '';
+        $numbers = '';
+
+        foreach (array_keys($values) as $index) {
+            $column = chr(65 + $index);
+            $header .= '<c r="'.$column.'1" t="s"><v>'.$index.'</v></c>';
+            $numbers .= '<c r="'.$column.'2"><v>'.(42 + $index).'</v></c>';
+        }
+
         return self::zip($name, [
             '[Content_Types].xml' => '<?xml version="1.0"?><Types '
                 .'xmlns="http://schemas.openxmlformats.org/package/2006/content-types" />',
             'xl/sharedStrings.xml' => '<?xml version="1.0"?><sst '
                 .'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
                 .$strings.'</sst>',
+            'xl/workbook.xml' => '<?xml version="1.0"?><workbook '
+                .'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                .'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                .'<sheets><sheet name="Budget" sheetId="1" r:id="rId1"/></sheets></workbook>',
+            'xl/_rels/workbook.xml.rels' => '<?xml version="1.0"?><Relationships '
+                .'xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                .'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+                .'</Relationships>',
             'xl/worksheets/sheet1.xml' => '<?xml version="1.0"?><worksheet '
                 .'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-                .'<sheetData><row><c><v>42</v></c></row></sheetData></worksheet>',
+                .'<sheetData><row r="1">'.$header.'</row><row r="2">'.$numbers.'</row></sheetData></worksheet>',
         ]);
+    }
+
+    /**
+     * A .docx with a body written as WordprocessingML, and optionally its
+     * styles, numbering and relationships — for testing structure: headings,
+     * lists, checkboxes, tables and links.
+     *
+     * @param  array<string, string>  $extra  further parts, by name
+     */
+    public static function docxDocument(
+        string $body,
+        ?string $styles = null,
+        ?string $numbering = null,
+        ?string $relationships = null,
+        string $name = 'notes.docx',
+        array $extra = [],
+    ): UploadedFile {
+        $namespaces = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+            .'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+            .'xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"';
+
+        $parts = [
+            '[Content_Types].xml' => '<?xml version="1.0"?><Types '
+                .'xmlns="http://schemas.openxmlformats.org/package/2006/content-types" />',
+            'word/document.xml' => '<?xml version="1.0" encoding="UTF-8"?><w:document '.$namespaces.'>'
+                .'<w:body>'.$body.'</w:body></w:document>',
+        ];
+
+        if ($styles !== null) {
+            $parts['word/styles.xml'] = '<?xml version="1.0"?><w:styles '.$namespaces.'>'.$styles.'</w:styles>';
+        }
+
+        if ($numbering !== null) {
+            $parts['word/numbering.xml'] = '<?xml version="1.0"?><w:numbering '.$namespaces.'>'.$numbering.'</w:numbering>';
+        }
+
+        if ($relationships !== null) {
+            $parts['word/_rels/document.xml.rels'] = '<?xml version="1.0"?><Relationships '
+                .'xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'.$relationships.'</Relationships>';
+        }
+
+        return self::zip($name, $parts + $extra);
+    }
+
+    /**
+     * A .pptx with one slide per entry: a title and its bullet points, each a
+     * string or [level, text].
+     *
+     * @param  list<array{title: string, points: list<string|array{0: int, 1: string}>, notes?: string}>  $slides
+     */
+    public static function pptx(array $slides, string $name = 'deck.pptx'): UploadedFile
+    {
+        $ns = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+            .'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" '
+            .'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+
+        $escape = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES | ENT_XML1, 'UTF-8');
+
+        $parts = ['[Content_Types].xml' => '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types" />'];
+        $ids = '';
+        $rels = '';
+
+        foreach ($slides as $index => $slide) {
+            $number = $index + 1;
+
+            $points = '';
+
+            foreach ($slide['points'] as $point) {
+                [$level, $text] = is_array($point) ? $point : [0, $point];
+                $points .= '<a:p><a:pPr lvl="'.$level.'"/><a:r><a:t>'.$escape($text).'</a:t></a:r></a:p>';
+            }
+
+            $parts['ppt/slides/slide'.$number.'.xml'] = '<?xml version="1.0"?><p:sld '.$ns.'><p:cSld><p:spTree>'
+                .'<p:sp><p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:txBody><a:p><a:r><a:t>'.$escape($slide['title']).'</a:t></a:r></a:p></p:txBody></p:sp>'
+                .'<p:sp><p:nvSpPr><p:nvPr><p:ph idx="1"/></p:nvPr></p:nvSpPr><p:txBody>'.$points.'</p:txBody></p:sp>'
+                .'</p:spTree></p:cSld></p:sld>';
+
+            if (isset($slide['notes'])) {
+                $parts['ppt/slides/_rels/slide'.$number.'.xml.rels'] = '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                    .'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide'.$number.'.xml"/>'
+                    .'</Relationships>';
+                $parts['ppt/notesSlides/notesSlide'.$number.'.xml'] = '<?xml version="1.0"?><p:notes '.$ns.'><p:cSld><p:spTree>'
+                    .'<p:sp><p:nvSpPr><p:nvPr><p:ph type="sldNum"/></p:nvPr></p:nvSpPr><p:txBody><a:p><a:r><a:t>'.$number.'</a:t></a:r></a:p></p:txBody></p:sp>'
+                    .'<p:sp><p:nvSpPr><p:nvPr><p:ph type="body"/></p:nvPr></p:nvSpPr><p:txBody><a:p><a:r><a:t>'.$escape($slide['notes']).'</a:t></a:r></a:p></p:txBody></p:sp>'
+                    .'</p:spTree></p:cSld></p:notes>';
+            }
+
+            $ids .= '<p:sldId id="'.(255 + $number).'" r:id="rId'.$number.'"/>';
+            $rels .= '<Relationship Id="rId'.$number.'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide'.$number.'.xml"/>';
+        }
+
+        $parts['ppt/presentation.xml'] = '<?xml version="1.0"?><p:presentation '.$ns.'><p:sldIdLst>'.$ids.'</p:sldIdLst></p:presentation>';
+        $parts['ppt/_rels/presentation.xml.rels'] = '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'.$rels.'</Relationships>';
+
+        return self::zip($name, $parts);
     }
 
     /**

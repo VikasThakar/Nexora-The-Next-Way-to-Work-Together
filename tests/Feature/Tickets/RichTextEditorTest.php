@@ -61,6 +61,9 @@ class RichTextEditorTest extends TestCase
             'fenced code' => ["```php\n<?php echo 1;\n```"],
             'table' => ["| field | value |\n| --- | --- |\n| id | 7 |"],
             'task list' => ["- [ ] Design login screen\n- [x] Implement authentication\n- [ ] Write tests"],
+            // CommonMark merges these into one loose list; the editor must
+            // still see a list and a checklist, or the boxes are lost.
+            'a list followed by a checklist' => ["- one\n- two\n\n- [ ] open\n- [x] done"],
             'horizontal rule' => ["before\n\n---\n\nafter"],
             'everything at once' => [
                 "## Title\n\nSome **text** with a [link](https://a.test).\n\n- [x] done\n- [ ] todo\n\n| h | i |\n| --- | --- |\n| 1 | 2 |",

@@ -153,4 +153,44 @@ return [
 
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Importing files as documentation pages
+    |--------------------------------------------------------------------------
+    |
+    | The Import button and drop areas on the documentation screen, and the
+    | assistant's "import this file to the docs". Each file becomes an internal
+    | page with the original attached (App\Actions\Docs\ImportDocument); what
+    | the formats become is App\Services\Docs\Import\DocumentImporter.
+    |
+    |   max_files            files in one drop
+    |   max_size_kb          one file, at most
+    |   sync_max_kb          files up to this size are converted while the
+    |                        person waits; larger ones (big PDFs, workbooks) on
+    |                        the queue, so a web request is never the thing
+    |                        parsing twenty megabytes
+    |   body_max_characters  what one page holds — the same ceiling the page
+    |                        editor enforces. Past it the body is cut at a
+    |                        paragraph and says the rest is in the original
+    |   max_table_rows       rows of a CSV or a worksheet shown on the page
+    |   pdf_max_pages        pages of a PDF read
+    |
+    */
+
+    'imports' => [
+
+        'max_files' => (int) env('DOC_IMPORT_MAX_FILES', 10),
+
+        'max_size_kb' => (int) env('DOC_IMPORT_MAX_SIZE_KB', 20480),
+
+        'sync_max_kb' => (int) env('DOC_IMPORT_SYNC_MAX_KB', 8192),
+
+        'body_max_characters' => (int) env('DOC_IMPORT_BODY_MAX_CHARACTERS', 200000),
+
+        'max_table_rows' => (int) env('DOC_IMPORT_MAX_TABLE_ROWS', 500),
+
+        'pdf_max_pages' => (int) env('DOC_IMPORT_PDF_MAX_PAGES', 300),
+
+    ],
+
 ];

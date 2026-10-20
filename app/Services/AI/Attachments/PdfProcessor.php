@@ -8,8 +8,7 @@ use App\Enums\AiAttachmentKind;
 use App\Models\Attachment;
 use App\Services\AI\Attachments\Concerns\NormalisesText;
 use App\Services\AI\Attachments\Concerns\ReadsStoredFiles;
-use Smalot\PdfParser\Config;
-use Smalot\PdfParser\Parser;
+use App\Support\Pdf\PdfText;
 use Throwable;
 
 /**
@@ -68,13 +67,10 @@ class PdfProcessor implements AiAttachmentProcessor
         }
 
         try {
-            $document = (new Parser([], $this->parserConfig()))->parseContent($contents);
-            $pages = $document->getPages();
+            ['pages' => $pages, 'total' => $pageCount] = PdfText::pages($contents, self::MAX_PAGES);
         } catch (Throwable $exception) {
-            return AiAttachmentExtraction::failed($this->explain($exception));
+            return AiAttachmentExtraction::failed(PdfText::explain($exception));
         }
-
-        $pageCount = count($pages);
 
         if ($pageCount === 0) {
             return AiAttachmentExtraction::failed(
@@ -87,19 +83,9 @@ class PdfProcessor implements AiAttachmentProcessor
         $withText = 0;
 
         foreach ($pages as $index => $page) {
-            if ($read >= self::MAX_PAGES) {
-                break;
-            }
-
             $read++;
 
-            try {
-                $text = $this->normalise((string) $page->getText());
-            } catch (Throwable) {
-                // One page failing must not lose the other three hundred. A
-                // malformed font table in a single page is common and local.
-                continue;
-            }
+            $text = $this->normalise($page);
 
             if (trim($text) === '') {
                 continue;
@@ -133,26 +119,6 @@ class PdfProcessor implements AiAttachmentProcessor
     // -----------------------------------------------------------------
 
     /**
-     * The parser's limits, set rather than defaulted.
-     *
-     * A PDF is untrusted input and this parser is pure PHP, so the two things
-     * worth bounding are how much memory a pathological font table can take and
-     * how long a malformed cross-reference can spin. Both have defaults; both
-     * are set explicitly so that raising them later is a visible decision.
-     */
-    private function parserConfig(): Config
-    {
-        $config = new Config;
-
-        // Data URIs and embedded fonts are not needed to read text, and
-        // skipping them is the difference between reading a 40 MB brochure and
-        // exhausting the worker's memory on it.
-        $config->setRetainImageContent(false);
-
-        return $config;
-    }
-
-    /**
      * A PDF with pages but no text is a scan.
      *
      * Reported as Ready rather than Failed, deliberately: nothing went wrong.
@@ -163,10 +129,8 @@ class PdfProcessor implements AiAttachmentProcessor
     private function noTextLayer(int $pageCount): AiAttachmentExtraction
     {
         return AiAttachmentExtraction::unsupported(
-            'That PDF has '.$pageCount.' '.($pageCount === 1 ? 'page' : 'pages')
-            .' but no text layer, so it is almost certainly a scan or a set of images. '
-            .'Nexora does not read text out of pictures of documents. '
-            .'Attaching the pages as images instead lets a model with vision look at them.'
+            PdfText::noTextLayer($pageCount)
+            .' Attaching the pages as images instead lets a model with vision look at them.'
         );
     }
 
@@ -183,27 +147,5 @@ class PdfProcessor implements AiAttachmentProcessor
         }
 
         return $summary;
-    }
-
-    /**
-     * Turn a parser failure into something a person can act on.
-     *
-     * The exception's own message is not forwarded: it names offsets and object
-     * numbers, and it goes in the log rather than on a card. The two cases
-     * worth distinguishing are encryption, which the person can fix, and
-     * everything else, which they cannot.
-     */
-    private function explain(Throwable $exception): string
-    {
-        $message = strtolower($exception->getMessage());
-
-        if (str_contains($message, 'encrypt') || str_contains($message, 'password')
-            || str_contains($message, 'secured')) {
-            return 'That PDF is password-protected, so its text cannot be read. '
-                .'Attach an unprotected copy.';
-        }
-
-        return 'That PDF could not be read — it may be corrupt or use an unusual encoding. '
-            .'Exporting it again from the application that produced it usually fixes this.';
     }
 }

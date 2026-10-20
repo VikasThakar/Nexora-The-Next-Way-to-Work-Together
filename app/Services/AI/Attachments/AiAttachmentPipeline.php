@@ -12,6 +12,7 @@ use App\Models\AiSession;
 use App\Models\Attachment;
 use App\Models\User;
 use App\Services\AttachmentStorage;
+use App\Services\Docs\Import\DocumentImporter;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -63,6 +64,7 @@ class AiAttachmentPipeline
         private readonly AttachmentStorage $storage,
         private readonly AiAttachmentClassifier $classifier,
         private readonly iterable $processors,
+        private readonly ?DocumentImporter $importer = null,
     ) {}
 
     // -----------------------------------------------------------------
@@ -252,7 +254,44 @@ class AiAttachmentPipeline
             );
         }
 
-        return $this->store($record, $extraction);
+        $record = $this->store($record, $extraction);
+
+        $this->prepareImport($record, $attachment);
+
+        return $record;
+    }
+
+    /**
+     * Keep the file as a documentation page would hold it.
+     *
+     * The assistant can turn a file it was given into a page, and the page
+     * body is the whole file as Markdown — not the prompt-sized cut in
+     * `extracted_text`. Converted here, in the queued job that reads the file
+     * anyway, so confirming an import never parses a large PDF inside
+     * somebody's request. A failure leaves it null and the import converts the
+     * stored file on demand, which says what went wrong if it still cannot.
+     */
+    private function prepareImport(AiAttachment $record, Attachment $attachment): void
+    {
+        if ($this->importer === null || ! $record->isImportable()) {
+            return;
+        }
+
+        try {
+            $document = $this->importer->fromAttachment($attachment);
+        } catch (Throwable $exception) {
+            Log::info('An AI attachment could not be prepared as a page.', [
+                'ai_attachment_id' => $record->getKey(),
+                'exception' => $exception::class,
+            ]);
+
+            return;
+        }
+
+        $record->markdown = $document->markdown;
+        $record->markdown_truncated = $document->truncated;
+
+        $record->save();
     }
 
     /**
@@ -338,6 +377,8 @@ class AiAttachmentPipeline
         $record->token_estimate = $existing->token_estimate;
         $record->truncated = $existing->truncated;
         $record->error = $existing->error;
+        $record->markdown = $existing->markdown;
+        $record->markdown_truncated = $existing->markdown_truncated;
         $record->processed_at = now();
 
         $record->save();

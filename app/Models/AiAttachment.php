@@ -8,6 +8,7 @@ use App\Enums\AiAttachmentKind;
 use App\Enums\AiAttachmentStatus;
 use App\Models\Concerns\BelongsToBoard;
 use App\Services\BoardAccess;
+use App\Services\Docs\Import\ImportFormat;
 use Database\Factories\AiAttachmentFactory;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
@@ -77,6 +78,7 @@ class AiAttachment extends Model
             'characters' => 'integer',
             'token_estimate' => 'integer',
             'truncated' => 'boolean',
+            'markdown_truncated' => 'boolean',
             'context_sent_at' => 'datetime',
             'processed_at' => 'datetime',
         ];
@@ -176,6 +178,18 @@ class AiAttachment extends Model
      * What makes the difference between sending a document and referring to
      * it — see App\Services\AI\Attachments\AiAttachmentContext.
      */
+    /**
+     * Can this file become a documentation page?
+     *
+     * A document whose reading finished. Pictures and recordings cannot.
+     */
+    public function isImportable(): bool
+    {
+        return $this->status->isReady()
+            && ! in_array($this->kind, [AiAttachmentKind::Image, AiAttachmentKind::Audio], true)
+            && ImportFormat::fromFilename($this->filename()) !== null;
+    }
+
     public function wasSentInFull(): bool
     {
         return $this->context_sent_at !== null;

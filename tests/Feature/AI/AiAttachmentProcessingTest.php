@@ -413,9 +413,41 @@ class AiAttachmentProcessingTest extends TestCase
         $this->assertStringContainsString('Scope of work', $text);
         $this->assertStringContainsString('Deliverables are listed below.', $text);
 
-        // Tags are gone, and no XML parser was involved — so no external
-        // entity could have been resolved.
+        // The markup is gone; what is left is the document's text.
         $this->assertStringNotContainsString('<w:t>', $text);
+    }
+
+    /**
+     * A file given to the assistant is also kept as a documentation page
+     * would hold it — whole, as Markdown — so importing it later does not
+     * parse it again inside somebody's request. A picture has no such form.
+     */
+    public function test_a_document_is_prepared_as_a_page_when_it_is_read(): void
+    {
+        $record = $this->attach(FakeFiles::text("# Plan\n\n- [ ] Ship it\n- [x] Test it", 'plan.md'));
+
+        $this->assertTrue($record->isImportable());
+        $this->assertStringContainsString('- [ ] Ship it', (string) $record->markdown);
+        $this->assertFalse($record->markdown_truncated);
+
+        $image = $this->attach(FakeFiles::png());
+
+        $this->assertFalse($image->isImportable());
+        $this->assertNull($image->markdown);
+    }
+
+    /**
+     * A Word document reaches the model with its structure: headings and
+     * checkboxes, not a run of words.
+     */
+    public function test_a_word_document_reaches_the_model_with_its_structure(): void
+    {
+        $record = $this->attach(FakeFiles::docxDocument(
+            '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Bugs</w:t></w:r></w:p>'
+            .'<w:p><w:r><w:t xml:space="preserve">☐ Login fails</w:t></w:r></w:p>',
+        ));
+
+        $this->assertStringContainsString("# Bugs\n\n- [ ] Login fails", (string) $record->extracted_text);
     }
 
     public function test_a_spreadsheet_document_is_read_from_its_shared_strings(): void
@@ -431,9 +463,9 @@ class AiAttachmentProcessingTest extends TestCase
     /**
      * An XXE payload in an uploaded document does not resolve.
      *
-     * The reason OfficeProcessor strips tags with a regular expression rather
-     * than a parser: there is no configuration of a regular expression that
-     * fetches a URL or reads a file.
+     * A part that declares a document type is refused outright by SafeXml —
+     * real Office parts never carry one — so no entity can be declared, let
+     * alone fetched.
      */
     public function test_an_external_entity_in_a_document_is_not_resolved(): void
     {
