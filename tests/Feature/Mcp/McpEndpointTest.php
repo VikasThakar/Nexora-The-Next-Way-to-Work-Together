@@ -101,7 +101,8 @@ class McpEndpointTest extends TestCase
         $response->assertOk();
         $this->assertSame('Nexora', $response->json('result.serverInfo.name'));
         $this->assertStringContainsString('Europe/Stockholm', (string) $response->json('result.instructions'));
-        $this->assertStringContainsString('read-only', (string) $response->json('result.instructions'));
+        $this->assertStringContainsString('HOW TO SHOW RESULTS', (string) $response->json('result.instructions'));
+        $this->assertStringContainsString('MAKING CHANGES', (string) $response->json('result.instructions'));
     }
 
     /**
@@ -131,7 +132,7 @@ class McpEndpointTest extends TestCase
 
         $discover = $this->mcp('server/discover', ['_meta' => $meta], $headers('server/discover'))->assertOk();
         $this->assertContains('2026-07-28', $discover->json('result.supportedVersions'));
-        $this->assertStringContainsString('read-only', (string) $discover->json('result.instructions'));
+        $this->assertStringContainsString('HOW TO SHOW RESULTS', (string) $discover->json('result.instructions'));
 
         $tools = $this->mcp('tools/list', ['_meta' => $meta], $headers('tools/list'))->assertOk();
         $this->assertContains('search_tickets', array_column($tools->json('result.tools') ?? [], 'name'));
@@ -150,7 +151,7 @@ class McpEndpointTest extends TestCase
     // The tools
     // -----------------------------------------------------------------
 
-    public function test_staff_get_the_staff_tools_every_one_read_only_and_with_its_own_schema(): void
+    public function test_staff_get_the_read_tools_marked_read_only_and_the_write_tools_marked_as_writes(): void
     {
         $team = $this->teamMember();
         $this->boardWithColumns([$team]);
@@ -164,9 +165,18 @@ class McpEndpointTest extends TestCase
         $this->assertFalse($tools->has('search_external_knowledge'));
         $this->assertSame($tools->count(), $tools->keys()->unique()->count());
 
+        $writes = ['create_ticket', 'create_tickets', 'update_ticket', 'update_checklist', 'add_comment', 'delete_ticket', 'create_doc_page', 'update_doc_page'];
+
         foreach ($tools as $name => $tool) {
-            $this->assertTrue($tool['annotations']['readOnlyHint'] ?? false, $name.' must be read-only');
+            // A write that claimed to be read-only would be called without the
+            // client asking the person first.
+            $this->assertSame(! in_array($name, $writes, true), $tool['annotations']['readOnlyHint'] ?? null, $name);
             $this->assertFalse($tool['annotations']['openWorldHint'] ?? true, $name);
+            $this->assertSame($name === 'delete_ticket', $tool['annotations']['destructiveHint'] ?? false, $name);
+        }
+
+        foreach ($writes as $name) {
+            $this->assertTrue($tools->has($name), $name.' should be offered to staff');
         }
 
         $this->assertEquals(

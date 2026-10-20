@@ -96,6 +96,10 @@ class AppServiceProvider extends ServiceProvider
         // Singleton so per-request membership lookups are memoised once per user.
         $this->app->singleton(BoardAccess::class);
 
+        // Which AI app a write is coming through, for "via Claude" in the
+        // history. Scoped, so it can never outlive the request that set it.
+        $this->app->scoped(\App\Support\WriteOrigin::class);
+
         /*
          * Passport's device-code grant (the "enter this code on your TV" flow)
          * is on by default and registers /oauth/device*. Nothing here uses it,

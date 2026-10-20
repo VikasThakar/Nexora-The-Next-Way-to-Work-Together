@@ -64,6 +64,9 @@
             <p class="min-w-0 text-sm text-slate-600">
                 <x-ui.avatar :user="$activity->actor" :name="$actorName" size="sm" class="mr-1.5 -mt-0.5 align-middle" />
                 <span class="font-medium text-slate-900">{{ $actorName }}</span>
+                @if (filled($activity->property('via')))
+                    <span class="text-xs text-slate-500">via {{ $activity->property('via') }}</span>
+                @endif
                 {{ $activity->description }}
             </p>
 

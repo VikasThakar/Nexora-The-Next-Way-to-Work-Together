@@ -78,8 +78,9 @@ return [
     | Nexora's remote MCP server
     |--------------------------------------------------------------------------
     |
-    | The read-only endpoint at /mcp that Claude and ChatGPT connect to. See
-    | routes/ai.php and App\Mcp\Servers\NexoraServer.
+    | The endpoint at /mcp that Claude and ChatGPT connect to: reads, and the
+    | changes the signed-in person may make. See routes/ai.php and
+    | App\Mcp\Servers\NexoraServer.
     |
     |   enabled               false removes /mcp and the OAuth discovery and
     |                         registration routes entirely
@@ -91,6 +92,10 @@ return [
     |                         it silently
     |   refresh_token_days    how long a connection survives without use before
     |                         the person has to sign in again
+    |   writes_enabled        false takes every write tool away (back to
+    |                         read-only) without a deploy
+    |   write_rate_limit      changes per minute, per user, on top of
+    |                         rate_limit — a runaway client stops here
     |
     */
 
@@ -100,6 +105,8 @@ return [
         'oauth_rate_limit' => (int) env('MCP_OAUTH_RATE_LIMIT', 120),
         'access_token_minutes' => (int) env('MCP_ACCESS_TOKEN_MINUTES', 60),
         'refresh_token_days' => (int) env('MCP_REFRESH_TOKEN_DAYS', 30),
+        'writes_enabled' => (bool) env('MCP_WRITES_ENABLED', true),
+        'write_rate_limit' => (int) env('MCP_WRITE_RATE_LIMIT', 30),
     ],
 
 ];

@@ -170,6 +170,10 @@
 
                         <div class="flex flex-wrap items-baseline gap-x-1.5 text-sm">
                             <span class="font-medium text-slate-900">{{ $actorFor($event) }}</span>
+                            {{-- The AI app the change came through, when there was one. --}}
+                            @if (filled(($event->payload ?? [])['via'] ?? null))
+                                <span class="text-xs text-slate-500">via {{ $event->payload['via'] }}</span>
+                            @endif
                             <span class="text-slate-600">{{ $event->type->label() }}</span>
 
                             @if ($object)

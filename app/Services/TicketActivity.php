@@ -8,6 +8,7 @@ use App\Enums\TicketEventType;
 use App\Models\Ticket;
 use App\Models\TicketEvent;
 use App\Models\User;
+use App\Support\WriteOrigin;
 use Illuminate\Support\Facades\Auth;
 
 /**
@@ -77,6 +78,11 @@ class TicketActivity
         array $payload,
         ?User $actor,
     ): TicketEvent {
+        // "via Claude", when the change came from an AI app. See WriteOrigin.
+        if (($via = app(WriteOrigin::class)->via()) !== null) {
+            $payload['via'] = $via;
+        }
+
         $event = TicketEvent::query()->create([
             'ticket_id' => $ticket->getKey(),
             'board_id' => $ticket->board_id,

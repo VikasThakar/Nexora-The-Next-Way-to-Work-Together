@@ -16,6 +16,7 @@ use App\Models\DocPage;
 use App\Models\Ticket;
 use App\Models\TicketEvent;
 use App\Models\User;
+use App\Support\WriteOrigin;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
@@ -1102,6 +1103,11 @@ class ActivityLogger
         array $properties,
         ?User $causer,
     ): ?Activity {
+        // "via Claude", when the change came from an AI app. See WriteOrigin.
+        if (($via = app(WriteOrigin::class)->via()) !== null) {
+            $properties['via'] = $via;
+        }
+
         $logger = activity($type->category()->value)
             ->event($type->value)
             // Nulls are dropped so a template can ask `property('from')` and

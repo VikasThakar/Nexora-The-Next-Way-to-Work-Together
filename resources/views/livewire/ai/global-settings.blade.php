@@ -442,6 +442,9 @@
                                     </td>
                                     <td class="px-4 py-1.5 whitespace-nowrap font-mono text-slate-700">
                                         {{ $row->tool }}
+                                        @if ($row->channel === \App\Enums\AiToolChannel::Mcp->value)
+                                            <span class="font-sans text-slate-400">· AI app</span>
+                                        @endif
                                     </td>
                                     <td class="px-4 py-1.5 text-slate-600">
                                         {{ $row->target ?? '—' }}

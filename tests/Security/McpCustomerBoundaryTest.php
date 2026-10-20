@@ -43,7 +43,11 @@ class McpCustomerBoundaryTest extends TestCase
         $names = $this->mcpAs($customer)->mcpToolNames();
         sort($names);
 
+        // The seven reads, and the three changes the ticket screen already
+        // lets a customer make: raise a ticket, edit theirs, reply.
         $this->assertSame([
+            'add_comment',
+            'create_ticket',
             'get_board',
             'get_completed_tickets',
             'get_documentation_page',
@@ -51,6 +55,7 @@ class McpCustomerBoundaryTest extends TestCase
             'get_ticket',
             'search_documentation',
             'search_tickets',
+            'update_ticket',
         ], $names);
     }
 
@@ -185,6 +190,138 @@ class McpCustomerBoundaryTest extends TestCase
         $this->boardWithColumns([$customer]);
 
         $this->mcpAs($customer, [])->mcp('tools/list')->assertForbidden();
+    }
+
+    // -----------------------------------------------------------------
+    // Changes a customer may make — and nothing more
+    // -----------------------------------------------------------------
+
+    public function test_the_customer_write_tools_offer_only_the_customer_fields(): void
+    {
+        $customer = $this->customer();
+        $this->boardWithColumns([$customer]);
+
+        $tools = collect($this->mcpAs($customer)->mcp('tools/list')->assertOk()->json('result.tools'))->keyBy('name');
+
+        $this->assertSame(['board', 'title', 'description', 'type', 'priority'], array_keys($tools['create_ticket']['inputSchema']['properties']));
+        $this->assertSame(['ticket', 'title', 'description', 'if_unchanged_since'], array_keys($tools['update_ticket']['inputSchema']['properties']));
+        $this->assertSame(['ticket', 'body'], array_keys($tools['add_comment']['inputSchema']['properties']));
+
+        // And the instructions never mention internal work.
+        $instructions = (string) $this->mcp('initialize', [
+            'protocolVersion' => '2025-06-18',
+            'capabilities' => (object) [],
+            'clientInfo' => ['name' => 'test', 'version' => '1'],
+        ])->json('result.instructions');
+
+        $this->assertStringNotContainsString('internal', $instructions);
+        $this->assertStringContainsString('a customer', $instructions);
+    }
+
+    public function test_a_customers_new_ticket_follows_the_customer_rules_whatever_is_sent(): void
+    {
+        $team = $this->teamMember(['name' => 'Tess Team']);
+        $customer = $this->customer();
+        $board = $this->boardWithColumns([$team, $customer]);
+
+        $result = $this->mcpAs($customer)->mcpTool('create_ticket', [
+            'board' => $board->slug,
+            'title' => 'The export is broken',
+            'type' => 'bug',
+            // None of these is in the customer's schema; all are dropped.
+            'status' => 'Done',
+            'assignee' => 'Tess Team',
+            'visible_to_customer' => false,
+        ]);
+
+        $this->assertFalse($result['isError'] ?? false);
+
+        $ticket = Ticket::query()->sole();
+
+        $this->assertSame('Backlog', $ticket->column->name);
+        $this->assertNull($ticket->assignee_id);
+        $this->assertTrue($ticket->customer_visible);
+        $this->assertSame($customer->id, $ticket->created_by_id);
+
+        // The answer to a customer carries no staff-only facts.
+        $this->assertStringNotContainsString('internal', $this->mcpText($result));
+        $this->assertStringNotContainsString('Estimate', $this->mcpText($result));
+    }
+
+    public function test_a_customer_edits_their_own_ticket_and_not_somebody_elses(): void
+    {
+        $team = $this->teamMember();
+        $customer = $this->customer();
+        $board = $this->boardWithColumns([$team, $customer]);
+
+        $theirs = $this->ticketOn($board, $customer, ['title' => 'Mine']);
+        $shared = $this->ticketOn($board, $team, ['title' => 'Shared by the team', 'customer_visible' => true]);
+
+        $this->mcpAs($customer);
+
+        $own = $this->mcpTool('update_ticket', ['ticket' => $theirs->key(), 'title' => 'Mine, clearer', 'status' => 'Done']);
+
+        $this->assertFalse($own['isError'] ?? false);
+        $theirs->refresh();
+        $this->assertSame('Mine, clearer', $theirs->title);
+        $this->assertSame('Backlog', $theirs->column->name);
+
+        $other = $this->mcpTool('update_ticket', ['ticket' => $shared->key(), 'title' => 'Hijacked']);
+
+        $this->assertTrue($other['isError'] ?? false);
+        $this->assertSame('Shared by the team', $shared->refresh()->title);
+    }
+
+    public function test_a_customer_replies_on_the_customer_thread_only_and_never_on_an_internal_ticket(): void
+    {
+        [$customer, $board, $internal, $shared] = $this->boardWithOtterAndZebra();
+
+        $this->mcpAs($customer);
+
+        $reply = $this->mcpTool('add_comment', ['ticket' => $shared->key(), 'body' => 'Thanks!', 'visible_to_customer' => false]);
+
+        $this->assertFalse($reply['isError'] ?? false);
+        $this->assertSame(CommentStream::Customer, $shared->comments()->sole()->stream);
+
+        // ZEBRA is internal: commenting on it reads exactly like a key that
+        // does not exist.
+        $hidden = $this->mcpText($this->mcpTool('add_comment', ['ticket' => $internal->key(), 'body' => 'Hello?']));
+        $missing = $this->mcpText($this->mcpTool('add_comment', ['ticket' => $board->ticket_prefix.'-999', 'body' => 'Hello?']));
+
+        $this->assertSame($missing, $hidden);
+        $this->assertSame(0, $internal->comments()->count());
+    }
+
+    public function test_a_customer_cannot_reply_where_the_board_turned_customer_comments_off(): void
+    {
+        $team = $this->teamMember();
+        $customer = $this->customer();
+        $board = $this->boardWithColumns([$team, $customer], ['settings' => ['customers_can_comment' => false]]);
+        $ticket = $this->ticketOn($board, $team, ['customer_visible' => true]);
+
+        $result = $this->mcpAs($customer)->mcpTool('add_comment', ['ticket' => $ticket->key(), 'body' => 'Hello']);
+
+        $this->assertTrue($result['isError'] ?? false);
+        $this->assertSame(0, $ticket->comments()->count());
+    }
+
+    public function test_a_customer_cannot_reach_the_staff_write_tools_by_name(): void
+    {
+        $team = $this->teamMember();
+        $customer = $this->customer();
+        $board = $this->boardWithColumns([$team, $customer]);
+        $ticket = $this->ticketOn($board, $customer);
+
+        $this->mcpAs($customer);
+
+        foreach (['delete_ticket', 'create_tickets', 'update_checklist', 'create_doc_page', 'update_doc_page'] as $tool) {
+            $response = $this->mcp('tools/call', ['name' => $tool, 'arguments' => ['ticket' => $ticket->key(), 'board' => $board->slug, 'title' => 'x', 'page' => 'x']]);
+
+            $response->assertStatus(400);
+            $this->assertSame(-32602, $response->json('error.code'), $tool);
+        }
+
+        $this->assertNotNull($ticket->fresh());
     }
 
     protected function tearDown(): void

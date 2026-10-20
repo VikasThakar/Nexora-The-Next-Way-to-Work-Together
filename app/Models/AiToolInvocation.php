@@ -49,6 +49,12 @@ class AiToolInvocation extends Model
     public const OUTCOME_ERROR = 'error';
 
     /**
+     * A change an AI app asked for that waits for the person to confirm it —
+     * nothing was changed. See App\Mcp\Support\Confirmations.
+     */
+    public const OUTCOME_AWAITING = 'awaiting_confirmation';
+
+    /**
      * Deliberately empty. An audit row that could be mass assigned is an audit
      * row a request could write, which is worth nothing.
      *
@@ -112,6 +118,10 @@ class AiToolInvocation extends Model
             return $this->outcome === self::OUTCOME_ERROR ? 'rose' : 'amber';
         }
 
+        if ($this->outcome === self::OUTCOME_AWAITING) {
+            return 'slate';
+        }
+
         return $this->category === self::CATEGORY_ACTION ? 'brand' : 'slate';
     }
 
@@ -122,6 +132,7 @@ class AiToolInvocation extends Model
             self::OUTCOME_REFUSED => 'Refused',
             self::OUTCOME_INVALID => 'Invalid input',
             self::OUTCOME_NOT_FOUND => 'Not found',
+            self::OUTCOME_AWAITING => 'Awaiting confirmation',
             default => 'Failed',
         };
     }
