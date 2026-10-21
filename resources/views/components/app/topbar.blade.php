@@ -1,10 +1,11 @@
-@props(["title" => null])
+@props(["title" => null, "embedded" => false])
 
 @php
     $user = auth()->user();
 @endphp
 
 <header class="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-slate-200 bg-surface/90 px-4 backdrop-blur sm:px-6 lg:px-8">
+    @unless ($embedded)
     <button
         type="button"
         class="-ml-1 rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 lg:hidden"
@@ -15,6 +16,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
         </svg>
     </button>
+    @endunless
 
     <div class="min-w-0 flex-1">
         <h1 class="truncate text-sm font-semibold text-slate-900">
@@ -98,9 +100,12 @@
             >
                 <div class="border-b border-slate-100 px-4 py-3">
                     <p class="truncate text-sm font-medium text-slate-900">{{ $user?->name }}</p>
-                    <p class="truncate text-xs text-slate-500">{{ $user?->email }}</p>
+                    <p class="truncate text-xs text-slate-500">{{ $embedded ? 'Signed in through Gritch' : $user?->email }}</p>
                 </div>
 
+                {{-- In the Gritch iframe the account belongs to Gritch: no
+                     profile, no password, and signing out happens in Gritch. --}}
+                @unless ($embedded)
                 <a href="{{ route('profile.edit') }}" wire:navigate
                    class="block px-4 py-2 text-sm text-slate-700 transition hover:bg-slate-50">
                     Profile &amp; password
@@ -120,6 +125,7 @@
                         Sign out
                     </button>
                 </form>
+                @endunless
             </div>
         </div>
     </div>

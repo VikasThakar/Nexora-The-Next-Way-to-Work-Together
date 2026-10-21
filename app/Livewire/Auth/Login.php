@@ -55,6 +55,20 @@ class Login extends Component
             ]);
         }
 
+        // An account the Gritch integration created is only ever signed in by
+        // Gritch. Its password is random and known to nobody, so this cannot
+        // normally be reached — it is here so that stays true if somebody sets
+        // one by hand.
+        if ($user instanceof User && $user->isIntegrationAccount()) {
+            Auth::logout();
+            Session::invalidate();
+            Session::regenerateToken();
+
+            throw ValidationException::withMessages([
+                'email' => 'This account opens from Gritch Admin. Sign in to Gritch and open Nexora there.',
+            ]);
+        }
+
         RateLimiter::clear($this->throttleKey());
 
         // Rotate the session id to defeat session fixation.

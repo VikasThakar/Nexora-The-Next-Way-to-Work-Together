@@ -630,6 +630,17 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute((int) config('mcp.server.oauth_rate_limit', 120))
                 ->by('mcp-oauth:'.($request->ip() ?? 'unknown'));
         });
+
+        /*
+         * The Gritch integration's three endpoints. Per IP, because the token
+         * and revoke calls all come from Gritch's own servers and the embed
+         * posts from admins' browsers; generous, because every page load in
+         * Gritch's Nexora screen signs in again.
+         */
+        RateLimiter::for('gritch', function (Request $request): Limit {
+            return Limit::perMinute((int) config('gritch.rate_limit', 120))
+                ->by('gritch:'.($request->ip() ?? 'unknown'));
+        });
     }
 
     /**
@@ -660,6 +671,12 @@ class AppServiceProvider extends ServiceProvider
         Passport::defaultScopes([Registrar::OAUTH_SCOPE]);
 
         Passport::authorizationView(fn (array $parameters) => view('mcp.authorize', $parameters));
+
+        // Personal access tokens are issued for one thing only: Gritch's admin
+        // AI (App\Http\Controllers\GritchIntegrationController::token). Passport
+        // would make them last a year; Gritch asks for a new one when it needs
+        // one, so they last minutes.
+        Passport::personalAccessTokensExpireIn(CarbonInterval::minutes(max(1, (int) config('gritch.token_minutes', 15))));
     }
 
     private function configureUrls(): void

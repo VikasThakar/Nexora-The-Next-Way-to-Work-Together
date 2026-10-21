@@ -7,6 +7,7 @@ namespace App\Support;
 use App\Models\Board;
 use App\Models\DocPage;
 use App\Models\Ticket;
+use App\Services\Gritch\GritchEmbed;
 use Illuminate\Support\Collection;
 
 /**
@@ -44,6 +45,13 @@ final class Breadcrumbs
      */
     public static function root(): array
     {
+        // In the Gritch iframe the board is the top of the world: there is no
+        // dashboard or board list to go back to (EmbedScope would only send
+        // the click back to the board).
+        if (GritchEmbed::active()) {
+            return [];
+        }
+
         return [self::item('Dashboard', route('dashboard'))];
     }
 
@@ -52,6 +60,10 @@ final class Breadcrumbs
      */
     public static function boards(): array
     {
+        if (GritchEmbed::active()) {
+            return [];
+        }
+
         return [
             ...self::root(),
             self::item('Boards', route('boards.index')),

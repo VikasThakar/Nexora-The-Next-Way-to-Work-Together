@@ -28,8 +28,17 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="h-full">
+    {{--
+        Inside the Gritch admin dashboard's iframe the page is the Gritch board
+        and nothing around it: no sidebar, no workspace links, no profile or
+        sign-out. Only cosmetic — App\Http\Middleware\EmbedScope is what keeps
+        the embed on the board, and BoardPolicy what keeps it off the settings.
+    --}}
+    @php($embedded = \App\Services\Gritch\GritchEmbed::active())
+
     <div x-data="{ mobileNav: false }" class="flex min-h-full">
 
+        @unless ($embedded)
         {{-- Off-canvas navigation for narrow viewports --}}
         <div
             x-show="mobileNav"
@@ -79,6 +88,7 @@
                 side="right"
             />
         </div>
+        @endunless
 
         {{--
             `app-content` is what the AI panel insets on desktop. The panel is
@@ -93,7 +103,7 @@
             the rule in resources/css/app.css.
         --}}
         <div class="app-content flex min-w-0 flex-1 flex-col">
-            <x-app.topbar :title="$title ?? null" />
+            <x-app.topbar :title="$title ?? null" :embedded="$embedded" />
 
             <main class="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
                 <div class="mx-auto max-w-7xl">
@@ -104,7 +114,11 @@
             </main>
 
             <footer class="border-t border-slate-200 bg-surface px-6 py-4 text-xs text-slate-500">
-                {{ config('workspace.name') }} &middot; Signed in as {{ auth()->user()?->email }}
+                @if ($embedded)
+                    {{ config('workspace.name') }} &middot; Signed in through Gritch as {{ auth()->user()?->name }}
+                @else
+                    {{ config('workspace.name') }} &middot; Signed in as {{ auth()->user()?->email }}
+                @endif
             </footer>
         </div>
     </div>

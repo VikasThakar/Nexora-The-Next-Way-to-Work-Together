@@ -1,8 +1,11 @@
 <?php
 
 use App\Http\Middleware\ConfirmPasswordWhenRequired;
+use App\Http\Middleware\EmbedScope;
 use App\Http\Middleware\EnsureUserHasRole;
 use App\Http\Middleware\EnsureUserIsActive;
+use App\Http\Middleware\FrameOptions;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -42,7 +45,20 @@ return Application::configure(basePath: dirname(__DIR__))
             // Runs on every web request so deactivating a user takes effect
             // immediately rather than at their next login.
             EnsureUserIsActive::class,
+
+            // Keeps the Gritch embed host to the Gritch board. A no-op on
+            // every other host. After EnsureUserIsActive, so a deactivated
+            // account is signed out before this looks at it.
+            EmbedScope::class,
         ]);
+
+        // Laravel sorts `auth` ahead of the web group's own middleware, which
+        // would send a signed-out frame to /login — a page the embed host does
+        // not have — before EmbedScope could answer "session ended".
+        $middleware->prependToPriorityList(AuthenticatesRequests::class, EmbedScope::class);
+
+        // Who may frame Nexora. Global so error pages carry the header too.
+        $middleware->append(FrameOptions::class);
 
         $middleware->alias([
             'role' => EnsureUserHasRole::class,
@@ -73,6 +89,13 @@ return Application::configure(basePath: dirname(__DIR__))
          */
         $middleware->validateCsrfTokens(except: [
             'webhooks/github',
+
+            // The same reasoning for Gritch: its page posts the assertion into
+            // the iframe from admin.getgritch.com, which never rendered one of
+            // our forms. The assertion is single-use, expires within two
+            // minutes and is signed with a shared secret — see
+            // App\Services\Gritch\GritchAssertion.
+            'integrations/gritch/*',
         ]);
 
         $middleware->redirectGuestsTo(fn () => route('login'));

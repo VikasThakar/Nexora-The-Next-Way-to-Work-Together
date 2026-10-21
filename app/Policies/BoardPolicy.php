@@ -188,6 +188,14 @@ class BoardPolicy
             return Response::denyAsNotFound();
         }
 
+        // A Gritch admin's account works on the board's tickets, not its
+        // configuration: model, repository, automatic runs, Slack and SMS stay
+        // with the Nexora team. This one ability guards the AI settings screen,
+        // the integrations screen and every action on both.
+        if ($user->isIntegrationAccount()) {
+            return Response::deny('Board settings are managed in Nexora, not through Gritch.');
+        }
+
         return $this->access->canManageBoardContent($user, $board)
             ? Response::allow()
             : Response::deny('Only the delivery team can change this board configuration.');

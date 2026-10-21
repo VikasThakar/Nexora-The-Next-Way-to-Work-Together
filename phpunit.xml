@@ -52,5 +52,10 @@
         <env name="MCP_RATE_LIMIT" value="60"/>
         <env name="PASSPORT_PRIVATE_KEY" value=""/>
         <env name="PASSPORT_PUBLIC_KEY" value=""/>
+        <!-- The Gritch integration is off unless a test turns it on. -->
+        <env name="GRITCH_INTEGRATION_ENABLED" value="false"/>
+        <env name="GRITCH_INTEGRATION_SECRET" value=""/>
+        <env name="GRITCH_BOARD" value=""/>
+        <env name="GRITCH_EMBED_HOST" value=""/>
     </php>
 </phpunit>

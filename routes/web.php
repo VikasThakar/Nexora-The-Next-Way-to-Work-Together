@@ -8,10 +8,13 @@ use App\Http\Controllers\AttachmentController;
 use App\Http\Controllers\Auth\LogoutController;
 use App\Http\Controllers\CustomerStatisticsExportController;
 use App\Http\Controllers\GitHubWebhookController;
+use App\Http\Controllers\GritchIntegrationController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\StatisticsExportController;
 use App\Http\Controllers\ThemePreferenceController;
 use App\Http\Controllers\UserAvatarController;
+use App\Http\Middleware\EmbedScope;
+use App\Http\Middleware\EnsureUserIsActive;
 use App\Livewire\Activity\Index as ActivityIndex;
 use App\Livewire\Ai\Chat as AiChat;
 use App\Livewire\Ai\GlobalSettings as AiGlobalSettings;
@@ -36,7 +39,11 @@ use App\Livewire\Tickets\Create as TicketCreate;
 use App\Livewire\Tickets\Show as TicketShow;
 use App\Livewire\Users\Index as UserIndex;
 use App\Livewire\Users\ManageUser;
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
+use Illuminate\Session\Middleware\AuthenticateSession;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 /*
 |--------------------------------------------------------------------------
@@ -68,6 +75,38 @@ Route::get('/health', HealthController::class)->name('health');
 Route::post('/webhooks/github', GitHubWebhookController::class)
     ->middleware('throttle:github-webhooks')
     ->name('webhooks.github');
+
+/*
+ * The Gritch integration. See GritchIntegrationController.
+ *
+ * Unauthenticated in the session sense, like the webhook above: the
+ * credential is a GritchAssertion in the body, signed by Gritch's server, and
+ * CSRF is exempted for these paths in bootstrap/app.php because the assertion
+ * is the stronger proof. Rate limited per IP before anything runs, and every
+ * route answers 404 while the integration is off.
+ *
+ * `embed` is a browser request into the iframe and needs the session it
+ * creates. `token` and `revoke` are server-to-server and stateless: without
+ * the session middleware they leave no session row and set no cookie.
+ */
+Route::prefix('integrations/gritch')
+    ->name('gritch.')
+    ->middleware('throttle:gritch')
+    ->group(function (): void {
+        Route::post('/embed', [GritchIntegrationController::class, 'embed'])->name('embed');
+
+        Route::withoutMiddleware([
+            StartSession::class,
+            ShareErrorsFromSession::class,
+            ValidateCsrfToken::class,
+            AuthenticateSession::class,
+            EnsureUserIsActive::class,
+            EmbedScope::class,
+        ])->group(function (): void {
+            Route::post('/token', [GritchIntegrationController::class, 'token'])->name('token');
+            Route::post('/revoke', [GritchIntegrationController::class, 'revoke'])->name('revoke');
+        });
+    });
 
 Route::redirect('/', '/dashboard')->name('home');
 

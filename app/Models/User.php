@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Passport\Contracts\OAuthenticatable;
@@ -150,6 +151,17 @@ class User extends Authenticatable implements OAuthenticatable
     // Relationships
     // ---------------------------------------------------------------------
 
+    /**
+     * The person in another system this account stands for, when it was
+     * created by an integration rather than by an administrator.
+     *
+     * @return HasOne<IntegrationIdentity, $this>
+     */
+    public function integrationIdentity(): HasOne
+    {
+        return $this->hasOne(IntegrationIdentity::class);
+    }
+
     /** @return HasMany<BoardMember, $this> */
     public function boardMemberships(): HasMany
     {
@@ -210,6 +222,28 @@ class User extends Authenticatable implements OAuthenticatable
         return $this->deactivated_at === null;
     }
 
+    /**
+     * Was this account created for a Gritch admin by the Gritch integration?
+     *
+     * Such an account has no usable password: it is only ever signed in by
+     * Gritch's server, so password login and password reset refuse it, and its
+     * board settings rights are withheld (BoardPolicy::manageAiSettings). See
+     * App\Actions\Gritch\ProvisionGritchMember.
+     *
+     * Memoised per instance with once(), because the policy asks on every
+     * render of a board screen.
+     */
+    public function isIntegrationAccount(): bool
+    {
+        if ($this->getKey() === null) {
+            return false;
+        }
+
+        return once(fn (): bool => $this->relationLoaded('integrationIdentity')
+            ? $this->integrationIdentity !== null
+            : $this->integrationIdentity()->exists());
+    }
+
     public function initials(): string
     {
         $parts = preg_split('/\s+/', trim($this->name)) ?: [];
@@ -260,6 +294,13 @@ class User extends Authenticatable implements OAuthenticatable
 
     public function sendPasswordResetNotification(#[\SensitiveParameter] $token): void
     {
+        // An integration account's address is a placeholder that can never
+        // receive mail, and a password would only open a second way in that
+        // Gritch cannot switch off. The reset form stays non-committal either way.
+        if ($this->isIntegrationAccount()) {
+            return;
+        }
+
         $this->notify(new ResetPassword($token));
     }
 }
