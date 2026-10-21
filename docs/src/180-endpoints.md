@@ -46,7 +46,7 @@ tools without a deploy.
 | Property | Value |
 |---|---|
 | Authentication | **HMAC-SHA256** over the raw body, in `X-Hub-Signature-256` |
-| CSRF | Exempt — the only exempt path in the application |
+| CSRF | Exempt, like `/integrations/gritch/*`: the signature replaces it |
 | Rate limit | `throttle:github-webhooks` — 300/min per IP, applied **before** anything else runs |
 | Content type | `application/json` |
 | Purpose | Link branches, commits, pull requests and CI results to tickets |
@@ -92,6 +92,19 @@ answered 200. Anything else is acknowledged and ignored.
 3. Content type: `application/json`
 4. Secret: the value of `GITHUB_WEBHOOK_SECRET`
 5. Events: pushes, branch/tag creation, pull requests, check suites, statuses.
+
+## Gritch integration — `/integrations/gritch/*`
+
+These endpoints are called by Gritch's admin dashboard, never by a Nexora page. Each takes one
+credential: a `GritchAssertion` in the body, signed by Gritch with `GRITCH_INTEGRATION_SECRET`,
+valid for at most two minutes and only once. CSRF is exempt. All three return `404` while the
+integration is off. See the Gritch Integration chapter.
+
+| Endpoint | Caller | Answer | Rate limit |
+|---|---|---|---|
+| `POST /integrations/gritch/embed` | The admin's browser, a form posted into the iframe. Only on `GRITCH_EMBED_HOST` | `302` to the Gritch board with a new session, or `403` and the "session ended" page | `throttle:gritch` — per IP |
+| `POST /integrations/gritch/token` | Gritch's server (stateless, no session cookie) | `{access_token, token_type, expires_in, board}`. A 15-minute `mcp:use` token for the admin's own account | `throttle:gritch` |
+| `POST /integrations/gritch/revoke` | Gritch's server on logout | `{revoked: true\|false}`. The account's sessions are deleted and its tokens revoked | `throttle:gritch` |
 
 ## Health endpoints
 
