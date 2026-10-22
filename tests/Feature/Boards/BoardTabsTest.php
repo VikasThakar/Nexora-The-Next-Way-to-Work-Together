@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Boards;
 
 use App\Actions\Tabs\DeleteTab;
+use App\Actions\Tabs\ReorderTabs;
 use App\Livewire\Boards\Show as BoardShow;
 use App\Models\BoardTab;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -239,5 +240,30 @@ class BoardTabsTest extends TestCase
         $component->call('$refresh')
             ->assertSet('tab', '')
             ->assertSee('The tab you had open was removed, so this is Main.');
+    }
+
+    public function test_the_tab_on_screen_stays_when_someone_else_makes_another_tab_the_first(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $main = $this->defaultTab($board);
+        $website = $this->tabOn($board, 'Website');
+        $this->ticketOn($board, $team, ['title' => 'Main tab ticket']);
+        $this->ticketOn($board, $team, ['title' => 'Website tab ticket', 'board_tab_id' => $website->id]);
+
+        // Opened on the leftmost tab, so the URL is plain.
+        $component = Livewire::actingAs($team)->test(BoardShow::class, ['board' => $board])
+            ->assertSet('tab', '')
+            ->assertSee('Main tab ticket');
+
+        app(ReorderTabs::class)->handle($board, [$website->id, $main->id], $team);
+
+        // Still Main after the refresh — now named in the URL, since it is no
+        // longer the tab a plain URL means.
+        $component->call('$refresh')
+            ->assertSet('tab', 'main')
+            ->assertSee('Main tab ticket')
+            ->assertDontSee('Website tab ticket')
+            ->assertSee(route('tickets.create', ['board' => $board, 'tab' => 'main']), false);
     }
 }

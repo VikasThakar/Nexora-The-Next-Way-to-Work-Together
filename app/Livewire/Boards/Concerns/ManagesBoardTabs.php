@@ -12,6 +12,7 @@ use App\Models\Board;
 use App\Models\BoardTab;
 use App\Support\TabColumnMapping;
 use Illuminate\Support\Str;
+use Livewire\Attributes\Locked;
 use RuntimeException;
 
 /**
@@ -29,7 +30,13 @@ use RuntimeException;
  */
 trait ManagesBoardTabs
 {
-    /** The tab awaiting a delete decision, and the tab its tickets should go to. */
+    /**
+     * The tab awaiting a delete decision, and the tab its tickets should go to.
+     *
+     * Only startDeletingTab() opens the panel, so the first is locked against
+     * the browser; the second is the panel's own select.
+     */
+    #[Locked]
     public ?int $deletingTabId = null;
 
     public ?int $destinationTabId = null;
@@ -204,7 +211,10 @@ trait ManagesBoardTabs
      */
     protected function deleteTabPanel(): array
     {
-        $tab = $this->deletingTabId !== null
+        // The panel counts every ticket in the tab, internal ones included,
+        // because that is what a delete would move. So it is drawn only for
+        // the people who may delete, whatever the properties say.
+        $tab = $this->deletingTabId !== null && auth()->user()?->can('manageTabs', $this->board)
             ? $this->board->tabs()->whereKey($this->deletingTabId)->first()
             : null;
 

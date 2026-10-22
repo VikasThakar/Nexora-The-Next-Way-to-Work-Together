@@ -117,7 +117,7 @@ RESTRICT.
 | Behaviour | Detail |
 |---|---|
 | Switching | Click a tab, or arrow / Home / End to a tab and Enter (manual activation: each switch is a round trip). `role="tablist"` / `tab` / `tabpanel` with `aria-selected` |
-| URL | `?tab=<slug>` (`#[Url(history: true)]`), so a tab is a link, refresh keeps it, and back/forward step between tabs. The default tab keeps the plain URL. A slug that is not one of this board's tabs falls back to the default tab with a notice |
+| URL | `?tab=<slug>` (`#[Url(history: true)]`), so a tab is a link, refresh keeps it, and back/forward step between tabs. The default tab keeps the plain URL. An open page keeps showing the tab it was drawn with even if somebody else reorders the strip meanwhile; once that tab is no longer the leftmost, its slug appears in the URL. A slug that is not one of this board's tabs falls back to the default tab with a notice |
 | Remembered | A board opened without `?tab` shows the tab **this person last had open on it** (kept in their session), else the default tab |
 | Counts | Each tab shows how many tickets match the current filters — by the same visibility scope as the cards, so a customer's counts never include internal work |
 | Filters | Search, assignee, priority, labels and visibility belong to the board and stay on when switching tabs |

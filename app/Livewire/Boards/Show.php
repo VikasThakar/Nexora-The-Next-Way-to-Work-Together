@@ -28,6 +28,7 @@ use App\Support\TicketPlace;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -70,6 +71,16 @@ class Show extends Component
      */
     #[Url(as: 'tab', history: true, except: '')]
     public string $tab = '';
+
+    /**
+     * Which tab the page was drawn with, by id, so a plain URL keeps meaning
+     * *this* tab across requests. '' in the URL names the leftmost tab, and
+     * the leftmost tab can change under a viewer when somebody else reorders
+     * the strip; without this, their next refresh would quietly show another
+     * tab. Set only by switchTo() and activeTab(), never by the browser.
+     */
+    #[Locked]
+    public ?int $activeTabId = null;
 
     /** A short message under the tab strip ("GRI-12 moved to …"). */
     public ?string $notice = null;
@@ -282,6 +293,7 @@ class Show extends Component
 
         $this->resolvedTab = $tab;
         $this->tab = $tab instanceof BoardTab && ! $tab->is($default) ? (string) $tab->slug : '';
+        $this->activeTabId = $tab instanceof BoardTab ? (int) $tab->getKey() : null;
 
         if ($tab instanceof BoardTab) {
             session()->put($this->rememberKey(), (int) $tab->getKey());
@@ -309,9 +321,13 @@ class Show extends Component
     /**
      * The tab on screen.
      *
-     * Resolved from the slug on every request — another person may have
-     * removed the tab since this page was drawn, in which case the board falls
-     * back to its default tab and says so rather than showing nothing.
+     * Resolved on every request — another person may have removed the tab
+     * since this page was drawn, in which case the board falls back to its
+     * default tab and says so rather than showing nothing. A slug in the URL
+     * names the tab; a plain URL means the tab the page was drawn with
+     * ($activeTabId), so that somebody else reordering the strip does not
+     * swap the tab under this viewer. If that tab is no longer the leftmost,
+     * its slug goes into the URL so the page says which tab it is.
      *
      * Null only for a board with no tabs at all, which the application never
      * creates (every board starts with "Main") but which the board still
@@ -319,21 +335,33 @@ class Show extends Component
      */
     protected function activeTab(): ?BoardTab
     {
+        $this->board->loadMissing('tabs');
+
         if ($this->resolvedTab instanceof BoardTab) {
             return $this->resolvedTab;
         }
 
-        $this->board->loadMissing('tabs');
+        $default = $this->board->defaultTab();
 
-        $tab = $this->tab === '' ? $this->board->defaultTab() : $this->board->tabBySlug($this->tab);
+        if ($this->tab !== '') {
+            $tab = $this->board->tabBySlug($this->tab);
+        } elseif ($this->activeTabId !== null) {
+            $tab = $this->board->tabs->first(
+                fn (BoardTab $candidate): bool => (int) $candidate->getKey() === $this->activeTabId
+            );
+        } else {
+            $tab = $default;
+        }
 
-        if (! $tab instanceof BoardTab && $this->tab !== '') {
-            $tab = $this->board->defaultTab();
-            $this->tab = '';
+        if (! $tab instanceof BoardTab) {
+            $tab = $default;
             $this->notice = $tab instanceof BoardTab
                 ? 'The tab you had open was removed, so this is '.$tab->name.'.'
                 : null;
         }
+
+        $this->tab = $tab instanceof BoardTab && ! $tab->is($default) ? (string) $tab->slug : '';
+        $this->activeTabId = $tab instanceof BoardTab ? (int) $tab->getKey() : null;
 
         return $this->resolvedTab = $tab;
     }

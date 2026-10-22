@@ -8,6 +8,7 @@ use App\Livewire\Boards\Show as BoardShow;
 use App\Models\BoardTab;
 use App\Models\Ticket;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -173,5 +174,31 @@ class BoardTabManagementUiTest extends TestCase
 
         $this->assertNotNull(BoardTab::query()->find($website->id));
         $this->assertSame(1, Ticket::query()->inTab($website)->count());
+    }
+
+    /**
+     * The delete panel counts every ticket in the tab, internal ones
+     * included — it says what a delete would move. So nobody opens it by
+     * writing its properties from the browser: the tab being deleted is
+     * locked, and the panel is drawn only for people who may delete.
+     */
+    public function test_the_delete_panel_cannot_be_opened_from_the_browser(): void
+    {
+        $team = $this->teamMember();
+        $customer = $this->customer();
+        $board = $this->boardWithColumns([$team, $customer]);
+        $website = $this->tabOn($board, 'Website');
+        $this->ticketOn($board, $team, ['title' => 'Internal only', 'board_tab_id' => $website->id]);
+
+        Livewire::actingAs($customer)->test(BoardShow::class, ['board' => $board])
+            ->set('destinationTabId', $this->defaultTab($board)->id)
+            ->assertViewHas('deletingTab', null)
+            ->assertViewHas('deletingTabTickets', 0)
+            ->assertDontSee('It holds');
+
+        $this->expectException(CannotUpdateLockedPropertyException::class);
+
+        Livewire::actingAs($customer)->test(BoardShow::class, ['board' => $board])
+            ->set('deletingTabId', $website->id);
     }
 }

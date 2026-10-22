@@ -1208,7 +1208,7 @@ RESTRICT.
 | Behaviour | Detail |
 |---|---|
 | Switching | Click a tab, or arrow / Home / End to a tab and Enter (manual activation: each switch is a round trip). `role="tablist"` / `tab` / `tabpanel` with `aria-selected` |
-| URL | `?tab=<slug>` (`#[Url(history: true)]`), so a tab is a link, refresh keeps it, and back/forward step between tabs. The default tab keeps the plain URL. A slug that is not one of this board's tabs falls back to the default tab with a notice |
+| URL | `?tab=<slug>` (`#[Url(history: true)]`), so a tab is a link, refresh keeps it, and back/forward step between tabs. The default tab keeps the plain URL. An open page keeps showing the tab it was drawn with even if somebody else reorders the strip meanwhile; once that tab is no longer the leftmost, its slug appears in the URL. A slug that is not one of this board's tabs falls back to the default tab with a notice |
 | Remembered | A board opened without `?tab` shows the tab **this person last had open on it** (kept in their session), else the default tab |
 | Counts | Each tab shows how many tickets match the current filters — by the same visibility scope as the cards, so a customer's counts never include internal work |
 | Filters | Search, assignee, priority, labels and visibility belong to the board and stay on when switching tabs |
@@ -2239,7 +2239,7 @@ without, about exactly the same material.
 | `get_board` | Description, its tabs and each tab's columns with counts, labels, prefix. With no argument, lists reachable boards | Everyone |
 | `get_ticket` | One ticket in full — with its tab on a board split into tabs — plus recent conversation and history | Everyone — scoped |
 | `search_tickets` | By text, tab, column, label, priority, assignee, due date, age | Everyone — scoped |
-| `get_completed_tickets` | Tickets completed — moved into a done column — in a named period or date range, from the history; flags tickets reopened since | Everyone — scoped |
+| `get_completed_tickets` | Tickets completed — moved into a done column — in a named period or date range, from the history, optionally in one tab; flags tickets reopened since | Everyone — scoped |
 | `search_documentation` | Page titles and bodies, with extracts | Everyone — scoped |
 | `get_documentation_page` | One page in full by slug | Everyone — scoped |
 | `get_statistics` | Eight aggregate metrics | Everyone; three metrics staff-only |

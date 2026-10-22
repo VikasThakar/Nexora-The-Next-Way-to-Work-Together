@@ -171,4 +171,21 @@ class TicketTabsTest extends TestCase
         $this->assertStringNotContainsString('?tab=', $html);
         $this->assertStringNotContainsString('id="ticket-tab"', $html);
     }
+
+    public function test_choosing_the_tab_the_ticket_is_already_in_moves_nothing_and_says_nothing(): void
+    {
+        $team = $this->teamMember();
+        $board = $this->boardWithColumns([$team]);
+        $main = $this->defaultTab($board);
+        $this->tabOn($board, 'Website');
+        $ticket = $this->ticketOn($board, $team, ['board_column_id' => $this->columnNamed($board, 'In Progress', $main)->id]);
+
+        Livewire::actingAs($team)
+            ->test(TicketShow::class, ['board' => $board, 'number' => $ticket->number])
+            ->set('tabId', (string) $main->id)
+            ->assertSet('tabNotice', null)
+            ->assertDontSee('Moved to');
+
+        $this->assertSame($this->columnNamed($board, 'In Progress', $main)->id, $ticket->fresh()->board_column_id);
+    }
 }

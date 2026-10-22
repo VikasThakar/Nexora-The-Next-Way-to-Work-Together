@@ -166,7 +166,7 @@
         </div>
     @endif
 
-    @if ($deletingTab)
+    @if ($deletingTab && $canConfigureBoard)
         @include('livewire.boards.partials.delete-tab-panel')
     @endif
 

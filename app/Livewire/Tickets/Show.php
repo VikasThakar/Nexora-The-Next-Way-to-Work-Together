@@ -351,6 +351,8 @@ class Show extends Component
 
         abort_unless($tab instanceof BoardTab, 404);
 
+        $before = (int) $this->ticket->board_column_id;
+
         try {
             $column = $mover->handle($this->ticket, $tab, auth()->user());
         } catch (RuntimeException $exception) {
@@ -363,6 +365,15 @@ class Show extends Component
 
         $this->ticket->refresh();
         $this->syncPlace();
+
+        // Choosing the tab the ticket is already in moves nothing (the select
+        // reports every change, the same one included), so there is nothing
+        // to announce.
+        if ((int) $this->ticket->board_column_id === $before) {
+            $this->tabNotice = null;
+
+            return;
+        }
 
         $column->setRelation('tab', $tab);
         $this->tabNotice = 'Moved to '.TicketPlace::column($column, true).'.';
