@@ -117,6 +117,10 @@ enum ActivityType: string
     case ColumnUpdated = 'column_updated';
     case ColumnDeleted = 'column_deleted';
     case ColumnsReordered = 'columns_reordered';
+    case TabCreated = 'tab_created';
+    case TabRenamed = 'tab_renamed';
+    case TabsReordered = 'tabs_reordered';
+    case TabDeleted = 'tab_deleted';
 
     /**
      * Where this type files in the category filter, and therefore what goes
@@ -175,7 +179,11 @@ enum ActivityType: string
             self::ColumnCreated,
             self::ColumnUpdated,
             self::ColumnDeleted,
-            self::ColumnsReordered => ActivityCategory::Settings,
+            self::ColumnsReordered,
+            self::TabCreated,
+            self::TabRenamed,
+            self::TabsReordered,
+            self::TabDeleted => ActivityCategory::Settings,
         };
     }
 
@@ -228,6 +236,10 @@ enum ActivityType: string
             self::ColumnUpdated => 'Column updated',
             self::ColumnDeleted => 'Column removed',
             self::ColumnsReordered => 'Columns reordered',
+            self::TabCreated => 'Tab added',
+            self::TabRenamed => 'Tab renamed',
+            self::TabsReordered => 'Tabs reordered',
+            self::TabDeleted => 'Tab removed',
         };
     }
 
@@ -241,9 +253,10 @@ enum ActivityType: string
     {
         return match ($this) {
             self::TicketCreated, self::BoardCreated, self::PageCreated,
-            self::ColumnCreated, self::MemberAdded => 'plus',
+            self::ColumnCreated, self::TabCreated, self::MemberAdded => 'plus',
 
-            self::TicketMoved, self::PageMoved, self::ColumnsReordered => 'arrow',
+            self::TicketMoved, self::PageMoved, self::ColumnsReordered,
+            self::TabsReordered => 'arrow',
 
             self::TicketAssigneeChanged, self::MemberRemoved => 'user',
 
@@ -267,7 +280,7 @@ enum ActivityType: string
             self::CommentDeleted => 'chat',
 
             self::TicketDeleted, self::BoardDeleted, self::PageDeleted,
-            self::ColumnDeleted => 'trash',
+            self::ColumnDeleted, self::TabDeleted => 'trash',
 
             self::BoardSettingsChanged, self::BoardArchived,
             self::BoardRestored => 'cog',
@@ -284,10 +297,10 @@ enum ActivityType: string
     {
         return match ($this) {
             self::TicketCreated, self::BoardCreated, self::PageCreated,
-            self::ColumnCreated, self::MemberAdded => 'emerald',
+            self::ColumnCreated, self::TabCreated, self::MemberAdded => 'emerald',
 
             self::TicketDeleted, self::BoardDeleted, self::PageDeleted,
-            self::ColumnDeleted, self::CommentDeleted, self::MemberRemoved,
+            self::ColumnDeleted, self::TabDeleted, self::CommentDeleted, self::MemberRemoved,
             self::TicketAiRunFailed => 'rose',
 
             self::TicketMoved, self::TicketAssigneeChanged => 'brand',
@@ -345,6 +358,10 @@ enum ActivityType: string
             self::ColumnUpdated,
             self::ColumnDeleted,
             self::ColumnsReordered,
+            self::TabCreated,
+            self::TabRenamed,
+            self::TabsReordered,
+            self::TabDeleted,
             self::GithubBranchCreated,
             self::GithubCommitPushed,
             self::GithubPullRequestOpened,

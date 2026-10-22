@@ -19,6 +19,7 @@ use App\Notifications\Slack\CustomerCommentPosted;
 use App\Notifications\Slack\CustomerTicketRaised;
 use App\Notifications\Slack\TicketMovedToDone;
 use App\Support\BoardSlackSettings;
+use App\Support\TicketPlace;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Throwable;
@@ -126,7 +127,8 @@ class SlackNotifier
                 title: $ticket->title,
                 url: $this->ticketUrl($board, $ticket),
                 boardName: $board->name,
-                columnName: $column->name,
+                // "Backend API › Done" on a board split into tabs.
+                columnName: TicketPlace::column($column, $board->hasMultipleTabs()),
                 actor: $actor?->name,
             );
         });

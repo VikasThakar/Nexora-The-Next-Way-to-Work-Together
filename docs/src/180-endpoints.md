@@ -169,13 +169,13 @@ join a channel merely by knowing its name.**
 | `GET /dashboard` | `Dashboard\Index` | auth |
 | `GET /boards` | `Boards\Index` | auth |
 | `GET /boards/create` | `Boards\ManageBoard` | `role:admin` + confirm |
-| `GET /boards/{board}` | `Boards\Show` | auth + `BoardPolicy::view` |
+| `GET /boards/{board}` | `Boards\Show` | auth + `BoardPolicy::view`. `?tab=<slug>` opens that tab; without it, the tab this person last had open there, else the default tab |
 | `GET /boards/{board}/edit` | `Boards\ManageBoard` | `role:admin` + confirm |
-| `GET /boards/{board}/settings` | `Boards\Settings` | auth + `manageColumns` |
+| `GET /boards/{board}/settings` | `Boards\Settings` | auth + `manageColumns`. `?tab=<slug>` picks the tab whose columns are edited |
 | `GET /boards/{board}/ai` | `Ai\Chat` | `role:admin,team` + `useAiChat` |
 | `GET /boards/{board}/ai/settings` | `Boards\AiSettings` | `role:admin,team` + `manageAiSettings` |
 | `GET /boards/{board}/integrations` | `Boards\Integrations` | `role:admin,team` + `manageAiSettings` |
-| `GET /boards/{board}/tickets/create` | `Tickets\Create` | auth + `TicketPolicy::create` |
+| `GET /boards/{board}/tickets/create` | `Tickets\Create` | auth + `TicketPolicy::create`. `?tab=<slug>` starts the form in that tab |
 | `GET /boards/{board}/tickets/{number}` | `Tickets\Show` | auth + `TicketFinder` |
 | `GET /boards/{board}/docs` | `Docs\Show` | auth + `DocPagePolicy::viewAny` |
 | `GET /boards/{board}/docs/{slug}` | `Docs\Show` | auth + `DocPageFinder` |
@@ -192,6 +192,11 @@ join a channel merely by knowing its name.**
 Route ordering is deliberate: literal segments such as `/boards/create`, `/boards/{board}/ai`
 and `/boards/{board}/settings` are declared **before** `/boards/{board}`, so a literal is
 never treated as a slug.
+
+Board tabs add no route: switching, adding, renaming, reordering and removing tabs, and
+dropping a card on a tab, are Livewire actions of `Boards\Show`, each re-authorized. A `?tab=`
+slug is only ever resolved within the board in the URL; anything else falls back to the
+board's default tab.
 
 ## Outbound HTTP
 

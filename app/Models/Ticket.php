@@ -38,23 +38,25 @@ class Ticket extends Model
     use HasFactory;
 
     /**
-     * Suppresses the "moved to" notification for this instance only.
+     * Marks a structural move — the "moved to" bell notification and the Slack
+     * "moved to done" message are suppressed for this instance only.
      *
      * A declared property, so it is never an attribute and never persisted —
      * Eloquent's __get is not consulted for properties that exist on the class.
      *
      * It lives here rather than as a switch on App\Observers\TicketObserver or
      * on the dispatcher because the thing being suppressed is a fact about
-     * *these tickets*, not about the request. Deleting a column moves every
-     * ticket out of it one model at a time
-     * (App\Actions\Columns\DeleteColumn::moveTickets), which the observer sees
-     * as a status change per ticket — so without this, tidying a board would
-     * notify everybody assigned a card on it. The alternative, a flag on a
-     * service, would need that service to be a singleton and would then be
-     * global state that a forgotten `finally` could leave switched on.
+     * *these tickets*, not about the request. Deleting a column or a tab moves
+     * every ticket out of it one model at a time
+     * (App\Actions\Columns\DeleteColumn, App\Actions\Tabs\DeleteTab), which the
+     * observer sees as a status change per ticket — so without this, tidying a
+     * board would notify everybody assigned a card on it, and announce every
+     * already-done ticket in Slack again. The alternative, a flag on a service,
+     * would need that service to be a singleton and would then be global state
+     * that a forgotten `finally` could leave switched on.
      *
      * The move is still recorded in the timeline and still broadcast; only the
-     * bell is quiet, and the timeline says the column was removed.
+     * bell and Slack are quiet, and the timeline says why the ticket moved.
      */
     public bool $withoutStatusNotification = false;
 
@@ -248,6 +250,22 @@ class Ticket extends Model
         $query->where(
             'tickets.board_column_id',
             $column instanceof BoardColumn ? $column->getKey() : $column
+        );
+    }
+
+    /**
+     * Tickets in one tab: those whose column belongs to it. A ticket has no
+     * tab of its own — its column's tab is its tab.
+     *
+     * @param  Builder<Ticket>  $query
+     */
+    public function scopeInTab(Builder $query, BoardTab|int $tab): void
+    {
+        $query->whereIn(
+            'tickets.board_column_id',
+            BoardColumn::query()
+                ->select('board_columns.id')
+                ->where('board_columns.board_tab_id', $tab instanceof BoardTab ? $tab->getKey() : $tab)
         );
     }
 }

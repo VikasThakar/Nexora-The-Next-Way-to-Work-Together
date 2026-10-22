@@ -32,7 +32,8 @@ trait DescribesTickets
             'description' => ['type' => 'string', 'maxLength' => 20000, 'description' => 'The details, as Markdown.'],
             'type' => ['type' => 'string', 'enum' => TicketType::values(), 'description' => 'bug, task or feature.'],
             'priority' => ['type' => 'string', 'enum' => TicketPriority::values(), 'description' => 'critical, high, medium, low or nice_to_have.'],
-            'status' => ['type' => 'string', 'maxLength' => 120, 'description' => 'The status: one of the board\'s column names, exactly as get_board lists them (e.g. "In Progress", "Done").'],
+            'tab' => ['type' => 'string', 'maxLength' => 120, 'description' => 'Which tab of the board the ticket is in, by the tab\'s name exactly as get_board lists it (e.g. "Backend API"). Only boards split into tabs need it. Omit it to use the board\'s first tab. status is then one of that tab\'s columns.'],
+            'status' => ['type' => 'string', 'maxLength' => 120, 'description' => 'The status: one of the column names of the ticket\'s tab, exactly as get_board lists them (e.g. "In Progress", "Done").'],
             'assignee' => ['type' => 'string', 'maxLength' => 120, 'description' => 'Who should have it: the name or email of an active team member of the board, or "me". Customers cannot be assigned work.'],
             'labels' => [
                 'type' => 'array',
@@ -73,7 +74,7 @@ trait DescribesTickets
         try {
             return app(TicketFinder::class)
                 ->findOrFail($board, $number, $this->context->user)
-                ->load(['board', 'column', 'assignee', 'labels']);
+                ->load(['board', 'column.tab', 'assignee', 'labels']);
         } catch (NotFoundHttpException) {
             // Saved, but no longer visible to this person — a customer's new
             // ticket on a board that hides them, say. Said plainly.
@@ -90,7 +91,14 @@ trait DescribesTickets
     {
         $timezone = McpPresentation::timezone();
 
-        $facts = [
+        $facts = [];
+
+        // On a board split into tabs, which tab — two tabs can both have a "To Do".
+        if ($ticket->board->hasMultipleTabs()) {
+            $facts['Tab'] = McpPresentation::inline((string) $ticket->column?->tab?->name);
+        }
+
+        $facts += [
             'Status' => McpPresentation::status($ticket->column),
             'Assigned to' => McpPresentation::assignee($ticket->assignee),
             'Priority' => McpPresentation::priority($ticket->priority),

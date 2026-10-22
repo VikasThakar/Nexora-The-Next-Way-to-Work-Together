@@ -10,9 +10,17 @@
         $payload = $event->payload ?? [];
 
         return match ($event->type) {
+            // Between tabs, both ends name their tab: "Main › To Do → Backend API › To Do".
             \App\Enums\TicketEventType::TicketMoved => isset($payload['from_column'], $payload['to_column'])
-                ? $payload['from_column'].' → '.$payload['to_column']
-                    .(($payload['reason'] ?? null) === 'column_deleted' ? ' (column removed)' : '')
+                ? (($payload['from_tab'] ?? null) !== null && ($payload['from_tab'] ?? null) !== ($payload['to_tab'] ?? null)
+                    ? \App\Support\TicketPlace::names($payload['from_tab'], $payload['from_column'])
+                        .' → '.\App\Support\TicketPlace::names($payload['to_tab'] ?? null, $payload['to_column'])
+                    : $payload['from_column'].' → '.$payload['to_column'])
+                    .match ($payload['reason'] ?? null) {
+                        \App\Services\TicketActivity::REASON_COLUMN_DELETED => ' (column removed)',
+                        \App\Services\TicketActivity::REASON_TAB_DELETED => ' (tab removed)',
+                        default => '',
+                    }
                 : null,
 
             \App\Enums\TicketEventType::PriorityChanged => isset($payload['to'])

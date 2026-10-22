@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Services\Statistics;
 
 use App\Enums\TicketPriority;
+use App\Models\BoardTab;
 use App\Models\Label;
 use App\Models\Ticket;
+use App\Support\TicketPlace;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -69,7 +71,9 @@ class TeamStatistics
     }
 
     /**
-     * Tickets per column, in board order.
+     * Tickets per column, in board order — tab by tab on a board split into
+     * tabs, where each row names its tab ("Backend API › Doing"), because two
+     * tabs can both have a "To Do" and they are different columns.
      *
      * @return array<int, array{label: string, value: int, is_done: bool}>
      */
@@ -80,24 +84,41 @@ class TeamStatistics
         }
 
         $multiple = count($scope->boardIds()) > 1;
+        $splitBoards = BoardTab::boardIdsWithSeveralTabs($scope->boardIds());
 
         return (clone $scope->tickets())
             ->join('board_columns', 'board_columns.id', '=', 'tickets.board_column_id')
+            ->join('board_tabs', 'board_tabs.id', '=', 'board_columns.board_tab_id')
             ->join('boards', 'boards.id', '=', 'board_columns.board_id')
-            ->groupBy('board_columns.id', 'board_columns.name', 'board_columns.position', 'board_columns.is_done', 'boards.ticket_prefix')
+            ->groupBy(
+                'board_columns.id', 'board_columns.name', 'board_columns.position', 'board_columns.is_done', 'board_columns.board_id',
+                'board_tabs.id', 'board_tabs.name', 'board_tabs.position',
+                'boards.ticket_prefix',
+            )
+            ->orderBy('board_tabs.position')
             ->orderBy('board_columns.position')
             ->orderBy('boards.ticket_prefix')
+            ->orderBy('board_tabs.id')
+            ->orderBy('board_columns.id')
             ->get([
                 'board_columns.name',
                 'board_columns.is_done',
+                'board_columns.board_id',
+                'board_tabs.name as tab_name',
                 'boards.ticket_prefix',
                 DB::raw('COUNT(tickets.id) as aggregate_total'),
             ])
-            ->map(fn ($row): array => [
-                'label' => $multiple ? $row->ticket_prefix.' · '.$row->name : $row->name,
-                'value' => (int) $row->aggregate_total,
-                'is_done' => (bool) $row->is_done,
-            ])
+            ->map(function ($row) use ($multiple, $splitBoards): array {
+                $name = in_array((int) $row->board_id, $splitBoards, true)
+                    ? TicketPlace::names((string) $row->tab_name, (string) $row->name)
+                    : (string) $row->name;
+
+                return [
+                    'label' => $multiple ? $row->ticket_prefix.' · '.$name : $name,
+                    'value' => (int) $row->aggregate_total,
+                    'is_done' => (bool) $row->is_done,
+                ];
+            })
             ->all();
     }
 

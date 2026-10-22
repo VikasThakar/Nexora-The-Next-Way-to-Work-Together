@@ -189,7 +189,7 @@ enum AiActionType: string
     {
         return match ($this) {
             self::CreateTicket => 'Request a new ticket on a board. Set every field the person asked for in this one '
-                .'call — title, description, priority, type, assignee, status column, labels and attachment_ids — '
+                .'call — title, description, priority, type, assignee, tab, status column, labels and attachment_ids — '
                 .'rather than creating a bare ticket and changing it afterwards. When the person has attached '
                 .'screenshots, recordings or files to this conversation and the ticket is about them, pass their '
                 .'ids in attachment_ids so the files land on the ticket; images are then shown inline in it. '
@@ -202,7 +202,7 @@ enum AiActionType: string
                 .'They are authorized together: if any one cannot be created, none are, and you will see why. '
                 .'Never create them one per reply.',
             self::UpdateTicket => 'Request changes to an existing ticket, identified by its number. This is the tool '
-                .'for re-assigning, moving between status columns, re-prioritising, re-labelling, editing the '
+                .'for re-assigning, moving between status columns or to another tab, re-prioritising, re-labelling, editing the '
                 .'title or body, and attaching files from this conversation (attachment_ids) — send every field '
                 .'the person asked to change in one call. Omitted fields are left alone. Each field is authorized '
                 .'separately against the person asking, so some may be refused while others succeed.',
@@ -327,7 +327,8 @@ enum AiActionType: string
                     'priority' => ['type' => 'string', 'enum' => TicketPriority::values(), 'description' => 'Replacement priority. Omit to leave unchanged.'],
                     'type' => ['type' => 'string', 'enum' => TicketType::values(), 'description' => 'Replacement work type. Omit to leave unchanged.'],
                     'assignee' => ['type' => 'string', 'maxLength' => 120, 'description' => 'Who to assign it to — their name or email. Pass "me" for the person asking, or "nobody" to unassign. Omit to leave unchanged. They must already be a member of the board.'],
-                    'column' => ['type' => 'string', 'maxLength' => 120, 'description' => 'The status column to move it to, by name (e.g. "Done", "In Review"). This is how a ticket\'s status changes. Omit to leave it where it is.'],
+                    'tab' => ['type' => 'string', 'maxLength' => 120, 'description' => 'Move it to another tab of the board, by the tab\'s name (e.g. "Backend API") — only boards split into tabs have more than one. Without `column` it lands in the column with the same name there, else that tab\'s done column if it was done, else the tab\'s first column; with `column`, `column` names a column of the NEW tab. Omit to keep it in its tab.'],
+                    'column' => ['type' => 'string', 'maxLength' => 120, 'description' => 'The status column to move it to, by name (e.g. "Done", "In Review") — a column of the ticket\'s own tab, or of `tab` when you move it. This is how a ticket\'s status changes. Omit to leave it where it is.'],
                     'labels' => [
                         'type' => 'array',
                         'maxItems' => 10,
@@ -442,7 +443,8 @@ enum AiActionType: string
             'priority' => ['type' => 'string', 'enum' => TicketPriority::values(), 'description' => 'Priority. Defaults to medium.'],
             'type' => ['type' => 'string', 'enum' => TicketType::values(), 'description' => 'What kind of work this is. Defaults to task.'],
             'assignee' => ['type' => 'string', 'maxLength' => 120, 'description' => 'Who to assign it to — their name or email, as the person said it (e.g. "Alex Round"). Pass "me" for the person asking. Omit to leave it unassigned. They must already be a member of the board.'],
-            'column' => ['type' => 'string', 'maxLength' => 120, 'description' => 'The status column to put it in, by name (e.g. "In Progress", "Bugs"). Omit to use the board\'s first column.'],
+            'tab' => ['type' => 'string', 'maxLength' => 120, 'description' => 'Which tab of the board to put it in, by name (e.g. "Backend API"), for a board split into tabs (the board context lists TABS AND COLUMNS). Omit to use the board\'s first tab. `column` then names a column of this tab.'],
+            'column' => ['type' => 'string', 'maxLength' => 120, 'description' => 'The status column to put it in, by name (e.g. "In Progress", "Bugs") — one of the columns of its tab. Omit to use the first column of its tab.'],
             'labels' => [
                 'type' => 'array',
                 'maxItems' => 10,

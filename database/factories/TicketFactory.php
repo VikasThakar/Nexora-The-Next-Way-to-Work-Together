@@ -111,13 +111,13 @@ class TicketFactory extends Factory
         return $this->state(fn (array $attributes): array => ['created_by_id' => $user->getKey()]);
     }
 
+    /**
+     * The first column of the board's default tab — where CreateTicket puts a
+     * ticket that names no tab or column — creating one if there is none.
+     */
     private function columnFor(int $boardId): int
     {
-        $existing = BoardColumn::query()
-            ->where('board_id', $boardId)
-            ->orderBy('position')
-            ->orderBy('id')
-            ->first();
+        $existing = Board::query()->find($boardId)?->firstColumn();
 
         return $existing?->getKey()
             ?? BoardColumn::factory()->create(['board_id' => $boardId])->getKey();

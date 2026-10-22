@@ -139,7 +139,7 @@ class ExecuteAiRunJob implements ShouldQueue
 
         $run->refresh();
 
-        $ticket = Ticket::query()->with(['board', 'column', 'labels', 'assignee', 'creator'])
+        $ticket = Ticket::query()->with(['board', 'column.tab', 'labels', 'assignee', 'creator'])
             ->find($run->ticket_id);
 
         if (! $ticket instanceof Ticket) {

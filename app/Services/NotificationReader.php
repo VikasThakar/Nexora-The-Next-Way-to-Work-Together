@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Enums\TicketPriority;
 use App\Models\BoardColumn;
+use App\Models\BoardTab;
 use App\Models\Comment;
 use App\Models\Ticket;
 use App\Models\User;
@@ -14,6 +15,7 @@ use App\Notifications\TicketAssigned;
 use App\Notifications\TicketPriorityChanged;
 use App\Notifications\TicketStatusChanged;
 use App\Support\NotificationItem;
+use App\Support\TicketPlace;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Collection;
 
@@ -180,11 +182,18 @@ class NotificationReader
          */
         $columns = $columnIds === [] ? collect() : BoardColumn::query()
             ->whereIn('id', $columnIds)
-            ->get(['id', 'board_id', 'name'])
+            ->with('tab:id,name')
+            ->get(['id', 'board_id', 'board_tab_id', 'name'])
             ->keyBy('id');
 
+        // On a board split into tabs the line says which tab as well — two
+        // tabs can both have a "Done". One grouped query for every board.
+        $splitBoards = BoardTab::boardIdsWithSeveralTabs(
+            $columns->pluck('board_id')->unique()->values()->all()
+        );
+
         return $notifications
-            ->map(function (DatabaseNotification $row) use ($tickets, $comments, $actors, $columns): ?NotificationItem {
+            ->map(function (DatabaseNotification $row) use ($tickets, $comments, $actors, $columns, $splitBoards): ?NotificationItem {
                 $data = (array) $row->data;
 
                 $ticket = $tickets->get($data['ticket_id'] ?? null);
@@ -217,7 +226,15 @@ class NotificationReader
                 return new NotificationItem(
                     id: (string) $row->getKey(),
                     type: $type,
-                    message: $this->message($type, $ticket, $comment, $actorName, $column, $data),
+                    message: $this->message(
+                        $type,
+                        $ticket,
+                        $comment,
+                        $actorName,
+                        $column,
+                        $data,
+                        $column instanceof BoardColumn && in_array((int) $column->board_id, $splitBoards, true),
+                    ),
                     ticketKey: $ticket->key(),
                     url: route('tickets.show', ['board' => $ticket->board, 'number' => $ticket->number]),
                     actorName: $actorName,
@@ -243,6 +260,7 @@ class NotificationReader
         ?string $actorName,
         ?BoardColumn $column = null,
         array $data = [],
+        bool $withTab = false,
     ): string {
         $who = $actorName ?? 'Somebody';
 
@@ -251,7 +269,7 @@ class NotificationReader
             MentionedInComment::TYPE => $who.' mentioned you on '.$ticket->key(),
 
             TicketStatusChanged::TYPE => $column instanceof BoardColumn
-                ? $who.' moved '.$ticket->key().' to '.$column->name
+                ? $who.' moved '.$ticket->key().' to '.TicketPlace::column($column, $withTab)
                 // The column was deleted after the notification was written.
                 // The move still happened, so it is still reported.
                 : $who.' moved '.$ticket->key(),

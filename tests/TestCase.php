@@ -12,6 +12,7 @@ use App\Actions\Comments\PostComment;
 use App\Actions\Docs\CreatePage;
 use App\Actions\Docs\SetPageVisibility;
 use App\Actions\Notifications\UpdateBoardIntegrations;
+use App\Actions\Tabs\CreateTab;
 use App\Actions\Tickets\CreateTicket;
 use App\Enums\AiCapabilityMode;
 use App\Enums\AiProvider;
@@ -24,6 +25,7 @@ use App\Models\AiGlobalSettings;
 use App\Models\Board;
 use App\Models\BoardColumn;
 use App\Models\BoardRepository;
+use App\Models\BoardTab;
 use App\Models\Comment;
 use App\Models\DocPage;
 use App\Models\Ticket;
@@ -216,9 +218,35 @@ abstract class TestCase extends BaseTestCase
         );
     }
 
-    protected function columnNamed(Board $board, string $name): BoardColumn
+    /**
+     * A column by name — on the whole board, or in one tab.
+     *
+     * Board-wide it keeps sole(): once a board has two tabs with a "To Do"
+     * each, asking the board for "To Do" is ambiguous and should fail loudly
+     * rather than hand back whichever came first.
+     */
+    protected function columnNamed(Board $board, string $name, ?BoardTab $tab = null): BoardColumn
     {
-        return $board->columns()->where('name', $name)->sole();
+        return ($tab ?? $board)->columns()->where('name', $name)->sole();
+    }
+
+    /** The board's default (leftmost) tab. */
+    protected function defaultTab(Board $board): BoardTab
+    {
+        return $board->tabs()->firstOrFail();
+    }
+
+    /**
+     * Add a tab through the real action — by default copying the columns of
+     * the board's default tab, as the "+" on the board copies the open tab's.
+     */
+    protected function tabOn(Board $board, string $name, ?BoardTab $copyColumnsFrom = null): BoardTab
+    {
+        $tab = app(CreateTab::class)->handle($board, $name, $copyColumnsFrom ?? $board->defaultTab());
+
+        $board->forgetTabs();
+
+        return $tab;
     }
 
     /**

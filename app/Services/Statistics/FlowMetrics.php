@@ -6,7 +6,10 @@ namespace App\Services\Statistics;
 
 use App\Enums\TicketEventType;
 use App\Models\BoardColumn;
+use App\Models\BoardTab;
 use App\Models\Ticket;
+use App\Services\TicketActivity;
+use App\Support\TicketPlace;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use WeakMap;
@@ -101,13 +104,28 @@ class FlowMetrics
     {
         $doneColumnIds = $scope->doneColumnIds();
 
-        if ($doneColumnIds === [] || $scope->isEmpty()) {
+        if ($scope->isEmpty()) {
             return collect();
         }
 
         return $scope->events()
             ->transitions()
-            ->whereIn('ticket_events.to_column_id', $doneColumnIds)
+            ->where(fn ($query) => $query
+                // A column that is done today…
+                ->whereIn('ticket_events.to_column_id', $doneColumnIds)
+                // …or one deleted since — with its tab, say — that was done
+                // when the ticket arrived, as the event itself recorded. Its
+                // own flag can no longer be read, and finished work must not
+                // drop out of the figures because the board was tidied.
+                ->orWhere(fn ($deleted) => $deleted
+                    ->where('ticket_events.payload->to_done', true)
+                    ->whereNotIn('ticket_events.to_column_id', BoardColumn::query()->select('board_columns.id'))))
+            // Not a move made by restructuring the board: deleting a column or
+            // a tab carries done tickets into another done column, and nobody
+            // finished anything at that moment. See TicketActivity.
+            ->where(fn ($query) => $query
+                ->whereNull('ticket_events.payload->reason')
+                ->orWhereNotIn('ticket_events.payload->reason', TicketActivity::STRUCTURAL_REASONS))
             ->selectRaw('ticket_events.ticket_id, MIN(ticket_events.created_at) as closed_at')
             ->groupBy('ticket_events.ticket_id')
             ->pluck('closed_at', 'ticket_id')
@@ -460,18 +478,23 @@ class FlowMetrics
 
         // Across several boards the same column name appears many times, and
         // "In Progress" on two boards is two different columns. Prefixing keeps
-        // the table readable without pretending they are one.
+        // the table readable without pretending they are one. The same goes for
+        // two tabs of one board, so a board split into tabs names the tab too.
         $multiple = count($boardIds) > 1;
+        $splitBoards = BoardTab::boardIdsWithSeveralTabs($boardIds);
 
         return BoardColumn::query()
             ->whereIn('board_columns.board_id', $boardIds)
             ->join('boards', 'boards.id', '=', 'board_columns.board_id')
-            ->get(['board_columns.id', 'board_columns.name', 'boards.ticket_prefix'])
-            ->mapWithKeys(fn (BoardColumn $column): array => [
-                (int) $column->id => $multiple
-                    ? $column->ticket_prefix.' · '.$column->name
-                    : $column->name,
-            ])
+            ->join('board_tabs', 'board_tabs.id', '=', 'board_columns.board_tab_id')
+            ->get(['board_columns.id', 'board_columns.name', 'board_columns.board_id', 'boards.ticket_prefix', 'board_tabs.name as tab_name'])
+            ->mapWithKeys(function (BoardColumn $column) use ($multiple, $splitBoards): array {
+                $name = in_array((int) $column->board_id, $splitBoards, true)
+                    ? TicketPlace::names((string) $column->tab_name, (string) $column->name)
+                    : (string) $column->name;
+
+                return [(int) $column->id => $multiple ? $column->ticket_prefix.' · '.$name : $name];
+            })
             ->all();
     }
 }

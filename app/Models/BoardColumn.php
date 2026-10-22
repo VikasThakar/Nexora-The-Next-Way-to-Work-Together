@@ -9,10 +9,17 @@ use Database\Factories\BoardColumnFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * One Kanban column.
+ *
+ * Every column belongs to one tab of its board (board_tab_id); positions and
+ * names are per tab, so two tabs can each have a "To Do". The database
+ * guarantees the tab is on the column's own board — (board_tab_id, board_id)
+ * is a composite foreign key — and board_tab_id is set explicitly by the
+ * actions that create columns, never mass-assigned.
  *
  * Columns carry no visibility flag of their own: a column is part of the board
  * layout and everyone who can reach the board sees the same columns. What
@@ -55,6 +62,12 @@ class BoardColumn extends Model
             ['name' => 'Review', 'is_done' => false],
             ['name' => 'Done', 'is_done' => true],
         ];
+    }
+
+    /** @return BelongsTo<BoardTab, $this> */
+    public function tab(): BelongsTo
+    {
+        return $this->belongsTo(BoardTab::class, 'board_tab_id');
     }
 
     /** @return HasMany<Ticket, $this> */

@@ -8,6 +8,7 @@ use App\Models\Board;
 use App\Models\Ticket;
 use App\Services\BoardAccess;
 use App\Services\TicketFinder;
+use App\Support\TicketPlace;
 use Illuminate\Contracts\Auth\Authenticatable;
 
 /**
@@ -56,6 +57,7 @@ class WorkspaceContextBuilder
 
         $boards = $this->access->query($viewer)
             ->notArchived()
+            ->withCount('tabs')
             ->orderBy('name')
             ->limit($boardLimit)
             ->get();
@@ -96,7 +98,7 @@ class WorkspaceContextBuilder
         $total = (clone $visible)->count();
 
         $recent = $visible
-            ->with(['board', 'column'])
+            ->with(['column.tab'])
             ->orderByDesc('tickets.updated_at')
             ->limit($perBoard)
             ->get();
@@ -123,10 +125,14 @@ class WorkspaceContextBuilder
 
         foreach ($recent as $ticket) {
             /** @var Ticket $ticket */
+            // The board as loaded above, with its tab count, so "Backend API ›
+            // Doing" costs no query per ticket.
+            $ticket->setRelation('board', $board);
+
             $lines[] = sprintf(
                 '  - %s [%s] %s%s',
                 $ticket->key(),
-                $ticket->column?->name ?? 'no column',
+                $ticket->column !== null ? TicketPlace::of($ticket) : 'no column',
                 mb_substr($ticket->title, 0, 120),
                 $ticket->customer_visible ? '' : ' · internal',
             );

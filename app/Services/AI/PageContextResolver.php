@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Services\AI;
 
 use App\Models\Board;
+use App\Models\BoardTab;
 use App\Models\DocPage;
 use App\Models\User;
 use App\Services\BoardAccess;
 use App\Services\DocPageFinder;
 use App\Services\TicketFinder;
+use App\Support\TicketPlace;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -26,6 +28,8 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * through the reader that already governs that kind of thing —
  *
  *   board      BoardAccess::query()        board membership
+ *   tab        Board::tabBySlug()          one of that board's tabs (tab names
+ *                                          are visible to every member)
  *   ticket     TicketFinder::findOrFail()  membership and the customer boundary
  *   doc page   DocPageFinder::findOrFail() membership and the ancestor rule
  *
@@ -73,7 +77,30 @@ class PageContextResolver
             return $this->describePage($board, $slug, $viewer);
         }
 
+        // On a board split into tabs, which tab — "put it on the board" then
+        // means this tab unless the person names another.
+        $tab = $this->tab($board, $hint['tab'] ?? null);
+
+        if ($tab instanceof BoardTab && $board->hasMultipleTabs()) {
+            return 'The person asking is currently looking at the '.$tab->name.' tab of the '.$board->name.' board.';
+        }
+
         return 'The person asking is currently looking at the '.$board->name.' board.';
+    }
+
+    /**
+     * The board tab a hint names, if it is one of this board's tabs.
+     *
+     * Membership of the board — already checked by resolveBoard() — is the
+     * whole authorization: tab names are visible to everyone who can reach the
+     * board, as column names are. A slug from another board resolves to
+     * nothing.
+     */
+    public function tab(Board $board, mixed $slug): ?BoardTab
+    {
+        $slug = $this->slug($slug);
+
+        return $slug === null ? null : $board->tabBySlug($slug);
     }
 
     /**
@@ -177,10 +204,13 @@ class PageContextResolver
             return null;
         }
 
+        $ticket->setRelation('board', $board);
+
         return sprintf(
-            'The person asking is currently looking at ticket %s ("%s") on the %s board.',
+            'The person asking is currently looking at ticket %s ("%s")%s on the %s board.',
             $ticket->key(),
             mb_substr($ticket->title, 0, 160),
+            $board->hasMultipleTabs() ? ' in '.TicketPlace::of($ticket) : '',
             $board->name,
         );
     }

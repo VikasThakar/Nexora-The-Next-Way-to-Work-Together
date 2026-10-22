@@ -7,8 +7,8 @@ Three suites are declared in `phpunit.xml`.
 | Suite | Directory | Files | Purpose |
 |---|---|---|---|
 | **Unit** | `tests/Unit` | 17 | Pure logic: enums, value objects, parsers, cost calculation |
-| **Feature** | `tests/Feature` | 112 | End-to-end behaviour through routes and Livewire components |
-| **Security** | `tests/Security` | 32 | **Authorization and isolation, runnable alone as a fast CI gate** |
+| **Feature** | `tests/Feature` | 123 | End-to-end behaviour through routes and Livewire components |
+| **Security** | `tests/Security` | 33 | **Authorization and isolation, runnable alone as a fast CI gate** |
 
 Test environment: SQLite in memory, `array` cache and session, `sync` queue, `null`
 broadcasting, `array` mail, `BCRYPT_ROUNDS=4`, public registration off, and
@@ -28,13 +28,13 @@ php artisan test --filter=test_a_customer_cannot_see_internal_tickets
 
 ## Current status
 
-Measured at commit `9c0ff8b` on 20 October 2026:
+Measured on the board tabs branch on 22 October 2026:
 
 | Result | Count |
 |---|---|
-| **Passed** | **2,033** |
+| **Passed** | **2,137** |
 | Failed | 2 |
-| Assertions | 7,905 |
+| Assertions | 8,339 |
 
 The two failures are the `ThemePreferenceTest` pair below. The third test in the table is
 date-sensitive: it passes on days whose report period contains no `7`, as it did on this run.
@@ -93,6 +93,7 @@ asserting the absence of `(total 7)` — rather than to change any application b
 | `GlobalSearchVisibilityTest` | The palette cannot surface unreachable rows |
 | `NotificationVisibilityTest` | No notification is written for an ineligible recipient |
 | `ActivityVisibilityTest` | The feed refuses non-staff in SQL |
+| `BoardTabBoundaryTest` | A customer may pick a tab when raising a ticket but still lands in its first column; tab counts never include internal tickets; a tab slug or id from another board resolves to nothing on the board, the forms, Settings, the AI's page hint and MCP |
 | `RealtimeAuthorizationTest`, `RealtimeBroadcastAudienceTest` | Channel joins and broadcast audiences |
 | `RoleAccessTest` | Route-level role gates |
 
@@ -117,11 +118,11 @@ asserting the absence of `(total 7)` — rather than to change any application b
 
 | Area | Files |
 |---|---|
-| AI | 39 files — capability modes, chat modes, knowledge scope, sessions, context window and prompt caching, tools, attachments, voice, rich responses, apply mode, run caps, inheritance, Anthropic and OpenAI providers, token usage, audit log, batch tickets, importing a file into the docs, tickets from the page on screen |
-| MCP | 5 files — the endpoint and both protocol generations, OAuth and the consent screen, every write tool (confirmation codes, retries, stale reads, the AI mode, archived boards, the write limit, the kill switch), the display rules and badges with the in-app output held unchanged, the reconnect migration |
-| Tickets | 13 files — creation, editing, movement, filtering, links, subtasks, attachments, events, rich text, checklist conversion, quick add, live conversation |
+| AI | 40 files — board tabs (context, the tab on screen, strict per-tab columns), capability modes, chat modes, knowledge scope, sessions, context window and prompt caching, tools, attachments, voice, rich responses, apply mode, run caps, inheritance, Anthropic and OpenAI providers, token usage, audit log, batch tickets, importing a file into the docs, tickets from the page on screen |
+| MCP | 6 files — the endpoint and both protocol generations, OAuth and the consent screen, every write tool (confirmation codes, retries, stale reads, the AI mode, archived boards, the write limit, the kill switch), the display rules and badges with the in-app output held unchanged, the reconnect migration, the `tab` argument and the tab-aware board output |
+| Tickets | 16 files — creation, editing, movement, moving between tabs, filtering, links, subtasks, attachments, events, rich text, checklist conversion, quick add, live conversation, the Tab choice on the ticket and create pages |
 | Documentation | 8 files — editor, save state, drag and drop, tree, workspace, visibility, importing files as pages, the file-to-Markdown converters |
-| Boards | 6 files — management, deletion, columns, labels, integrations, drag and drop |
+| Boards | 14 files — management, deletion, columns, labels, integrations, drag and drop; for tabs: the migration of existing boards (run twice, rolled back and resumed), the tab actions and their locking, the tab strip, managing tabs from the board, dropping a card on a tab, per-tab columns in Settings, and "Tab › Column" labels in statistics, notifications, Slack and search |
 | Statistics | 6 files — team, customer, flow metrics, exports, chart export markup |
 | Notifications | 4 files — bell, ticket notifications, Slack, critical-ticket SMS |
 | Auth | 3 files — authentication, password reset, registration |
@@ -138,14 +139,17 @@ asserting the absence of `(total 7)` — rather than to change any application b
 | `FakeSmsProvider` | Captures messages instead of sending them |
 | `FakeFiles` | Deterministic uploads |
 
-13 model factories cover users, boards, columns, members, labels, tickets, subtasks,
-repositories, GitHub links, AI runs, AI sessions, AI attachments and AI usage records.
+14 model factories cover users, boards, board tabs, columns, members, labels, tickets,
+subtasks, repositories, GitHub links, AI runs, AI sessions, AI attachments and AI usage
+records. A column made by the factory goes into its board's first tab, which is created as
+"Main" when the board has none; `inTab()` picks another. `TestCase` adds `tabOn()` (a tab
+made through the real `CreateTab`), `defaultTab()` and an optional tab on `columnNamed()`.
 
 ## Gaps
 
 | Gap | Note |
 |---|---|
-| Browser / end-to-end tests | **None.** No Dusk, Playwright or Cypress. Drag-and-drop, the TipTap editor, the command palette and theme switching are tested only at the server boundary |
+| Browser / end-to-end tests | **None.** No Dusk, Playwright or Cypress. Drag-and-drop, the TipTap editor, the command palette and theme switching are tested only at the server boundary. Board tabs were walked through once in headless Chrome before release (switching, back/forward, the keyboard, dropping a card on a tab, deleting a tab, a 390 px phone width, the customer view), but that script is not part of the repository |
 | JavaScript unit tests | **None.** No Vitest or Jest; `resources/js` is untested in isolation |
 | Load or performance tests | None |
 | Mutation testing | None |

@@ -111,6 +111,13 @@ class Assistant extends Component
     public ?string $pageDoc = null;
 
     /**
+     * The slug of the board tab on screen, when the page is a board split into
+     * tabs. Kept current as tabs are switched (resources/js/ai-panel.js), and
+     * re-resolved within the board like the rest.
+     */
+    public ?string $pageTab = null;
+
+    /**
      * Is this person able to use the assistant anywhere at all?
      *
      * "There is at least one board they can reach" — equivalent to
@@ -165,11 +172,12 @@ class Assistant extends Component
      * selected yet — see selectScope() for why a later navigation must not
      * silently change the subject.
      */
-    public function reveal(?string $board = null, ?int $ticket = null, ?string $doc = null): void
+    public function reveal(?string $board = null, ?int $ticket = null, ?string $doc = null, ?string $tab = null): void
     {
         $this->pageBoard = $board;
         $this->pageTicket = $ticket;
         $this->pageDoc = $doc;
+        $this->pageTab = $tab;
 
         if (! $this->revealed && $this->scopeValue === AiContextScope::MODE_WORKSPACE && $board !== null) {
             $resolved = app(PageContextResolver::class)->resolveBoard($board, auth()->user());
@@ -190,11 +198,12 @@ class Assistant extends Component
      * would be a data-confusion bug wearing a convenience costume. The panel
      * offers the switch in its header instead.
      */
-    public function syncPage(?string $board = null, ?int $ticket = null, ?string $doc = null): void
+    public function syncPage(?string $board = null, ?int $ticket = null, ?string $doc = null, ?string $tab = null): void
     {
         $this->pageBoard = $board;
         $this->pageTicket = $ticket;
         $this->pageDoc = $doc;
+        $this->pageTab = $tab;
     }
 
     /**
@@ -217,6 +226,7 @@ class Assistant extends Component
         $this->pageBoard = $board;
         $this->pageTicket = null;
         $this->pageDoc = $doc;
+        $this->pageTab = null;
         $this->revealed = true;
 
         if ($this->sending || ! self::eligibleFor(auth()->user())) {
@@ -316,6 +326,7 @@ class Assistant extends Component
             'board' => $this->pageBoard,
             'ticket' => $this->pageTicket,
             'page' => $this->pageDoc,
+            'tab' => $this->pageTab,
         ];
     }
 

@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
 
 class Board extends Model
 {
@@ -29,6 +30,9 @@ class Board extends Model
         'description',
         'settings',
     ];
+
+    /** Remembered answer of hasMultipleTabs(); cleared by forgetTabs(). */
+    private ?bool $multipleTabs = null;
 
     /** @return array<string, string> */
     protected function casts(): array
@@ -87,7 +91,25 @@ class Board extends Model
         return $this->belongsTo(User::class, 'created_by_id');
     }
 
-    /** @return HasMany<BoardColumn, $this> */
+    /**
+     * The board's tabs, leftmost first. The first one is the default tab.
+     *
+     * @return HasMany<BoardTab, $this>
+     */
+    public function tabs(): HasMany
+    {
+        return $this->hasMany(BoardTab::class)->orderBy('position')->orderBy('id');
+    }
+
+    /**
+     * Every column on the board, across all of its tabs.
+     *
+     * Positions count within a tab, so this order interleaves tabs; it is the
+     * right scope for "does this column id belong to this board", not for
+     * displaying columns. Show a tab's columns through BoardTab::columns().
+     *
+     * @return HasMany<BoardColumn, $this>
+     */
     public function columns(): HasMany
     {
         return $this->hasMany(BoardColumn::class)->orderBy('position')->orderBy('id');
@@ -167,16 +189,79 @@ class Board extends Model
     }
 
     /**
-     * The column a ticket lands in when no column is chosen — where
-     * customer-created tickets always go.
+     * The board's default tab — the leftmost one, where a ticket created
+     * without a tab lands and what the board opens on.
+     */
+    public function defaultTab(): ?BoardTab
+    {
+        if ($this->relationLoaded('tabs')) {
+            return $this->tabs->first();
+        }
+
+        return $this->tabs()->first();
+    }
+
+    /**
+     * A tab of this board by its URL slug, or null — never another board's.
+     */
+    public function tabBySlug(?string $slug): ?BoardTab
+    {
+        $slug = Str::lower(trim((string) $slug));
+
+        if ($slug === '') {
+            return null;
+        }
+
+        if ($this->relationLoaded('tabs')) {
+            return $this->tabs->firstWhere('slug', $slug);
+        }
+
+        return $this->tabs()->where('slug', $slug)->first();
+    }
+
+    /**
+     * Is the board split into more than one tab?
+     *
+     * Labels name the tab ("Backend API › Doing") only when this is true, so a
+     * board with a single tab reads exactly as boards did before tabs existed.
+     * Uses a loaded `tabs_count` or `tabs` relation when there is one, and
+     * remembers the answer on this instance: tickets eager-loaded together
+     * share one Board instance, so a list asks once per board.
+     */
+    public function hasMultipleTabs(): bool
+    {
+        if ($this->multipleTabs !== null) {
+            return $this->multipleTabs;
+        }
+
+        if (array_key_exists('tabs_count', $this->getAttributes())) {
+            return $this->multipleTabs = (int) $this->getAttribute('tabs_count') > 1;
+        }
+
+        if ($this->relationLoaded('tabs')) {
+            return $this->multipleTabs = $this->tabs->count() > 1;
+        }
+
+        return $this->multipleTabs = BoardTab::query()->where('board_id', $this->getKey())->count() > 1;
+    }
+
+    /**
+     * Drop what this instance remembers about its tabs, after they changed.
+     */
+    public function forgetTabs(): void
+    {
+        $this->multipleTabs = null;
+        $this->unsetRelation('tabs');
+        unset($this->attributes['tabs_count']);
+    }
+
+    /**
+     * The column a ticket lands in when neither a tab nor a column is chosen:
+     * the first column of the default tab.
      */
     public function firstColumn(): ?BoardColumn
     {
-        if ($this->relationLoaded('columns')) {
-            return $this->columns->first();
-        }
-
-        return $this->columns()->first();
+        return $this->defaultTab()?->firstColumn();
     }
 
     // ---------------------------------------------------------------------

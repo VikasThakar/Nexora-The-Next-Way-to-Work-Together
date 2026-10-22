@@ -12,6 +12,7 @@ use App\Models\TicketSubtask;
 use App\Services\AI\Tools\Concerns\ResolvesWorkspaceSubjects;
 use App\Services\CommentReader;
 use App\Services\GitHub\GithubLinkReader;
+use App\Support\TicketPlace;
 use Illuminate\Support\Str;
 
 /**
@@ -93,7 +94,12 @@ class GetTicketTool implements AiToolContract
             );
         }
 
-        $ticket->loadMissing(['board', 'column', 'assignee', 'labels', 'subtasks']);
+        $ticket->loadMissing(['board', 'column.tab', 'assignee', 'labels', 'subtasks']);
+
+        // On a board split into tabs, which tab — "Done" alone could be any of them.
+        $tabLine = $ticket->board->hasMultipleTabs() && $ticket->column?->tab !== null
+            ? ['Tab: '.$ticket->column->tab->name]
+            : [];
 
         /*
          * For an AI app (MCP) the same facts carry the link, the status and
@@ -109,6 +115,7 @@ class GetTicketTool implements AiToolContract
                 'TICKET '.$ticket->key().' on board "'.$ticket->board->name.'" (slug: '.$ticket->board->slug.')',
                 'Link: '.McpPresentation::ticketUrl($ticket),
                 'Title: '.$ticket->title,
+                ...$tabLine,
                 'Status: '.McpPresentation::status($ticket->column),
                 'Type: '.McpPresentation::type($ticket->type),
                 'Priority: '.McpPresentation::priority($ticket->priority),
@@ -117,6 +124,7 @@ class GetTicketTool implements AiToolContract
             : [
                 'TICKET '.$ticket->key().' on board "'.$ticket->board->name.'" (slug: '.$ticket->board->slug.')',
                 'Title: '.$ticket->title,
+                ...$tabLine,
                 'Status column: '.($ticket->column?->name ?? 'not in a column'),
                 'Type: '.($ticket->type?->label() ?? 'not set'),
                 'Priority: '.($ticket->priority?->label() ?? 'not set'),
@@ -291,6 +299,16 @@ class GetTicketTool implements AiToolContract
             $payload = (array) $event->payload;
             $from = $payload['from_column'] ?? null;
             $to = $payload['to_column'] ?? null;
+
+            // A move between tabs names both tabs: "from Main › To Do to
+            // Backend API › To Do". Within one tab the column alone says it.
+            $fromTab = is_scalar($payload['from_tab'] ?? null) ? (string) $payload['from_tab'] : null;
+            $toTab = is_scalar($payload['to_tab'] ?? null) ? (string) $payload['to_tab'] : null;
+
+            if ($fromTab !== null && $toTab !== null && $fromTab !== $toTab) {
+                $from = is_scalar($from) ? TicketPlace::names($fromTab, (string) $from) : $from;
+                $to = is_scalar($to) ? TicketPlace::names($toTab, (string) $to) : $to;
+            }
 
             if (is_scalar($from) || is_scalar($to)) {
                 $line .= ' (from '.($from === null ? 'nothing' : (string) $from)

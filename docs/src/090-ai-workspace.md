@@ -357,10 +357,10 @@ without, about exactly the same material.
 
 | Tool | What it reads | Availability |
 |---|---|---|
-| `get_board` | Description, columns with counts, labels, prefix. With no argument, lists reachable boards | Everyone |
-| `get_ticket` | One ticket in full, plus recent conversation and history | Everyone — scoped |
-| `search_tickets` | By text, column, label, priority, assignee, due date, age | Everyone — scoped |
-| `get_completed_tickets` | Tickets completed — moved into a done column — in a named period or date range, from the history; flags tickets reopened since | Everyone — scoped |
+| `get_board` | Description, its tabs and each tab's columns with counts, labels, prefix. With no argument, lists reachable boards | Everyone |
+| `get_ticket` | One ticket in full — with its tab on a board split into tabs — plus recent conversation and history | Everyone — scoped |
+| `search_tickets` | By text, tab, column, label, priority, assignee, due date, age | Everyone — scoped |
+| `get_completed_tickets` | Tickets completed — moved into a done column — in a named period or date range, from the history, optionally in one tab; flags tickets reopened since | Everyone — scoped |
 | `search_documentation` | Page titles and bodies, with extracts | Everyone — scoped |
 | `get_documentation_page` | One page in full by slug | Everyone — scoped |
 | `get_statistics` | Eight aggregate metrics | Everyone; three metrics staff-only |
@@ -405,9 +405,9 @@ directly, through the **same code a confirmed proposal goes through** —
 
 | Tool | Staff | Customer | What it does |
 |---|---|---|---|
-| `create_ticket` | Every field: description, type, priority, status (column), assignee, labels, due date, estimate, visibility | Board, title, description, type, priority | Raise one ticket. A customer's ticket follows the customer rules: first column, nobody assigned, visible |
-| `create_tickets` | Up to 30, same fields | — | All or nothing; a refusal names the ticket at fault |
-| `update_ticket` | Any field, status, assignee (`nobody` unassigns), labels (replaces the set), due date (`none` clears) | Title and description of a ticket **they raised** | The answer lists what changed, old → new, read back from the saved row |
+| `create_ticket` | Every field: description, type, priority, tab, status (a column of that tab), assignee, labels, due date, estimate, visibility | Board, title, description, type, priority, tab | Raise one ticket. A customer's ticket follows the customer rules: first column of its tab, nobody assigned, visible |
+| `create_tickets` | Up to 30, same fields — each ticket its own `tab` | — | All or nothing; a refusal names the ticket at fault |
+| `update_ticket` | Any field, status, `tab` (move to another tab), assignee (`nobody` unassigns), labels (replaces the set), due date (`none` clears) | Title and description of a ticket **they raised** | The answer lists what changed, old → new — the tab included — read back from the saved row |
 | `update_checklist` | Add, complete, reopen, remove items by text or number | — | `TicketPolicy::manageSubtasks`, as on the ticket screen |
 | `add_comment` | Internal note by default; `visible_to_customer` posts on the customer thread | Customer thread only, where the board allows customer comments | |
 | `delete_ticket` | After confirmation | — | Permanent |
@@ -463,8 +463,29 @@ other half of the gate.
   without a deploy.
 
 **Not offered, deliberately:** changing visibility or publishing, moving or deleting pages,
-deleting comments, boards, columns, labels and members, AI code runs, bulk edits of existing
-tickets, and file uploads.
+deleting comments, boards, tabs, columns, labels and members, adding, renaming or reordering
+tabs, AI code runs, bulk edits of existing tickets, and file uploads.
+
+#### Tabs over MCP — the `tab` argument
+
+Boards can be split into tabs, each with its own columns (section 6). Other systems build on
+this argument — Gritch's admin AI passes it through — so it is a stable contract:
+
+- **What it takes.** A tab's display name, exactly as `get_board` lists it. Matched exactly
+  (ignoring case) first, then by a unique partial match; an unknown or ambiguous name changes
+  nothing and the error lists the board's tabs. Only this board's tabs are candidates.
+- **Always optional.** Without it a new ticket goes to the board's **first tab**, and `status`
+  moves a ticket **within its own tab** — exactly as before tabs existed. `status` is always a
+  column of the ticket's tab, or of `tab` when both are given.
+- **Moving.** `update_ticket` with `tab` moves the ticket; without `status` it lands in the
+  column with the same name, else a done column if it was done, else the tab's first column.
+  A column name alone never carries a ticket into another tab — if only another tab has it,
+  the error says which tab to name.
+- **Output.** On a board with several tabs, `get_board` prints `TABS AND COLUMNS` (a `TAB
+  "Name" — n tickets` block per tab), ticket lines read `🟡 Backend API › Doing`, ticket cards
+  and `get_ticket` add a `Tab` line, and the first column of **each tab** counts as not
+  started (⚪). A board with one tab prints exactly what it always did.
+- Customers get `tab` on `create_ticket` (they see tab names) but never on `update_ticket`.
 
 #### How results look in the chat
 
@@ -486,7 +507,7 @@ output is unchanged.
 | 🟢 | The column counts as done |
 | 🔴 | The column's name says blocked or on hold |
 | 🟣 | Review, QA, testing |
-| ⚪ | The board's first column, or a backlog / to-do name |
+| ⚪ | The first column of its tab, or a backlog / to-do name |
 | 🟡 | Anything else in between — the column's own name is always kept |
 | 🔥 ⬆️ ➖ ⬇️ 💤 | Priority Critical, High, Medium, Low, Nice to have (shapes, so they never clash with status colours) |
 | 🐞 ✨ 📋 · 👤 · 📅 / ⚠️ · 🔒 | Type; assignee or *Unassigned*; due or overdue; internal (staff only) |
@@ -519,9 +540,9 @@ does not perform the action.
 
 | Action | Destructive? | Notes |
 |---|---|---|
-| `propose_create_ticket` | No | Sets every field at once — title, description, priority, type, assignee, column, labels, and `customer_visible: false` to keep it internal |
+| `propose_create_ticket` | No | Sets every field at once — title, description, priority, type, assignee, tab, column, labels, and `customer_visible: false` to keep it internal |
 | `propose_create_tickets` | No | Several new tickets on one board, up to 30 per call; one preview, all or none. `source_page_slug` names the page they come from |
-| `propose_update_ticket` | No | Re-assign, move column, re-prioritise, re-label, edit title or body |
+| `propose_update_ticket` | No | Re-assign, move column or tab, re-prioritise, re-label, edit title or body |
 | `propose_comment_ticket` | No | Staff comments default to the **internal** stream |
 | `propose_create_doc_page` | No | New pages are **always internal** until somebody publishes them separately. `import_attachment_id` makes an attached file the body; `board` for a workspace conversation |
 | `propose_update_doc_page` | No | Title and body |
@@ -539,12 +560,33 @@ does not perform the action.
 > the people and the screens that already authorize it. There is no field that can name a viewer,
 > a user id, a column id or a label id.
 
-Assignees, columns and labels are named **in words** — "Alex Round", "In Progress", "bug" —
-rather than by id. That is what the model has to work with, since it is repeating what
-somebody said out loud; and a name has to be *resolved*, which is the step where
+Assignees, tabs, columns and labels are named **in words** — "Alex Round", "Backend API",
+"In Progress", "bug" — rather than by id. That is what the model has to work with, since it is
+repeating what somebody said out loud; and a name has to be *resolved*, which is the step where
 `ProposalTargets` can refuse an assignee who is not on the board and ask which of two
 matching columns was meant. An id would skip that step and land the change somewhere
 plausible and wrong.
+
+### Tabs
+
+On a board split into tabs the board context starts with `TABS AND COLUMNS` — each tab's
+columns with the asker's ticket counts — and every ticket line is tagged `[Tab › Column]`; a
+board with one tab gets a plain `COLUMNS (in board order)` line. The page hint carries the tab
+on screen (the board announces each switch to the panel), so CURRENT PAGE can say "…looking at
+the Backend API tab of the Gritch board"; the slug is re-resolved within the board like every
+other hint.
+
+- `tab` on create: the ticket goes in that tab, and `column` is a column of it. **When the
+  person names no tab, the tab on screen is filled in while the proposal is drafted**
+  (`App\Services\AI\ProposalTabDefaults`) — only for the board on screen, only on a board with
+  several tabs, and only if any column named is one of that tab's — so the card shows where the
+  ticket will go. When a change runs without a tab it goes to the board's first tab; nothing at
+  execution time looks at whatever page happens to be open.
+- `tab` on update moves the ticket (`MoveTicketToTab`), with `column` then naming a column of
+  the new tab. A column name alone is looked up **in the ticket's own tab only**
+  (`ProposalTargets::column(board, tab, name)`); a column only another tab has is refused with
+  "The Website tab has a "Design review" column — name that tab as well to use it."
+- The assistant cannot create, rename, reorder or delete tabs, as it cannot change columns.
 
 ### Confirmation
 

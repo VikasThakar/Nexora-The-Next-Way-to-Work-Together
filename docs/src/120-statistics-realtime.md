@@ -32,7 +32,7 @@ Everything here is a question about *now*, read from `tickets`.
 | Metric | Output |
 |---|---|
 | `counts` | Total, open, closed, created in the period |
-| `byColumn` | Tickets per status column, in board order |
+| `byColumn` | Tickets per status column, in board order — tab by tab, labelled `Tab › Column`, on a board split into tabs |
 | `byPriority` | Tickets per priority, most urgent first, including zeros |
 | `byAssignee` | Open tickets per assignee, busiest first — **staff only** |
 | `byLabel` | Tickets per label, most used first — **staff only** |
@@ -42,6 +42,11 @@ Everything here is a question about *now*, read from `tickets`.
 
 Each breakdown is **one grouped query**. A per-assignee table built by counting tickets per
 member in PHP would be one query per person on a page that already runs a dozen.
+
+Statistics are **board-wide**: a board split into tabs is still counted whole, with no tab
+filter. Where a column is named — `byColumn`, time in column, the CSV exports — it reads
+`Tab › Column` on a board with several tabs (two tabs can both have a "To Do"), and exactly as
+before on a board with one.
 
 ### Flow metrics — `FlowMetrics`
 
@@ -58,7 +63,7 @@ Read from `ticket_events`, the append-only history — **never from `tickets.boa
 
 | Metric | Output |
 |---|---|
-| `closures` | Tickets that entered a done column in the period |
+| `closures` | Tickets that entered a done column in the period — see below for deleted columns and tidying |
 | `throughputByWeek`, `throughputPerWeek` | Completion rate over time |
 | `cycleTime`, `cycleTimeTrend` | How long work takes, and whether that is moving |
 | `timeInColumn` | Where work waits |
@@ -71,6 +76,13 @@ Two limitations are **surfaced to the reader rather than hidden**:
   counting "so far" would make a healthy board look worse the longer it stays healthy;
 - the fold is bounded. A range wide enough to exceed it **reports that it was truncated**
   instead of quietly averaging a subset.
+
+**Restructuring a board is not finishing work.** Deleting a column or a tab moves its tickets
+(reason `column_deleted` / `tab_deleted` in the event); those moves never count as closures,
+so done tickets carried into another done column are not counted as closed again. And
+finished work does not drop out when its column is deleted: each transition records whether
+its column was done at the time (`to_done`), which is what decides for a column that no longer
+exists. (Events written before this was recorded cannot be recovered that way.)
 
 ### AI metrics — `AiStatistics`
 
@@ -211,7 +223,7 @@ that then rolls back would tell every open board to re-read something that never
 
 | Surface | Behaviour |
 |---|---|
-| Kanban board | Re-reads when a ticket on a joined channel changes |
+| Kanban board | Re-reads when a ticket on a joined channel changes, and when a tab or column is added, renamed, reordered or removed (`BoardBroadcaster::structureChanged`, both audiences — structure is not secret). Signals raised inside one transaction are coalesced per board and audience, so deleting a tab with fifty tickets wakes each open board once |
 | Ticket conversation | New comments appear without a reload |
 | Notification bell | Re-reads when `NotificationReceived` fires on the user channel |
 | Documentation autosave | **Deliberately does not broadcast** — see section 9 |

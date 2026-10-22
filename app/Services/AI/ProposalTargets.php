@@ -6,6 +6,7 @@ namespace App\Services\AI;
 
 use App\Models\Board;
 use App\Models\BoardColumn;
+use App\Models\BoardTab;
 use App\Models\Label;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
@@ -130,18 +131,63 @@ class ProposalTargets
     }
 
     /**
-     * Which status column a ticket should sit in.
+     * Which tab of the board a ticket should be in — "put it in Backend API".
      *
-     * The board's columns *are* its statuses in this product, so "move it to
-     * Done", "put it in review" and "change the status to In Progress" all
-     * arrive here.
+     * Only this board's tabs are candidates, so a name can never reach another
+     * board's tab. Same rules as everything else here: exact before partial,
+     * and two matches is a question.
      *
-     * @throws RuntimeException when the name matches no column, or more than one
+     * @throws RuntimeException when the name matches no tab, or more than one
      */
-    public function column(Board $board, string $name): BoardColumn
+    public function tab(Board $board, string $name): BoardTab
     {
         $name = trim($name);
-        $columns = $board->columns()->get();
+        $tabs = $board->tabs()->get();
+
+        $matches = $this->narrow(
+            $tabs,
+            static fn (BoardTab $tab): array => [(string) $tab->name],
+            mb_strtolower($name),
+        );
+
+        if ($matches->isEmpty()) {
+            throw new RuntimeException(
+                $board->name.' has no tab called '.$this->quote($name).'. Its tabs are '
+                .$this->prose($tabs->map(static fn (BoardTab $tab): string => (string) $tab->name)->all())
+                .'. Nothing was changed.'
+            );
+        }
+
+        if ($matches->count() > 1) {
+            throw new RuntimeException(
+                'More than one tab on '.$board->name.' matches '.$this->quote($name).': '
+                .$this->prose($matches->map(static fn (BoardTab $tab): string => (string) $tab->name)->all())
+                .'. Nothing was changed — say which one you mean.'
+            );
+        }
+
+        return $matches->first();
+    }
+
+    /**
+     * Which status column a ticket should sit in, within one tab.
+     *
+     * A board's columns *are* its statuses in this product, so "move it to
+     * Done", "put it in review" and "change the status to In Progress" all
+     * arrive here. Each tab has its own columns — two tabs can both have a
+     * "To Do" — so the name is looked up in one tab only: the tab the ticket is
+     * in, or the tab it is being moved or filed into. A column of that name in
+     * another tab is pointed out, never used: moving a ticket to another tab
+     * happens only when somebody names the tab.
+     *
+     * @throws RuntimeException when the name matches no column of the tab, or more than one
+     */
+    public function column(Board $board, BoardTab $tab, string $name): BoardColumn
+    {
+        $name = trim($name);
+        $columns = $tab->columns()->get();
+        $split = $board->hasMultipleTabs();
+        $where = $split ? 'The '.$tab->name.' tab of '.$board->name : $board->name;
 
         $matches = $this->narrow(
             $columns,
@@ -151,21 +197,50 @@ class ProposalTargets
 
         if ($matches->isEmpty()) {
             throw new RuntimeException(
-                $board->name.' has no column called '.$this->quote($name).'. Its columns are '
+                $where.' has no column called '.$this->quote($name).'. Its columns are '
                 .$this->prose($columns->map(static fn (BoardColumn $column): string => (string) $column->name)->all())
-                .'. Nothing was changed.'
+                .'.'.($split ? $this->elsewhere($board, $tab, $name) : '')
+                .' Nothing was changed.'
             );
         }
 
         if ($matches->count() > 1) {
             throw new RuntimeException(
-                'More than one column on '.$board->name.' matches '.$this->quote($name).': '
+                'More than one column '.($split ? 'in the '.$tab->name.' tab of ' : 'on ').$board->name.' matches '.$this->quote($name).': '
                 .$this->prose($matches->map(static fn (BoardColumn $column): string => (string) $column->name)->all())
                 .'. Nothing was changed — say which one you mean.'
             );
         }
 
         return $matches->first();
+    }
+
+    /**
+     * " The Main tab has a "Review" column — name that tab too to use it.",
+     * when another tab has a column of exactly that name.
+     */
+    private function elsewhere(Board $board, BoardTab $tab, string $name): string
+    {
+        $wanted = mb_strtolower($name);
+
+        $tabs = BoardColumn::query()
+            ->where('board_id', $board->getKey())
+            ->where('board_tab_id', '!=', $tab->getKey())
+            ->with('tab:id,name')
+            ->get()
+            ->filter(static fn (BoardColumn $column): bool => mb_strtolower(trim((string) $column->name)) === $wanted)
+            ->map(static fn (BoardColumn $column): string => (string) $column->tab?->name)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($tabs === []) {
+            return '';
+        }
+
+        return ' The '.$this->prose($tabs).' '.(count($tabs) > 1 ? 'tabs have' : 'tab has').' a '.$this->quote($name)
+            .' column — name that tab as well to use it.';
     }
 
     /**

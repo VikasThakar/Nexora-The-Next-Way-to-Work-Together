@@ -378,6 +378,10 @@ class ActivityVisibilityTest extends TestCase
             ActivityType::ColumnUpdated,
             ActivityType::ColumnDeleted,
             ActivityType::ColumnsReordered,
+            ActivityType::TabCreated,
+            ActivityType::TabRenamed,
+            ActivityType::TabsReordered,
+            ActivityType::TabDeleted,
             ActivityType::TicketVisibilityChanged,
         ];
 

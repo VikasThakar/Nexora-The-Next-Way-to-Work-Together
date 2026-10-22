@@ -11,6 +11,7 @@ use App\Models\Ticket;
 use App\Services\AI\Data\AiCompletion;
 use App\Services\AI\Data\AiPrompt;
 use App\Services\AI\Git\RepositoryCheckout;
+use App\Support\TicketPlace;
 
 /**
  * Suggest mode.
@@ -53,7 +54,7 @@ class TicketAnalysisService
      */
     public function analyse(AiRun $run, Ticket $ticket, ?BoardRepository $repository): array
     {
-        $ticket->loadMissing(['board', 'column', 'labels', 'assignee']);
+        $ticket->loadMissing(['board', 'column.tab', 'labels', 'assignee']);
 
         $checkoutPath = null;
         $unavailable = null;
@@ -116,7 +117,7 @@ class TicketAnalysisService
         $lines = [
             'TICKET '.$ticket->key(),
             'Title: '.$ticket->title,
-            'Status column: '.($ticket->column?->name ?? 'unknown'),
+            'Status column: '.($ticket->column !== null ? TicketPlace::of($ticket) : 'unknown'),
             'Priority: '.$ticket->priority->label(),
             'Raised by: '.($ticket->creator?->name ?? 'unknown')
                 .($ticket->creator?->isCustomer() ? ' (the customer)' : ' (the delivery team)'),

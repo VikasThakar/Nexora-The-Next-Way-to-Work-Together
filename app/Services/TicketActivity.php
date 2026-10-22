@@ -36,6 +36,23 @@ use Illuminate\Support\Facades\Auth;
  */
 class TicketActivity
 {
+    /** A ticket_moved `reason`: its column was deleted and it went to the chosen one. */
+    public const REASON_COLUMN_DELETED = 'column_deleted';
+
+    /** A ticket_moved `reason`: its tab was deleted and it went to the chosen tab. */
+    public const REASON_TAB_DELETED = 'tab_deleted';
+
+    /**
+     * Moves made by restructuring a board rather than by working a ticket.
+     *
+     * They are history like any other move, but nobody finished anything: a
+     * done ticket carried into another done column must not count as closed a
+     * second time (see FlowMetrics), nor be announced again.
+     *
+     * @var list<string>
+     */
+    public const STRUCTURAL_REASONS = [self::REASON_COLUMN_DELETED, self::REASON_TAB_DELETED];
+
     public function __construct(private readonly ActivityLogger $activityLogger) {}
 
     /**

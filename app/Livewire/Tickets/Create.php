@@ -11,12 +11,15 @@ use App\Enums\TicketType;
 use App\Livewire\Concerns\EditsRichText;
 use App\Models\Attachment;
 use App\Models\Board;
+use App\Models\BoardColumn;
+use App\Models\BoardTab;
 use App\Models\Ticket;
 use App\Services\AttachmentStorage;
 use App\Support\Markdown;
 use App\Support\RichText\RichText;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 
 /**
@@ -27,6 +30,11 @@ use Livewire\Component;
  * are not offered, and — more importantly — CreateTicket ignores them for a
  * customer even if they are submitted anyway. The form shape is convenience;
  * the action is the rule.
+ *
+ * On a board split into tabs the form starts in the tab the board was showing
+ * (?tab=<slug> from its New ticket button) and offers a Tab choice to
+ * everyone — customers see tab names, as they see column names. A customer's
+ * request then starts in that tab's first column.
  */
 #[Layout('layouts.app')]
 class Create extends Component
@@ -44,6 +52,10 @@ class Create extends Component
     public string $type = '';
 
     public string $priority = '';
+
+    /** The tab the ticket goes in, by slug; '' is the board's default tab. */
+    #[Url(as: 'tab', except: '')]
+    public string $tab = '';
 
     public string $columnId = '';
 
@@ -65,7 +77,8 @@ class Create extends Component
         $this->board = $board;
         $this->type = TicketType::default()->value;
         $this->priority = TicketPriority::default()->value;
-        $this->columnId = (string) ($board->columns()->ordered()->value('id') ?? '');
+        $this->tab = $this->normalisedTab($this->tab);
+        $this->columnId = (string) ($this->selectedTab()?->firstColumn()?->getKey() ?? '');
 
         // Ticked unless the board says otherwise: work on a board is usually
         // the customer's work. Unticking it is how a ticket stays internal.
@@ -75,6 +88,36 @@ class Create extends Component
     public function togglePreview(): void
     {
         $this->previewing = ! $this->previewing;
+    }
+
+    /**
+     * A different tab: its columns are different, so the column choice starts
+     * again from that tab's first column.
+     */
+    public function updatedTab(string $value): void
+    {
+        $this->tab = $this->normalisedTab($value);
+        $this->columnId = (string) ($this->selectedTab()?->firstColumn()?->getKey() ?? '');
+    }
+
+    /**
+     * The tab chosen, resolved within this board — the default tab for
+     * anything else.
+     */
+    private function selectedTab(): ?BoardTab
+    {
+        return $this->board->tabBySlug($this->tab) ?? $this->board->defaultTab();
+    }
+
+    /**
+     * '' for the default tab (so the URL stays plain), the slug for any other
+     * of this board's tabs, and '' for a slug that is not one of them.
+     */
+    private function normalisedTab(string $slug): string
+    {
+        $tab = $this->board->tabBySlug($slug);
+
+        return $tab instanceof BoardTab && ! $tab->is($this->board->defaultTab()) ? (string) $tab->slug : '';
     }
 
     /**
@@ -147,12 +190,23 @@ class Create extends Component
             'selectedLabelIds.*' => ['integer'],
         ], attributes: ['descriptionMd' => 'description']);
 
+        $tab = $this->selectedTab();
+
+        // A column is honoured only when it is in the chosen tab; otherwise
+        // CreateTicket puts the ticket in that tab's first column.
+        $columnId = $validated['columnId'] !== null && $validated['columnId'] !== ''
+            && $tab instanceof BoardTab
+            && BoardColumn::query()->where('board_tab_id', $tab->getKey())->whereKey((int) $validated['columnId'])->exists()
+                ? $validated['columnId']
+                : null;
+
         $ticket = $createTicket->handle($this->board, [
             'title' => $validated['title'],
             'description_md' => $validated['descriptionMd'],
             'type' => $validated['type'],
             'priority' => $validated['priority'],
-            'board_column_id' => $validated['columnId'] ?: null,
+            'board_tab_id' => $tab?->getKey(),
+            'board_column_id' => $columnId,
             'assignee_id' => $validated['assigneeId'] ?: null,
             'estimate' => $validated['estimate'] ?: null,
             'due_date' => $validated['dueDate'] ?: null,
@@ -187,11 +241,17 @@ class Create extends Component
     public function render(Markdown $markdown, RichText $rich)
     {
         $user = auth()->user();
+        $tabs = $this->board->tabs()->get();
+        $selectedTab = $this->selectedTab();
+        $columns = $selectedTab?->columns()->get() ?? collect();
 
         return view('livewire.tickets.create', [
             'previewHtml' => $markdown->toHtml($this->descriptionMd),
             'editorHtml' => $this->editorHtml($rich),
-            'columns' => $this->board->columns()->ordered()->get(),
+            'tabs' => $tabs,
+            'selectedTab' => $selectedTab,
+            'showTabs' => $tabs->count() > 1,
+            'columns' => $columns,
             'boardLabels' => $this->board->labels()->ordered()->get(),
             'assignableMembers' => $this->board->assignableMembers()->orderBy('name')->get(),
             'priorityOptions' => TicketPriority::ordered(),
@@ -201,7 +261,11 @@ class Create extends Component
             'isStaff' => $user->isStaff(),
             // Who a ticked box shows the ticket to, said beside the box.
             'customerCount' => $user->isStaff() ? $this->board->activeCustomerCount() : 0,
-            'firstColumnName' => $this->board->columns()->ordered()->value('name'),
+            // "Backend API › To Do" on a board split into tabs.
+            'firstColumnName' => $selectedTab instanceof BoardTab && $columns->isNotEmpty()
+                ? ($tabs->count() > 1 ? $selectedTab->name.' › ' : '').$columns->first()->name
+                : null,
+            'cancelUrl' => route('boards.show', array_filter(['board' => $this->board, 'tab' => $this->tab])),
             // Files already dropped in. Images embedded in the description show
             // there too; this list is what makes a PDF or a log file visible,
             // and what gives any of them a way back out before the ticket exists.

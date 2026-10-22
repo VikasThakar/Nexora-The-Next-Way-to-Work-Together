@@ -12,8 +12,8 @@
 | AI trust level | Set the workspace capability mode |
 | Spending | Set token limits and run caps |
 
-Everything else — columns, labels, documentation, board AI settings, integrations — is the
-delivery team's own work on their own boards.
+Everything else — tabs, columns, labels, documentation, board AI settings, integrations — is
+the delivery team's own work on their own boards.
 
 ## Managing users
 
@@ -35,8 +35,9 @@ delivery team's own work on their own boards.
 `/boards/create` and `/boards/{board}/edit` — both require re-entering your password.
 
 The slug and ticket prefix are derived automatically and are globally unique. New boards get
-the standard five columns. Add members from the board edit screen; **membership is the access
-grant**, and there is nothing else to configure for access.
+one tab, **Main**, with the standard five columns; the team can split the board into more tabs
+from the "+" on its tab strip. Add members from the board edit screen; **membership is the
+access grant**, and there is nothing else to configure for access.
 
 Adding a **customer** to a board lets them see that board's customer-visible tickets and
 published documentation, raise tickets, take part in the customer conversation, and use a
@@ -140,7 +141,27 @@ way to join one yourself.
 > `new_tickets_visible_to_customers` setting.
 
 The reverse also holds: a ticket a **customer** raises is always customer-visible, always
-lands in the first column, and is never pre-assigned.
+lands in the first column of its tab, and is never pre-assigned.
+
+## Splitting a board into tabs
+
+A board can hold several areas of work — "Admin dashboard", "Public website", "Backend API" —
+as **tabs**, each with its own columns and tickets, like tabs in a browser. Click a tab in the
+strip above the columns to switch; your filters stay on, and each tab shows how many tickets
+match them.
+
+1. **Add a tab** with "+": name it, and it starts with the same columns as the tab you are on.
+   Change its columns from the tab menu (⋯) → *Edit columns*.
+2. **Rename, move left/right, delete** from the tab menu, or drag tabs along the strip. The
+   leftmost tab is where the board opens and where tickets go when nobody picks a tab.
+3. **Move a ticket to another tab** by dragging its card onto that tab, or with the **Tab**
+   choice on the ticket page. It lands in the column with the same name — or a done column if
+   it was done, or else the first column.
+4. **Delete a tab** and its tickets move to the tab you choose — the panel shows where each
+   column's tickets will go before anything happens. Tickets are never deleted with a tab.
+
+A link to a board can name a tab (`…/boards/gritch?tab=backend-api`); without one, the board
+opens on the tab you last had open there.
 
 ## Working a ticket
 
@@ -222,13 +243,15 @@ name, email, password and light/dark appearance under **Settings → Profile**.
 
 After signing in you see the projects you have been added to. Opening one shows its board: a
 set of columns, with a card for each piece of work, arranged left to right roughly in the
-order work flows.
+order work flows. A large project may be split into **tabs** above the columns — one per area
+of work; click a tab to see its columns and the tickets in it that are shared with you.
 
 ## Raising a request
 
-1. Open your project.
+1. Open your project (and the tab the request belongs in, if it has tabs).
 2. Choose **New ticket**.
 3. Give it a clear title, describe what you need, set a priority, and attach any screenshots.
+   If the project has tabs, the form starts in the tab you were on; you can change it.
 4. Save.
 
 Your ticket is **immediately visible to you and to the team**, appears at the start of their
@@ -301,7 +324,7 @@ file — a specification, a spreadsheet, a screenshot — and ask questions abou
 
 ## What you cannot do
 
-For completeness: you cannot move tickets between columns, assign work, add or change labels,
+For completeness: you cannot move tickets between columns or tabs, assign work, add or change labels,
 link tickets together, delete tickets, edit somebody else's ticket, write documentation, see
 internal notes, or see the team's engineering activity. Those are the delivery team's
 workflow.

@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Services\AI;
 
 use App\Models\Board;
+use App\Models\BoardColumn;
 use App\Models\BoardRepository;
 use App\Models\DocPage;
 use App\Models\Ticket;
 use App\Models\TicketEvent;
 use App\Services\DocPageFinder;
 use App\Services\TicketFinder;
+use App\Support\TicketPlace;
 use Illuminate\Contracts\Auth\Authenticatable;
 
 /**
@@ -56,6 +58,8 @@ class BoardContextBuilder
      */
     public function build(Board $board, ?Authenticatable $viewer): string
     {
+        $structure = $this->structureSection($board, $viewer);
+
         $sections = array_filter([
             $this->ticketSection($board, $viewer),
             $this->activitySection($board, $viewer),
@@ -64,11 +68,55 @@ class BoardContextBuilder
         ]);
 
         if ($sections === []) {
-            return "BOARD CONTEXT\nThis board has no tickets, documentation or repositories you can see.";
+            return "BOARD CONTEXT\nThis board has no tickets, documentation or repositories you can see."
+                .($structure !== null ? "\n\n".$structure : '');
         }
 
         return "BOARD CONTEXT (everything below is what the person asking is allowed to see)\n\n"
-            .implode("\n\n", $sections);
+            .implode("\n\n", array_filter([$structure, ...$sections]));
+    }
+
+    // -----------------------------------------------------------------
+
+    /**
+     * The board's shape: its columns — tab by tab, on a board split into
+     * tabs — each with how many of the asker's tickets sit in it.
+     *
+     * The model needs these names to file and move tickets, and in Writing
+     * mode it has no tool to look them up. The counts come from the same
+     * visibility scope as the tickets below, so a customer's never include
+     * internal work; the names are the board's structure, which every member
+     * sees anyway.
+     */
+    private function structureSection(Board $board, ?Authenticatable $viewer): ?string
+    {
+        $tabs = $board->tabs()->with('columns')->get();
+
+        if ($tabs->isEmpty()) {
+            return null;
+        }
+
+        $counts = $this->tickets->query($board, $viewer)
+            ->reorder()
+            ->selectRaw('tickets.board_column_id, count(*) as aggregate')
+            ->groupBy('tickets.board_column_id')
+            ->pluck('aggregate', 'board_column_id');
+
+        $describe = static fn (BoardColumn $column): string => $column->name
+            .' ('.(int) ($counts[$column->getKey()] ?? 0).($column->is_done ? ', done' : '').')';
+
+        if ($tabs->count() === 1) {
+            return 'COLUMNS (in board order): '.$tabs->first()->columns->map($describe)->implode(' · ');
+        }
+
+        $lines = ['TABS AND COLUMNS (each tab has its own columns, and a ticket\'s status is a column of its tab; '
+            .'a ticket filed without naming a tab goes to the first one)'];
+
+        foreach ($tabs as $tab) {
+            $lines[] = '- '.$tab->name.': '.$tab->columns->map($describe)->implode(' · ');
+        }
+
+        return implode("\n", $lines);
     }
 
     // -----------------------------------------------------------------
@@ -78,7 +126,7 @@ class BoardContextBuilder
         $limit = max(1, (int) config('ai.chat.context.tickets', 60));
 
         $tickets = $this->tickets->query($board, $viewer)
-            ->with(['board', 'column', 'assignee', 'labels'])
+            ->with(['board', 'column.tab', 'assignee', 'labels'])
             ->orderByDesc('tickets.updated_at')
             ->limit($limit)
             ->get();
@@ -94,7 +142,8 @@ class BoardContextBuilder
             $lines[] = sprintf(
                 '- %s [%s] %s%s%s%s',
                 $ticket->key(),
-                $ticket->column?->name ?? 'no column',
+                // "Backend API › Doing" on a board split into tabs.
+                $ticket->column !== null ? TicketPlace::of($ticket) : 'no column',
                 $ticket->title,
                 $ticket->assignee !== null ? ' · assignee '.$ticket->assignee->name : '',
                 $ticket->labels->isNotEmpty() ? ' · labels '.$ticket->labels->pluck('name')->implode(', ') : '',

@@ -14,9 +14,11 @@ use App\Actions\Labels\UpdateLabel;
 use App\Enums\LabelColor;
 use App\Models\Board;
 use App\Models\BoardColumn;
+use App\Models\BoardTab;
 use App\Models\Label;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use RuntimeException;
 
@@ -27,6 +29,10 @@ use RuntimeException;
  * everyday workflow changes. Any staff member of the board may make them
  * (BoardPolicy::manageColumns); customers may not reach this screen at all.
  *
+ * Columns belong to a tab, so this screen edits one tab's columns at a time —
+ * the tab named by ?tab=<slug>, or the board's default tab. Tabs themselves are
+ * added, renamed, reordered and removed from the tab strip on the board.
+ *
  * Both entry points re-authorize on every action, not just on mount: each
  * Livewire call is its own HTTP request and must not trust what the previous
  * render decided.
@@ -35,6 +41,10 @@ use RuntimeException;
 class Settings extends Component
 {
     public Board $board;
+
+    /** The tab whose columns are being edited, by slug; '' is the default tab. */
+    #[Url(as: 'tab', except: '')]
+    public string $tab = '';
 
     public string $newColumnName = '';
 
@@ -62,6 +72,17 @@ class Settings extends Component
         $this->authorize('manageColumns', $board);
 
         $this->board = $board;
+
+        $this->normaliseTab();
+    }
+
+    public function updatedTab(): void
+    {
+        $this->normaliseTab();
+
+        $this->cancelEditingColumn();
+        $this->cancelDeletingColumn();
+        $this->newColumnName = '';
     }
 
     // -----------------------------------------------------------------
@@ -72,14 +93,22 @@ class Settings extends Component
     {
         $this->authorize('manageColumns', $this->board);
 
+        $tab = $this->selectedTab();
+
         $validated = $this->validate([
             'newColumnName' => [
                 'required', 'string', 'max:60',
-                Rule::unique('board_columns', 'name')->where('board_id', $this->board->getKey()),
+                Rule::unique('board_columns', 'name')->where('board_tab_id', $tab->getKey()),
             ],
         ], attributes: ['newColumnName' => 'column name']);
 
-        $createColumn->handle($this->board, ['name' => $validated['newColumnName']]);
+        try {
+            $createColumn->handle($tab, ['name' => $validated['newColumnName']], auth()->user());
+        } catch (RuntimeException $exception) {
+            $this->addError('newColumnName', $exception->getMessage());
+
+            return;
+        }
 
         $this->newColumnName = '';
 
@@ -112,12 +141,18 @@ class Settings extends Component
             'editingColumnName' => [
                 'required', 'string', 'max:60',
                 Rule::unique('board_columns', 'name')
-                    ->where('board_id', $this->board->getKey())
+                    ->where('board_tab_id', $column->board_tab_id)
                     ->ignore($column->getKey()),
             ],
         ], attributes: ['editingColumnName' => 'column name']);
 
-        $updateColumn->handle($column, ['name' => $validated['editingColumnName']]);
+        try {
+            $updateColumn->handle($column, ['name' => $validated['editingColumnName']], auth()->user());
+        } catch (RuntimeException $exception) {
+            $this->addError('editingColumnName', $exception->getMessage());
+
+            return;
+        }
 
         $this->cancelEditingColumn();
 
@@ -130,16 +165,16 @@ class Settings extends Component
 
         $column = $this->column($columnId);
 
-        $updateColumn->handle($column, ['is_done' => ! $column->is_done]);
+        $updateColumn->handle($column, ['is_done' => ! $column->is_done], auth()->user());
     }
 
     /**
      * Persist a column drag.
      *
      * wire:sort reports only which item moved and where it landed, so the new
-     * order is rebuilt here from the board's current order rather than trusting
+     * order is rebuilt here from the tab's current order rather than trusting
      * a list of ids from the browser. ReorderColumns then discards anything
-     * that is not actually on this board.
+     * that is not actually in this tab.
      */
     public function reorderColumn(int $columnId, int $position, ReorderColumns $reorder): void
     {
@@ -147,21 +182,23 @@ class Settings extends Component
 
         $this->column($columnId);
 
-        $ordered = $this->board->columns()->ordered()->pluck('id')->all();
+        $tab = $this->selectedTab();
+
+        $ordered = $tab->columns()->pluck('id')->all();
         $ordered = array_values(array_filter($ordered, static fn ($id): bool => (int) $id !== $columnId));
 
         $index = max(0, min($position, count($ordered)));
         array_splice($ordered, $index, 0, [$columnId]);
 
-        $reorder->handle($this->board, $ordered);
+        $reorder->handle($tab, $ordered, auth()->user());
     }
 
     /**
      * Begin deleting a column.
      *
      * A column holding tickets cannot simply be removed: the user is asked
-     * where those tickets should go first. This only opens the prompt; the
-     * decision is made in confirmDeleteColumn().
+     * where those tickets should go first — another column of the same tab.
+     * This only opens the prompt; the decision is made in confirmDeleteColumn().
      */
     public function startDeletingColumn(int $columnId, DeleteColumn $deleteColumn): void
     {
@@ -169,8 +206,12 @@ class Settings extends Component
 
         $column = $this->column($columnId);
 
-        if ($this->board->columns()->count() <= 1) {
-            session()->flash('error', 'A board needs at least one column.');
+        $siblings = BoardColumn::query()->where('board_tab_id', $column->board_tab_id);
+
+        if ((clone $siblings)->count() <= 1) {
+            session()->flash('error', $this->board->hasMultipleTabs()
+                ? 'A tab needs at least one column.'
+                : 'A board needs at least one column.');
 
             return;
         }
@@ -178,7 +219,7 @@ class Settings extends Component
         $this->deletingColumnId = $column->getKey();
 
         $this->destinationColumnId = $deleteColumn->requiresDestination($column)
-            ? $this->board->columns()->whereKeyNot($column->getKey())->ordered()->value('id')
+            ? $siblings->whereKeyNot($column->getKey())->ordered()->value('id')
             : null;
     }
 
@@ -194,8 +235,13 @@ class Settings extends Component
 
         $column = $this->column((int) $this->deletingColumnId);
 
+        // Looked up in the column's own tab, so a forged id cannot send the
+        // tickets to another tab or board; DeleteColumn refuses a missing one.
         $destination = $this->destinationColumnId !== null
-            ? $this->board->columns()->whereKey($this->destinationColumnId)->first()
+            ? BoardColumn::query()
+                ->where('board_tab_id', $column->board_tab_id)
+                ->whereKey($this->destinationColumnId)
+                ->first()
             : null;
 
         try {
@@ -293,14 +339,40 @@ class Settings extends Component
     // -----------------------------------------------------------------
 
     /**
-     * Resolve a column id from the browser within this board.
+     * The tab whose columns this screen is editing.
+     */
+    private function selectedTab(): BoardTab
+    {
+        $tab = $this->board->tabBySlug($this->tab) ?? $this->board->defaultTab();
+
+        abort_unless($tab instanceof BoardTab, 404);
+
+        return $tab;
+    }
+
+    /**
+     * A slug that is not one of this board's tabs falls back to the default
+     * tab, and the URL is corrected rather than left naming something else.
+     */
+    private function normaliseTab(): void
+    {
+        $tab = $this->board->tabBySlug($this->tab);
+
+        $this->tab = $tab instanceof BoardTab && ! $tab->is($this->board->defaultTab())
+            ? (string) $tab->slug
+            : '';
+    }
+
+    /**
+     * Resolve a column id from the browser within the tab being edited.
      *
-     * Scoping the lookup to $this->board is what stops a swapped id reaching a
-     * column on somebody else's board; it 404s instead of resolving.
+     * Scoping the lookup to that tab (and so to $this->board) is what stops a
+     * swapped id reaching a column of another tab or of somebody else's board;
+     * it 404s instead of resolving.
      */
     private function column(int $columnId): BoardColumn
     {
-        $column = $this->board->columns()->whereKey($columnId)->first();
+        $column = $this->selectedTab()->columns()->whereKey($columnId)->first();
 
         abort_unless($column instanceof BoardColumn, 404);
 
@@ -318,7 +390,10 @@ class Settings extends Component
 
     public function render(DeleteColumn $deleteColumn)
     {
-        $columns = $this->board->columns()->ordered()->withCount('tickets')->get();
+        $tab = $this->selectedTab();
+        $tabs = $this->board->tabs()->get();
+
+        $columns = $tab->columns()->withCount('tickets')->get();
 
         $deleting = $this->deletingColumnId !== null
             ? $columns->firstWhere('id', $this->deletingColumnId)
@@ -326,6 +401,9 @@ class Settings extends Component
 
         return view('livewire.boards.settings', [
             'columns' => $columns,
+            'tabs' => $tabs,
+            'selectedTab' => $tab,
+            'showTabs' => $tabs->count() > 1,
             'labels' => $this->board->labels()->ordered()->withCount('tickets')->get(),
             'labelColors' => LabelColor::cases(),
             'deletingColumn' => $deleting,

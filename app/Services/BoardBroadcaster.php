@@ -32,6 +32,14 @@ use Illuminate\Support\Facades\DB;
 class BoardBroadcaster
 {
     /**
+     * Board/audience signals queued for the open transaction (see signal()).
+     * The class is bound as scoped, so this never outlives the request.
+     *
+     * @var array<string, true>
+     */
+    private array $queued = [];
+
+    /**
      * @param  bool|null  $wasCustomerVisible  the value before this change;
      *                                         null when it did not change
      */
@@ -75,6 +83,19 @@ class BoardBroadcaster
     }
 
     /**
+     * The board's structure changed: a tab or a column was added, renamed,
+     * reordered or removed.
+     *
+     * Both audiences, always: tab and column names are not secret (customers
+     * see every one of them), so an open customer board has to redraw too.
+     * The signal carries nothing, as ever.
+     */
+    public function structureChanged(int $boardId): void
+    {
+        $this->board($boardId, true);
+    }
+
+    /**
      * Nudge one person's notification bell.
      */
     public function userNotified(User $user): void
@@ -84,12 +105,48 @@ class BoardBroadcaster
 
     private function board(int $boardId, bool $affectsCustomers): void
     {
-        $this->afterCommit(function () use ($boardId, $affectsCustomers): void {
-            BoardUpdated::dispatch($boardId, BoardUpdated::AUDIENCE_INTERNAL);
+        $this->signal($boardId, BoardUpdated::AUDIENCE_INTERNAL);
 
-            if ($affectsCustomers) {
-                BoardUpdated::dispatch($boardId, BoardUpdated::AUDIENCE_CUSTOMER);
-            }
+        if ($affectsCustomers) {
+            $this->signal($boardId, BoardUpdated::AUDIENCE_CUSTOMER);
+        }
+    }
+
+    /**
+     * One "re-read the board" per board and audience per transaction.
+     *
+     * The signal carries no content, so ten of them mean exactly what one
+     * does — but each makes every open board fetch itself again. Deleting a
+     * tab saves every ticket in it, and each save would otherwise wake every
+     * open board once more. Inside a transaction a board/audience pair is
+     * queued once; the mark is cleared when the transaction commits (after the
+     * signal is sent) or rolls back, so the next transaction signals afresh.
+     * Outside a transaction there is nothing to coalesce and it goes at once.
+     */
+    private function signal(int $boardId, string $audience): void
+    {
+        if (DB::transactionLevel() === 0) {
+            BoardUpdated::dispatch($boardId, $audience);
+
+            return;
+        }
+
+        $key = $boardId.':'.$audience;
+
+        if (isset($this->queued[$key])) {
+            return;
+        }
+
+        $this->queued[$key] = true;
+
+        DB::afterCommit(function () use ($boardId, $audience, $key): void {
+            unset($this->queued[$key]);
+
+            BoardUpdated::dispatch($boardId, $audience);
+        });
+
+        DB::afterRollBack(function () use ($key): void {
+            unset($this->queued[$key]);
         });
     }
 

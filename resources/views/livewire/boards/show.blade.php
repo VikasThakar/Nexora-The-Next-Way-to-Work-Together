@@ -37,7 +37,7 @@
             --}}
 
             @if ($canConfigureBoard)
-                <x-ui.button :href="route('boards.settings', $board)" variant="secondary" size="sm">
+                <x-ui.button :href="route('boards.settings', array_filter(['board' => $board, 'tab' => $tabParam]))" variant="secondary" size="sm">
                     Configure
                 </x-ui.button>
             @endif
@@ -49,7 +49,7 @@
             @endif
 
             @if ($canCreateTickets)
-                <x-ui.button :href="route('tickets.create', $board)" size="sm">New ticket</x-ui.button>
+                <x-ui.button :href="route('tickets.create', array_filter(['board' => $board, 'tab' => $tabParam]))" size="sm">New ticket</x-ui.button>
             @endif
         </x-slot:actions>
     </x-ui.page-header>
@@ -149,14 +149,45 @@
         @endif
     </div>
 
+    @if ($showTabStrip)
+        @include('livewire.boards.partials.tab-strip')
+    @endif
+
+    @error('tabName')
+        <p role="alert" class="mb-3 text-sm text-rose-600">{{ $message }}</p>
+    @enderror
+
+    @if ($notice)
+        <div role="status" class="mb-3 flex items-start gap-3 rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-700">
+            <p class="flex-1">{{ $notice }}</p>
+            <button type="button" wire:click="dismissNotice" class="text-xs font-medium text-slate-500 hover:text-slate-800">
+                Dismiss
+            </button>
+        </div>
+    @endif
+
+    @if ($deletingTab)
+        @include('livewire.boards.partials.delete-tab-panel')
+    @endif
+
+    {{-- Dimmed while another tab loads, after a short delay so a quick switch does not flicker. --}}
+    <div
+        @if ($showTabStrip && $activeTab) id="board-tabpanel" role="tabpanel" aria-labelledby="board-tab-{{ $activeTab->id }}" @endif
+        wire:loading.delay.class="opacity-60"
+        wire:loading.delay.attr="aria-busy"
+        wire:target="selectTab"
+        class="transition-opacity"
+    >
     @if ($columns->isEmpty())
         <x-ui.empty-state
-            title="This board has no columns"
-            description="A board needs at least one column before tickets can be created."
+            :title="$tabs->count() > 1 && $activeTab ? 'The '.$activeTab->name.' tab has no columns' : 'This board has no columns'"
+            :description="$tabs->count() > 1
+                ? 'A tab needs at least one column before tickets can be created in it.'
+                : 'A board needs at least one column before tickets can be created.'"
         >
             @if ($canConfigureBoard)
                 <x-slot:actions>
-                    <x-ui.button :href="route('boards.settings', $board)">Configure columns</x-ui.button>
+                    <x-ui.button :href="route('boards.settings', array_filter(['board' => $board, 'tab' => $tabParam]))">Configure columns</x-ui.button>
                 </x-slot:actions>
             @endif
         </x-ui.empty-state>
@@ -561,4 +592,5 @@
             @endforeach
         </div>
     @endif
+    </div>
 </div>

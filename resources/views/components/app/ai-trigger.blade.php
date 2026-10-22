@@ -10,12 +10,22 @@
      * Everything below is a *hint*. App\Services\AI\PageContextResolver
      * re-resolves each part through the reader that governs it before it
      * reaches a prompt, so a forged value buys nothing.
+     *
+     * The board tab is the one hint that changes without a navigation:
+     * switching tabs redraws only the board. The board announces each switch
+     * (`board-tab-changed`, from App\Livewire\Boards\Show), and the page
+     * descriptor here and in the panel's store follow it — only for the board
+     * it belongs to, so a late event from the previous page changes nothing.
      */
     $routeBoard = request()->route('board');
     $boardSlug = $routeBoard instanceof \App\Models\Board ? $routeBoard->slug : $routeBoard;
 
     $ticketNumber = request()->routeIs('tickets.show') ? request()->route('number') : null;
     $docSlug = request()->routeIs('docs.show') ? request()->route('slug') : null;
+
+    $tabSlug = request()->routeIs('boards.show', 'tickets.create') && is_string(request()->query('tab'))
+        ? request()->query('tab')
+        : null;
 @endphp
 
 <button
@@ -25,9 +35,11 @@
             board: @js($boardSlug),
             ticket: @js($ticketNumber === null ? null : (int) $ticketNumber),
             doc: @js($docSlug),
+            tab: @js($tabSlug),
         },
     }"
     x-init="$store.aiPanel.setPage(page)"
+    x-on:board-tab-changed.window="if ($event.detail?.board === page.board) { page = { ...page, tab: $event.detail.tab ?? null }; $store.aiPanel.setPage(page) }"
     @click="$store.aiPanel.toggle(page)"
     :aria-expanded="$store.aiPanel.open ? 'true' : 'false'"
     aria-label="Workspace AI"

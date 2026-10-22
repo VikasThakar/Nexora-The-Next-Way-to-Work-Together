@@ -5,7 +5,7 @@
         :trail="\App\Support\Breadcrumbs::boardChild($board, 'Board configuration')"
     >
         <x-slot:actions>
-            <x-ui.button :href="route('boards.show', $board)" variant="secondary">Back to board</x-ui.button>
+            <x-ui.button :href="route('boards.show', array_filter(['board' => $board, 'tab' => $tab]))" variant="secondary">Back to board</x-ui.button>
 
             @if ($canManageBoard)
                 <x-ui.button :href="route('boards.edit', $board)" variant="secondary">Board details</x-ui.button>
@@ -17,7 +17,35 @@
         {{-- ------------------------------------------------------------- --}}
         {{-- Columns                                                         --}}
         {{-- ------------------------------------------------------------- --}}
-        <x-ui.card title="Columns" description="Drag to reorder. Tickets are never deleted with a column.">
+        <x-ui.card
+            title="Columns"
+            :description="($showTabs ? 'The columns of the '.$selectedTab->name.' tab. ' : '').'Drag to reorder. Tickets are never deleted with a column.'"
+        >
+            {{-- Columns belong to a tab: pick which tab's columns to edit. Tabs
+                 themselves are managed from the tab strip on the board. --}}
+            @if ($showTabs)
+                <div class="mb-4">
+                    <div class="scrollbar-none -mx-1 flex gap-1 overflow-x-auto px-1 pb-1" role="group" aria-label="Edit the columns of">
+                        @foreach ($tabs as $option)
+                            @php($isSelected = $option->is($selectedTab))
+                            <button
+                                type="button"
+                                wire:key="settings-tab-{{ $option->id }}"
+                                wire:click="$set('tab', @js($option->slug))"
+                                aria-pressed="{{ $isSelected ? 'true' : 'false' }}"
+                                @class([
+                                    'max-w-48 shrink-0 truncate rounded-md px-3 py-1 text-sm font-medium transition',
+                                    'bg-slate-900 text-white' => $isSelected,
+                                    'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900' => ! $isSelected,
+                                ])
+                                title="{{ $option->name }}"
+                            >{{ $option->name }}</button>
+                        @endforeach
+                    </div>
+                    <p class="mt-1 text-xs text-slate-500">Tabs are added, renamed and removed from the tab strip on the board.</p>
+                </div>
+            @endif
+
             <div
                 x-sort="$wire.reorderColumn($item, $position)"
                 class="space-y-2"

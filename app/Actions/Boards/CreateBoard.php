@@ -47,9 +47,9 @@ class CreateBoard
             $board->created_by_id = $creator?->getKey();
             $board->save();
 
-            // A board with no columns cannot hold a ticket, so the default
-            // workflow is created in the same transaction rather than left for
-            // the first person who opens the board.
+            // A board with no columns cannot hold a ticket, so its "Main" tab
+            // and the default workflow are created in the same transaction
+            // rather than left for the first person who opens the board.
             $this->createDefaultColumns->handle($board);
 
             // Cast rather than trusting the caller to have done it. This action

@@ -29,8 +29,8 @@ final class CreateTicketTool extends WriteTool
     protected function describe(): string
     {
         return $this->context->staff
-            ? 'Create a ticket on a board, with any of its fields set in one go: description, type, priority, status (the board column), assignee, labels, due date and estimate. New tickets follow the board\'s visibility default; pass visible_to_customer false for internal work. To create several at once, use create_tickets.'
-            : 'Raise a ticket on one of your boards: a title, and optionally a description, type and priority. The team sees it straight away.';
+            ? 'Create a ticket on a board, with any of its fields set in one go: description, type, priority, tab (on a board split into tabs), status (a column of that tab), assignee, labels, due date and estimate. New tickets follow the board\'s visibility default; pass visible_to_customer false for internal work. To create several at once, use create_tickets.'
+            : 'Raise a ticket on one of your boards: a title, and optionally a description, type, priority and — on a board split into tabs — the tab it belongs in. The team sees it straight away.';
     }
 
     protected function forCustomers(): bool
@@ -56,6 +56,7 @@ final class CreateTicketTool extends WriteTool
                     'description' => ['type' => 'string', 'maxLength' => 20000, 'description' => 'The details, as Markdown.'],
                     'type' => ['type' => 'string', 'enum' => TicketType::values(), 'description' => 'bug, task or feature.'],
                     'priority' => ['type' => 'string', 'enum' => TicketPriority::values(), 'description' => 'critical, high, medium, low or nice_to_have.'],
+                    'tab' => ['type' => 'string', 'maxLength' => 120, 'description' => 'Which tab of the board to raise it in, by name (get_board lists them). Omit for the board\'s first tab. The ticket starts in that tab\'s first column.'],
                 ],
                 'required' => ['board', 'title'],
             ];

@@ -41,8 +41,9 @@ class GetBoardTool implements AiToolContract
 
     public function description(): string
     {
-        return 'Read a board: its description, its status columns in order with a count of tickets in '
-            .'each, the labels in use, and its ticket prefix. Use it to understand how a project is '
+        return 'Read a board: its description, its tabs (on a board split into tabs) and each one\'s status '
+            .'columns in order with a count of tickets in each, the labels in use, and its ticket prefix. '
+            .'Use it to understand how a project is '
             .'organised or where work is piling up. Called without a board slug it lists the boards this '
             .'person can see, which is the right first call when the question does not name a project.';
     }
@@ -101,12 +102,9 @@ class GetBoardTool implements AiToolContract
 
         $lines[] = 'Tickets visible to this person: '.$total;
 
-        $columns = BoardColumn::query()
-            ->where('board_columns.board_id', $board->getKey())
-            ->orderBy('board_columns.position')
-            ->get();
+        $tabs = $board->tabs()->with('columns')->get();
 
-        if ($columns->isNotEmpty()) {
+        if ($tabs->flatMap->columns->isNotEmpty()) {
             /*
              * One grouped count rather than one query per column.
              *
@@ -121,15 +119,35 @@ class GetBoardTool implements AiToolContract
                 ->groupBy('tickets.board_column_id')
                 ->pluck('aggregate', 'tickets.board_column_id');
 
+            $columnLine = fn (BoardColumn $column): string => '- '.($mcp ? McpPresentation::status($column) : $column->name).': '
+                .($count = (int) ($perColumn[$column->getKey()] ?? 0)).' '.($count === 1 ? 'ticket' : 'tickets')
+                .($column->is_done ? ' (counts as done)' : '');
+
             $lines[] = '';
-            $lines[] = 'COLUMNS (in board order)';
 
-            foreach ($columns as $column) {
-                /** @var BoardColumn $column */
-                $count = (int) ($perColumn[$column->getKey()] ?? 0);
+            if ($tabs->count() === 1) {
+                // A board that was never split reads exactly as it always has.
+                $lines[] = 'COLUMNS (in board order)';
 
-                $lines[] = '- '.($mcp ? McpPresentation::status($column) : $column->name).': '.$count.' '.($count === 1 ? 'ticket' : 'tickets')
-                    .($column->is_done ? ' (counts as done)' : '');
+                foreach ($tabs->first()->columns as $column) {
+                    $lines[] = $columnLine($column);
+                }
+            } else {
+                $lines[] = 'TABS AND COLUMNS ('.$tabs->count().' tabs in board order; each tab has its own columns, '
+                    .'and a ticket\'s status is a column of its tab)';
+
+                foreach ($tabs as $tab) {
+                    $inTab = $tab->columns->sum(fn (BoardColumn $column): int => (int) ($perColumn[$column->getKey()] ?? 0));
+
+                    $lines[] = 'TAB "'.$tab->name.'" — '.$inTab.' '.($inTab === 1 ? 'ticket' : 'tickets');
+
+                    foreach ($tab->columns as $column) {
+                        $lines[] = $columnLine($column);
+                    }
+                }
+
+                $lines[] = 'To file a ticket in a tab or move one there, pass tab with the tab\'s name; status is then '
+                    .'one of that tab\'s columns. A ticket filed without a tab goes to the first tab.';
             }
         }
 
@@ -169,7 +187,7 @@ class GetBoardTool implements AiToolContract
         }
 
         $recent = $tickets->query($board, $context->user)
-            ->with(['board', 'column', 'assignee'])
+            ->with(['board', 'column.tab', 'assignee'])
             ->orderByDesc('tickets.updated_at')
             ->limit(8)
             ->get();

@@ -6,6 +6,7 @@ namespace App\Livewire\Tickets;
 
 use App\Actions\Tickets\DeleteTicket;
 use App\Actions\Tickets\MoveTicket;
+use App\Actions\Tickets\MoveTicketToTab;
 use App\Actions\Tickets\SyncTicketLabels;
 use App\Actions\Tickets\UpdateTicket;
 use App\Enums\TicketEventType;
@@ -16,6 +17,7 @@ use App\Livewire\Concerns\ListensForBoardUpdates;
 use App\Models\Attachment;
 use App\Models\Board;
 use App\Models\BoardColumn;
+use App\Models\BoardTab;
 use App\Models\Ticket;
 use App\Services\BoardAccess;
 use App\Services\ContentRenderer;
@@ -23,9 +25,11 @@ use App\Services\TicketActivity;
 use App\Services\TicketFinder;
 use App\Support\RichText\RichText;
 use App\Support\TaskList;
+use App\Support\TicketPlace;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
+use RuntimeException;
 
 /**
  * Ticket detail.
@@ -74,6 +78,16 @@ class Show extends Component
 
     public string $columnId = '';
 
+    /**
+     * The ticket's tab, on a board split into tabs. Changing it moves the
+     * ticket to that tab (MoveTicketToTab); the Status choice then lists that
+     * tab's columns.
+     */
+    public string $tabId = '';
+
+    /** Where a tab move put the ticket, said beside the choice. */
+    public ?string $tabNotice = null;
+
     /** @var array<int, int> */
     public array $selectedLabelIds = [];
 
@@ -118,8 +132,30 @@ class Show extends Component
         $this->assigneeId = (string) ($this->ticket->assignee_id ?? '');
         $this->estimate = $this->ticket->estimate === null ? '' : (string) $this->ticket->estimate;
         $this->dueDate = $this->ticket->due_date?->format('Y-m-d') ?? '';
-        $this->columnId = (string) $this->ticket->board_column_id;
+        $this->syncPlace();
         $this->selectedLabelIds = $this->ticket->labels()->pluck('labels.id')->all();
+    }
+
+    /**
+     * Read the ticket's column and tab back from the ticket itself.
+     *
+     * On every request as well as at mount: Livewire reloads the ticket fresh
+     * by key, and if somebody else moved it meanwhile the Status and Tab
+     * choices would otherwise go on showing where it used to be — with tabs,
+     * a Status list from one tab beside a selection from another. Runs before
+     * the browser's change is applied, so a change being made still wins.
+     */
+    public function hydrate(): void
+    {
+        if (isset($this->ticket)) {
+            $this->syncPlace();
+        }
+    }
+
+    private function syncPlace(): void
+    {
+        $this->columnId = (string) $this->ticket->board_column_id;
+        $this->tabId = (string) (BoardColumn::query()->whereKey($this->ticket->board_column_id)->value('board_tab_id') ?? '');
     }
 
     // -----------------------------------------------------------------
@@ -277,15 +313,59 @@ class Show extends Component
     {
         $this->authorize('move', $this->ticket);
 
-        $column = $this->board->columns()->whereKey((int) $this->columnId)->first();
+        // A status is a column of the ticket's own tab. Moving to another tab
+        // is the Tab choice's job, so a column from elsewhere is not found.
+        $column = BoardColumn::query()
+            ->where('board_id', $this->board->getKey())
+            ->where('board_tab_id', BoardColumn::query()->whereKey($this->ticket->board_column_id)->value('board_tab_id'))
+            ->whereKey((int) $this->columnId)
+            ->first();
 
         abort_unless($column instanceof BoardColumn, 404);
 
         // Appended to the end of the destination column, which is where a
         // status change belongs when it was not a deliberate drag.
-        $mover->handle($this->ticket, $column, PHP_INT_MAX, auth()->user());
+        try {
+            $mover->handle($this->ticket, $column, PHP_INT_MAX, auth()->user());
+        } catch (RuntimeException $exception) {
+            $this->dispatch('dialog', type: 'error', title: 'The status was not changed', body: $exception->getMessage());
+        }
 
         $this->ticket->refresh();
+        $this->syncPlace();
+        $this->tabNotice = null;
+    }
+
+    /**
+     * Move the ticket to another tab of its board.
+     *
+     * It lands where App\Support\TabColumnMapping says — the column with the
+     * same name, else a done column if it was done, else the tab's first
+     * column — and the page says where.
+     */
+    public function updatedTabId(MoveTicketToTab $mover): void
+    {
+        $this->authorize('move', $this->ticket);
+
+        $tab = $this->board->tabs()->whereKey((int) $this->tabId)->first();
+
+        abort_unless($tab instanceof BoardTab, 404);
+
+        try {
+            $column = $mover->handle($this->ticket, $tab, auth()->user());
+        } catch (RuntimeException $exception) {
+            $this->dispatch('dialog', type: 'error', title: 'The ticket was not moved', body: $exception->getMessage());
+            $this->ticket->refresh();
+            $this->syncPlace();
+
+            return;
+        }
+
+        $this->ticket->refresh();
+        $this->syncPlace();
+
+        $column->setRelation('tab', $tab);
+        $this->tabNotice = 'Moved to '.TicketPlace::column($column, true).'.';
     }
 
     /**
@@ -345,12 +425,14 @@ class Show extends Component
         $this->authorize('delete', $this->ticket);
 
         $key = $this->ticket->key();
+        $boardUrl = $this->boardUrl();
 
         $deleteTicket->handle($this->ticket);
 
         session()->flash('status', $key.' was deleted.');
 
-        $this->redirect(route('boards.show', $this->board), navigate: true);
+        // Back to the tab the ticket was in, not wherever the board opens.
+        $this->redirect($boardUrl, navigate: true);
     }
 
     // -----------------------------------------------------------------
@@ -384,6 +466,24 @@ class Show extends Component
 
     // -----------------------------------------------------------------
 
+    /**
+     * The board, opened on the ticket's tab — the default tab needs no
+     * parameter, so the plain board URL stays plain.
+     */
+    private function boardUrl(): string
+    {
+        $tab = BoardTab::query()->whereKey(
+            BoardColumn::query()->whereKey($this->ticket->board_column_id)->value('board_tab_id')
+        )->first();
+
+        $default = $this->board->defaultTab();
+
+        return route('boards.show', array_filter([
+            'board' => $this->board,
+            'tab' => $tab instanceof BoardTab && ! $tab->is($default) ? $tab->slug : null,
+        ]));
+    }
+
     public function render(ContentRenderer $renderer, BoardAccess $access, RichText $rich, TaskList $tasks)
     {
         // Defence in depth: Livewire rehydrates $ticket by primary key, which
@@ -393,7 +493,10 @@ class Show extends Component
 
         $user = auth()->user();
 
-        $this->ticket->loadMissing(['board', 'assignee', 'creator', 'labels', 'column']);
+        $this->ticket->loadMissing(['board', 'assignee', 'creator', 'labels', 'column.tab']);
+
+        $tabs = $this->board->tabs()->get();
+        $ticketTab = $this->ticket->column?->tab;
 
         return view('livewire.tickets.show', [
             // Rendered per viewer, not per string: a ticket reference such as
@@ -423,7 +526,12 @@ class Show extends Component
             'canTickTasks' => $user->can('manageSubtasks', $this->ticket),
             'canAttachInEditor' => $this->canAttachInEditor(),
 
-            'columns' => $this->board->columns()->ordered()->get(),
+            // The Status choice: the columns of the ticket's own tab.
+            'columns' => $ticketTab instanceof BoardTab ? $ticketTab->columns()->get() : collect(),
+            'tabs' => $tabs,
+            'ticketTab' => $ticketTab,
+            'showTabs' => $tabs->count() > 1,
+            'boardUrl' => $this->boardUrl(),
             'boardLabels' => $this->board->labels()->ordered()->get(),
             'assignableMembers' => $this->board->assignableMembers()->orderBy('name')->get(),
             'priorityOptions' => TicketPriority::ordered(),

@@ -111,7 +111,7 @@ final class CreateTicketsTool extends WriteTool
             $rows[] = '| '.implode(' | ', [
                 McpPresentation::ticketLink($ticket),
                 McpPresentation::inline((string) $ticket->title, 80),
-                McpPresentation::status($ticket->column),
+                McpPresentation::place($ticket),
                 McpPresentation::assignee($ticket->assignee),
                 McpPresentation::priority($ticket->priority),
             ]).' |';

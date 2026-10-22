@@ -10,6 +10,7 @@ read before making a commitment to anybody about what Nexora does.
 | Three-role model with an absolute customer boundary | `UserRole`, `BoardAccess`, 28 security tests |
 | Board membership as the access-control list | `board_members`, `BoardPolicy` |
 | Kanban boards, columns, drag and drop | `Boards\Show`, `x-sort` |
+| Board tabs: own columns per tab, the tab strip, moving tickets between tabs, AI and MCP aware | `BoardTab`, `App\Actions\Tabs\*`, `MoveTicketToTab`, `TabColumnMapping` |
 | Tickets: type, priority, assignee, estimate, due date, position | `tickets` table, `TicketPolicy` |
 | Labels, checklists, ticket links, attachments | Four dedicated tables |
 | Two-stream conversation, enforced in the action | `CommentStream`, `PostComment` |
@@ -140,10 +141,11 @@ each is worth an owner.
 | **Reading mode** | The default chat mode. Lookup tools, no write tools |
 | **Run** | One AI working session on one ticket. Suggest or apply |
 | **Session (AI)** | One conversation. Belongs to **one person**, including against administrators |
-| **Slug** | The URL identifier for a board or documentation page. Primary keys are never exposed |
+| **Slug** | The URL identifier for a board, a board tab or a documentation page. Primary keys are never exposed |
 | **Staff** | Administrators and team members together. The set that may see internal content |
 | **Stream** | Which conversation a comment belongs to: `customer` or `internal` |
 | **Suggest mode** | An AI run that analyses and posts an internal note. Changes no code |
+| **Tab** | One area of work inside a board ("Admin dashboard", "Public website"), with its own columns. A ticket's tab is its column's tab. The leftmost tab is the board's default |
 | **Team member** | `team`. Full working access to boards they are a member of; not workspace administration |
 | **Ticket** | A unit of work. Addressed by `PREFIX-NUMBER`, e.g. `NL-42` |
 | **Ticket key** | The human identifier — the board's prefix, a hyphen, the per-board number. What GitHub branches and commits reference |

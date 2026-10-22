@@ -22,8 +22,9 @@ const DEFAULTS = {
     open: false,
     // Where focus was when the panel opened, so it can be given back.
     origin: null,
-    // The page descriptor most recently reported by the trigger.
-    page: { board: null, ticket: null, doc: null },
+    // The page descriptor most recently reported by the trigger. `tab` is the
+    // slug of the board tab on screen, kept current as tabs are switched.
+    page: { board: null, ticket: null, doc: null, tab: null },
     // Whether the server has been asked to populate the panel yet.
     revealed: false,
     // Something to do on opening, beyond showing the conversation — see ask().
@@ -136,6 +137,7 @@ document.addEventListener('alpine:init', () => {
                 this.$wire.$set('pageBoard', page.board, false)
                 this.$wire.$set('pageTicket', page.ticket, false)
                 this.$wire.$set('pageDoc', page.doc, false)
+                this.$wire.$set('pageTab', page.tab ?? null, false)
             })
 
             /*
@@ -176,9 +178,9 @@ document.addEventListener('alpine:init', () => {
                 this.$wire.prepareDocTickets(page.board, page.doc)
             } else if (! store.revealed) {
                 store.revealed = true
-                this.$wire.reveal(page.board, page.ticket, page.doc)
+                this.$wire.reveal(page.board, page.ticket, page.doc, page.tab ?? null)
             } else {
-                this.$wire.syncPage(page.board, page.ticket, page.doc)
+                this.$wire.syncPage(page.board, page.ticket, page.doc, page.tab ?? null)
             }
 
             // Focus the composer once the drawer has finished moving.
