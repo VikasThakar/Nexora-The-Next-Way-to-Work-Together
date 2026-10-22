@@ -13,7 +13,7 @@
 | `estimate` | decimal(6,2) | Staff-only field |
 | `due_date` | date | Indexed |
 | `customer_visible` | boolean | **Defaults to `false`** — the customer boundary |
-| `board_column_id` | FK columns | Status. `restrictOnDelete` |
+| `board_column_id` | FK columns | Status — and, through the column, the ticket's **tab**. `restrictOnDelete` |
 | `position` | integer | Order within the column |
 | `created_by_id` | FK users | Nullable on user deletion |
 
@@ -41,7 +41,7 @@ same number, and a lost update cannot produce a duplicate key.
 ```diagram
    CREATED                                                    CLOSED
       |                                                          ^
-      |  board.firstColumn (customer) or chosen column (staff)   |
+      |  the tab's first column (customer) or chosen column      |
       v                                                          |
   +---------+    +-------+    +-------------+    +--------+   +------+
   | Backlog | -> | To Do | -> | In Progress | -> | Review |-> | Done |
@@ -70,12 +70,22 @@ matter which screen — or which AI proposal — calls it:
 | Rule | Customer | Staff |
 |---|---|---|
 | Visibility | **Always customer-visible** | Defaults to customer-visible (the board's `new_tickets_visible_to_customers`); untick for internal work |
-| Column | **Always the board's first column** | Any column on this board |
+| Tab | May choose (they see every tab's name) | May choose |
+| Column | **Always the first column of its tab** | Any column of its tab |
 | Assignee | **Always unassigned** | Any assignable member |
 | Estimate | Not settable | Settable |
 
-A tampered `board_column_id` cannot file a ticket into another customer's board: the action
-re-resolves the column against *this* board and refuses anything else.
+**Which tab.** `board_tab_id` if it is one of this board's tabs, else the tab of
+`board_column_id` if that column is on this board, else the board's default (leftmost) tab.
+Staff then get their column if it is in that tab, otherwise the tab's first column. The New
+ticket form starts in the tab the board was showing (its *New ticket* button passes `?tab=`)
+and offers a **Tab** choice when the board has several; quick add files into the tab on
+screen. The board row is locked before the tab and column are chosen, so a tab or column
+deleted at the same moment cannot pull the column out from under the insert.
+
+A tampered `board_tab_id` or `board_column_id` cannot file a ticket into another customer's
+board: the action re-resolves both against *this* board and falls back rather than trusting
+them.
 
 ## Editing a ticket
 
@@ -88,6 +98,12 @@ dropping `customer_visible`, `assignee_id` and `estimate`.
 The diff is taken from Eloquent's own dirty tracking, so an "update" that changes nothing
 records nothing and the timeline stays readable.
 
+**Status and tab.** The Status choice lists the columns of the ticket's own tab. On a board
+with several tabs, staff with `move` also get a **Tab** choice, which moves the ticket to that
+tab (`MoveTicketToTab`: the column with the same name, else a done column if it was done, else
+the tab's first column) and says where it landed; customers see the tab's name. Both choices
+re-read the ticket on every request, so a move somebody else made is never shown stale.
+
 ## Ticket addressing
 
 A ticket is addressed by its **per-board number**, so the URL reads the way the team talks:
@@ -95,6 +111,10 @@ A ticket is addressed by its **per-board number**, so the URL reads the way the 
 rather than as a model — resolving it is `TicketFinder`'s job, which applies board
 membership and the customer rule and raises 404 when either fails. An internal ticket and a
 number that was never used therefore look identical from outside.
+
+Tabs change nothing here: numbers and keys are per board, across all its tabs, and a ticket
+keeps its key when it moves between tabs. On a board with several tabs the trail reads
+*Board › Tab › KEY*, and *Back to board* opens the ticket's tab.
 
 ## Labels, checklists, links and attachments
 

@@ -10,6 +10,7 @@ use App\Models\Ticket;
 use App\Services\AI\Tools\AiToolContext;
 use App\Services\BoardAccess;
 use App\Services\TicketFinder;
+use App\Support\TicketPlace;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -171,11 +172,12 @@ trait ResolvesWorkspaceSubjects
             return McpPresentation::ticketLine($ticket, $context->staff, McpPresentation::timezone());
         }
 
-        $ticket->loadMissing(['board', 'column', 'assignee']);
+        $ticket->loadMissing(['board', 'column.tab', 'assignee']);
 
         $parts = [
             $ticket->key(),
-            '['.($ticket->column?->name ?? 'no column').']',
+            // "[Backend API › Doing]" on a board split into tabs.
+            '['.($ticket->column !== null ? TicketPlace::of($ticket) : 'no column').']',
             Str::limit((string) $ticket->title, 140, '…'),
         ];
 

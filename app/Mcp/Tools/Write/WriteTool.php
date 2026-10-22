@@ -252,7 +252,7 @@ abstract class WriteTool extends Tool
             throw new NotFoundHttpException;
         }
 
-        $ticket->loadMissing(['board', 'column', 'assignee', 'labels']);
+        $ticket->loadMissing(['board', 'column.tab', 'assignee', 'labels']);
 
         $this->resolvedTarget = $ticket->key();
         $this->resolvedBoard = $ticket->board;

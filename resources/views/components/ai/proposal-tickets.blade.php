@@ -17,7 +17,13 @@
             $meta = array_filter([
                 is_string($entry['type'] ?? null) ? $entry['type'] : null,
                 is_string($entry['priority'] ?? null) ? $entry['priority'].' priority' : null,
-                is_string($entry['column'] ?? null) ? 'in '.$entry['column'] : null,
+                // "in Backend API › To Do", "in Backend API" or "in To Do".
+                is_string($entry['tab'] ?? null) || is_string($entry['column'] ?? null)
+                    ? 'in '.\App\Support\TicketPlace::names(
+                        is_string($entry['tab'] ?? null) ? $entry['tab'] : null,
+                        is_string($entry['column'] ?? null) ? $entry['column'] : null,
+                    )
+                    : null,
                 is_string($entry['assignee'] ?? null) ? 'for '.$entry['assignee'] : null,
                 is_array($entry['labels'] ?? null) && $entry['labels'] !== []
                     ? implode(', ', array_filter($entry['labels'], 'is_string')) : null,

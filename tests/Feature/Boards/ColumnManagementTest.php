@@ -212,7 +212,7 @@ class ColumnManagementTest extends TestCase
     {
         $team = $this->teamMember();
         $board = $this->boardWithMembers([$team]);
-        $only = $board->columns()->create(['name' => 'Only', 'position' => 0]);
+        $only = BoardColumn::factory()->create(['board_id' => $board->id, 'name' => 'Only', 'position' => 0]);
 
         Livewire::actingAs($team)
             ->test(BoardSettings::class, ['board' => $board])

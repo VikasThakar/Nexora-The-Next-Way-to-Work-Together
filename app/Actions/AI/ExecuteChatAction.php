@@ -12,6 +12,7 @@ use App\Actions\Tickets\AttachFilesToTicket;
 use App\Actions\Tickets\CreateTicket;
 use App\Actions\Tickets\DeleteTicket;
 use App\Actions\Tickets\MoveTicket;
+use App\Actions\Tickets\MoveTicketToTab;
 use App\Actions\Tickets\SyncTicketLabels;
 use App\Actions\Tickets\UpdateTicket;
 use App\Enums\AiActionType;
@@ -28,6 +29,7 @@ use App\Models\AiToolInvocation;
 use App\Models\Attachment;
 use App\Models\Board;
 use App\Models\BoardColumn;
+use App\Models\BoardTab;
 use App\Models\Comment;
 use App\Models\DocPage;
 use App\Models\Ticket;
@@ -43,6 +45,7 @@ use App\Services\DocPageFinder;
 use App\Services\Docs\Import\DocumentImporter;
 use App\Services\Docs\Import\DocumentImportException;
 use App\Services\TicketFinder;
+use App\Support\TicketPlace;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -122,10 +125,12 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * board allows. An existing ticket's visibility is not reachable at all.
  *
  * Board structure remains deliberately unreachable: creating boards, adding
- * members, and adding or renaming columns and labels stay with the screens that
- * govern them, because they change what everybody else sees rather than the
- * state of one piece of work. The assistant works within the shape of a board;
- * it does not reshape it.
+ * members, adding, renaming, reordering or removing tabs, and adding or
+ * renaming columns and labels stay with the screens that govern them, because
+ * they change what everybody else sees rather than the state of one piece of
+ * work. The assistant works within the shape of a board; it does not reshape
+ * it. It can file a ticket in a tab and move one between tabs — that is work,
+ * not structure — but only into a tab somebody named.
  */
 class ExecuteChatAction
 {
@@ -136,6 +141,7 @@ class ExecuteChatAction
         private readonly CreateTicket $createTicket,
         private readonly UpdateTicket $updateTicket,
         private readonly MoveTicket $moveTicket,
+        private readonly MoveTicketToTab $moveTicketToTab,
         private readonly SyncTicketLabels $syncLabels,
         private readonly PostComment $postComment,
         private readonly DeleteTicket $deleteTicket,
@@ -817,12 +823,33 @@ class ExecuteChatAction
             $attributes['assignee_id'] = $this->targets->assignee($board, $assignee, $actor)?->getKey();
         }
 
+        /*
+         * Which tab: one of this board's, by name — or, when none is named, the
+         * board's first tab, exactly as the New ticket form starts there. The
+         * tab on screen is filled in while the proposal is drafted (see
+         * App\Services\AI\ProposalTabDefaults), so the card shows it; nothing
+         * here guesses. Naming a tab needs no more than `create`: customers may
+         * choose a tab too.
+         */
+        $tab = ($tabName = $this->optionalString($input, 'tab')) !== null
+            ? $this->targets->tab($board, $tabName)
+            : $board->defaultTab();
+
+        if ($tab instanceof BoardTab) {
+            $attributes['board_tab_id'] = $tab->getKey();
+        }
+
         if (($column = $this->optionalString($input, 'column')) !== null) {
             // The same ability a move needs: choosing where a new ticket starts
             // is choosing its status.
             Gate::forUser($actor)->authorize('move', $this->prototype($board, $visible));
 
-            $attributes['board_column_id'] = $this->targets->column($board, $column)->getKey();
+            if (! $tab instanceof BoardTab) {
+                throw new RuntimeException($board->name.' has no columns, so a ticket cannot be created on it.');
+            }
+
+            // A column of that tab — two tabs can both have a "To Do".
+            $attributes['board_column_id'] = $this->targets->column($board, $tab, $column)->getKey();
         }
 
         [$dueGiven, $due] = $this->dueDate($input);
@@ -869,7 +896,7 @@ class ExecuteChatAction
             $this->attachFiles->embed($ticket, $this->attachFiles->copies($ticket, $files, $actor));
         }
 
-        $ticket->loadMissing(['board', 'column', 'assignee', 'labels']);
+        $ticket->loadMissing(['board', 'column.tab', 'assignee', 'labels']);
 
         return ['ticket' => $ticket, 'files' => $files];
     }
@@ -957,12 +984,38 @@ class ExecuteChatAction
                 : 'left it unassigned';
         }
 
+        /*
+         * Which tab and column.
+         *
+         * A named tab is a move to that tab (null when it is the tab the ticket
+         * is already in). A column is then a column of the new tab — or, with
+         * no tab named, of the ticket's own tab: a column name alone never
+         * carries a ticket into another tab.
+         */
+        $ticket->loadMissing('column.tab');
+        $currentTab = $ticket->column?->tab;
+        $namedTab = null;
+        $destinationTab = null;
+
+        if (($tabName = $this->optionalString($input, 'tab')) !== null) {
+            Gate::forUser($actor)->authorize('move', $ticket);
+
+            $namedTab = $this->targets->tab($board, $tabName);
+            $destinationTab = $currentTab instanceof BoardTab && $namedTab->is($currentTab) ? null : $namedTab;
+        }
+
         $column = null;
 
         if (($columnName = $this->optionalString($input, 'column')) !== null) {
             Gate::forUser($actor)->authorize('move', $ticket);
 
-            $column = $this->targets->column($board, $columnName);
+            $lookIn = $destinationTab ?? $currentTab;
+
+            if (! $lookIn instanceof BoardTab) {
+                throw new RuntimeException($ticket->key().' is not in a column of '.$board->name.'. Nothing was changed.');
+            }
+
+            $column = $this->targets->column($board, $lookIn, $columnName);
         }
 
         $labelIds = null;
@@ -973,7 +1026,11 @@ class ExecuteChatAction
             $labelIds = $this->targets->labelIds($board, $labels);
         }
 
-        if ($attributes === [] && $column === null && $labelIds === null && $files->isEmpty()) {
+        if ($attributes === [] && $column === null && $destinationTab === null && $labelIds === null && $files->isEmpty()) {
+            if ($namedTab instanceof BoardTab) {
+                throw new RuntimeException($ticket->key().' is already in the '.$namedTab->name.' tab. Nothing was changed.');
+            }
+
             throw new RuntimeException('The proposal contained no changes to make.');
         }
 
@@ -1011,7 +1068,18 @@ class ExecuteChatAction
             }
         }
 
-        if ($column instanceof BoardColumn) {
+        if ($destinationTab instanceof BoardTab) {
+            /*
+             * To another tab: into the named column of it, or — with none
+             * named — where App\Support\TabColumnMapping puts it (the column
+             * with the same name, else a done column if it was done, else the
+             * tab's first column). Appended at the end, like any move below.
+             */
+            $landed = $this->moveTicketToTab->handle($ticket, $destinationTab, $actor, $column);
+            $landed->setRelation('tab', $destinationTab);
+
+            $changes[] = 'moved it to '.TicketPlace::column($landed, true);
+        } elseif ($column instanceof BoardColumn) {
             /*
              * Appended to the column rather than inserted at a position.
              *
@@ -1040,7 +1108,7 @@ class ExecuteChatAction
             $changes[] = 'attached '.$this->countFiles($files);
         }
 
-        $ticket->refresh()->loadMissing(['board', 'column', 'assignee', 'labels']);
+        $ticket->refresh()->loadMissing(['board', 'column.tab', 'assignee', 'labels']);
 
         return [
             'label' => 'Updated '.$ticket->key().' — '.($changes === []
@@ -1680,7 +1748,8 @@ class ExecuteChatAction
         $parts = ['priority '.$ticket->priority->label()];
 
         if ($ticket->column !== null) {
-            $parts[] = 'in '.$ticket->column->name;
+            // "in Backend API › To Do" on a board split into tabs.
+            $parts[] = 'in '.TicketPlace::of($ticket);
         }
 
         $parts[] = $ticket->assignee !== null

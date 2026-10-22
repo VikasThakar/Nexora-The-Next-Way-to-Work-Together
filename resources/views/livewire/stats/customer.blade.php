@@ -122,7 +122,7 @@
                                     <span class="min-w-0 flex-1 truncate text-sm text-slate-700 group-hover:text-brand-700">
                                         {{ $ticket->title }}
                                     </span>
-                                    <x-ui.badge variant="slate">{{ $ticket->column->name }}</x-ui.badge>
+                                    <x-ui.badge variant="slate">{{ \App\Support\TicketPlace::of($ticket) }}</x-ui.badge>
                                 </a>
                             </li>
                         @endforeach

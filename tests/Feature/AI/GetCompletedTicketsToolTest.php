@@ -235,6 +235,38 @@ class GetCompletedTicketsToolTest extends TestCase
         $this->assertSame('not_found', $unknown->outcome);
     }
 
+    public function test_the_tab_filter_keeps_to_the_tickets_in_that_tab(): void
+    {
+        [$team, $board] = $this->teamBoard();
+        $website = $this->tabOn($board, 'Public website');
+
+        Carbon::setTestNow('2026-06-01 09:00:00');
+        $main = $this->ticketOn($board, $team, ['title' => 'ALPHA main tab']);
+        $site = $this->ticketOn($board, $team, ['title' => 'BRAVO website tab', 'board_tab_id' => $website->id]);
+
+        // Each tab has its own Done, so the column is named within its tab.
+        Carbon::setTestNow('2026-06-09 10:00:00');
+        app(MoveTicket::class)->handle($main->refresh(), $this->columnNamed($board, 'Done', $this->defaultTab($board)), 0, $team);
+        Carbon::setTestNow('2026-06-09 11:00:00');
+        app(MoveTicket::class)->handle($site->refresh(), $this->columnNamed($board, 'Done', $website), 0, $team);
+
+        Carbon::setTestNow('2026-06-10 12:00:00');
+
+        $everywhere = $this->ask($team, ['period' => 'yesterday']);
+        $this->assertStringContainsString('ALPHA', $everywhere->text);
+        $this->assertStringContainsString('BRAVO', $everywhere->text);
+
+        $narrowed = $this->ask($team, ['period' => 'yesterday', 'board' => $board->slug, 'tab' => 'website']);
+        $this->assertStringContainsString('BRAVO', $narrowed->text);
+        $this->assertStringNotContainsString('ALPHA', $narrowed->text);
+        $this->assertStringContainsString('Total: 1 completed ticket.', $narrowed->text);
+        $this->assertStringContainsString('in a tab whose name contains "website"', $narrowed->text);
+
+        $none = $this->ask($team, ['period' => 'yesterday', 'tab' => 'Mobile app']);
+        $this->assertTrue($none->success);
+        $this->assertStringContainsString('No tickets were completed', $none->text);
+    }
+
     public function test_explicit_dates_win_over_the_period(): void
     {
         [$team, $board] = $this->teamBoard();

@@ -560,6 +560,35 @@ html.dark {
     }
 
     /*
+     * A tab in the board's tab strip, as somewhere to drop a card.
+     *
+     * Every tab but the open one carries an overlay that accepts a card and
+     * nothing else (resources/views/livewire/boards/partials/tab-strip.blade.php).
+     * It takes no pointer events except while something is being dragged, so
+     * clicking a tab still clicks the tab. SortableJS moves the dragged element
+     * into whatever list it is over, so a card dropped here sits inside the
+     * overlay until the next render takes it away — hidden, so a tab never
+     * shows a card in it. The tab under the card lights up; the overlay is
+     * styled rather than the tab button, whose utility classes would win.
+     */
+    [data-tab-drop] {
+        pointer-events: none;
+    }
+
+    body.sorting [data-tab-drop] {
+        pointer-events: auto;
+    }
+
+    [data-tab-drop] > * {
+        display: none !important;
+    }
+
+    [data-tab-drop]:has(> .sortable-ghost) {
+        background-color: color-mix(in oklab, var(--color-brand-500) 12%, transparent);
+        box-shadow: inset 0 0 0 2px var(--color-brand-400);
+    }
+
+    /*
      * A column's scrollbar.
      *
      * Each column is capped at seven cards by resources/js/board-column.js, so

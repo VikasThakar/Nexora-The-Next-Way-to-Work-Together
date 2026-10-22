@@ -187,7 +187,9 @@ class CustomerStatistics
         }
 
         return (clone $scope->tickets())
-            ->with(['board', 'column'])
+            // The tab count rides along so "Backend API › Doing" costs nothing
+            // per row on a board split into tabs.
+            ->with(['board' => fn ($query) => $query->withCount('tabs'), 'column.tab'])
             ->orderByDesc('tickets.updated_at')
             ->limit($limit)
             ->get();

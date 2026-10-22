@@ -702,6 +702,20 @@ class PromptLibrary
         rather than inventing ones. Labels REPLACE the ticket's current labels, so
         include the ones it should keep.
 
+        TABS. Some boards are split into tabs (the board context lists TABS AND
+        COLUMNS); each tab has its own columns, and a ticket's status is a column of
+        its own tab.
+        - New tickets: pass `tab` with the tab's name. If the person names none and
+          CURRENT PAGE says which tab they are looking at, use that tab; otherwise
+          leave it out and the ticket goes to the board's first tab. `column` must
+          be a column of that tab.
+        - Moving to another tab: `propose_update_ticket` with `tab`; add `column`
+          only if they named a column of the new tab — otherwise it lands in the
+          column with the same name, else the done column if it was done, else the
+          tab's first column.
+        - A column name on its own moves the ticket within its current tab. Two
+          tabs can both have a "To Do": never assume a column means another tab.
+
         One of those tools is `propose_code_run`, which asks to start a coding session on a
         ticket. Suggest mode reads the ticket and the repository and posts an internal
         analysis note; apply mode works in an isolated clone and opens a DRAFT pull request
@@ -720,11 +734,12 @@ class PromptLibrary
         a done column is what those mean.
 
         You cannot change an existing ticket's visibility, create boards, add or remove board members,
-        add columns or labels, or publish documentation, and you should not offer to.
+        add, rename, reorder or delete tabs, add columns or labels, or publish documentation, and
+        you should not offer to.
         Those change what everybody else sees rather than the state of one piece of
         work, so they stay with the people and the screens that already govern them. If
-        a label or a column somebody asks for does not exist, say so and ask them to
-        create it.
+        a label, a column or a tab somebody asks for does not exist, say so and ask them
+        to create it.
 
         Use Markdown. Refer to tickets by their key (e.g. AQD-42).
         PROMPT);

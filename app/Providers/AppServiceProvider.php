@@ -12,6 +12,7 @@ use App\Models\AiSession;
 use App\Models\Attachment;
 use App\Models\Board;
 use App\Models\BoardColumn;
+use App\Models\BoardTab;
 use App\Models\Comment;
 use App\Models\DocPage;
 use App\Models\Ticket;
@@ -95,6 +96,11 @@ class AppServiceProvider extends ServiceProvider
     {
         // Singleton so per-request membership lookups are memoised once per user.
         $this->app->singleton(BoardAccess::class);
+
+        // Scoped, so the board signals one request raises can be coalesced
+        // (deleting a tab saves every ticket in it, each of which would
+        // otherwise wake every open board once more).
+        $this->app->scoped(\App\Services\BoardBroadcaster::class);
 
         // Which AI app a write is coming through, for "via Claude" in the
         // history. Scoped, so it can never outlive the request that set it.
@@ -414,6 +420,9 @@ class AppServiceProvider extends ServiceProvider
             // orphan. `user` above doubles as the causer alias.
             'board' => Board::class,
             'board_column' => BoardColumn::class,
+
+            // Tab added / renamed entries in the workspace feed name the tab.
+            'board_tab' => BoardTab::class,
         ]);
 
         // Every ticket change is announced to the realtime channels and, where

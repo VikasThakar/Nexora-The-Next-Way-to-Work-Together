@@ -96,6 +96,17 @@ class BoardPolicy
     }
 
     /**
+     * Add, rename, reorder and remove the board's tabs.
+     *
+     * The same people who may change its columns: a tab is a set of columns,
+     * so whoever can reshape the workflow can split it into tabs too.
+     */
+    public function manageTabs(User $user, Board $board): Response
+    {
+        return $this->manageColumns($user, $board);
+    }
+
+    /**
      * May the user observe internal content on this board?
      *
      * Membership alone is never enough: customers are excluded even on boards

@@ -32,7 +32,7 @@ final class UpdateTicketTool extends WriteTool
     protected function describe(): string
     {
         return $this->context->staff
-            ? 'Change a ticket: title, description, type, priority, status (move it to another board column), assignee ("nobody" unassigns), labels (replaces the whole set — include the ones to keep; [] clears them), due date ("none" clears it) and estimate. Only the fields given change. Read the ticket first and pass its "Last updated" as if_unchanged_since.'
+            ? 'Change a ticket: title, description, type, priority, status (move it to another column of its tab), tab (move it to another tab of its board), assignee ("nobody" unassigns), labels (replaces the whole set — include the ones to keep; [] clears them), due date ("none" clears it) and estimate. Only the fields given change. Read the ticket first and pass its "Last updated" as if_unchanged_since.'
             : 'Change the title or description of a ticket you raised. Read it first and pass its "Last updated" as if_unchanged_since.';
     }
 
@@ -64,6 +64,8 @@ final class UpdateTicketTool extends WriteTool
         $fields['labels']['description'] = 'The complete set of labels it should end up with — this REPLACES its labels, so include the ones to keep. [] clears them.';
         $fields['due_date']['description'] = 'The new due date, written YYYY-MM-DD, or "none" to clear it.';
         $fields['description']['description'] = 'The new description, as Markdown. It replaces the old one, so include anything that should stay.';
+        $fields['tab']['description'] = 'Move the ticket to another tab of its board, by name. Without status it lands in the column with the same name there, or that tab\'s done column if it was done, or else its first column; with status, status names a column of the new tab. Omit to keep it in its tab.';
+        $fields['status']['description'] = 'The status: a column of the ticket\'s current tab — or of tab when you also move it — exactly as get_board lists them (e.g. "In Progress", "Done").';
 
         return [
             'type' => 'object',
@@ -129,9 +131,15 @@ final class UpdateTicketTool extends WriteTool
      */
     private function comparable(Ticket $ticket): array
     {
+        // The tab always takes part, even where ticketFacts() leaves it out: a
+        // move from one tab's "To Do" to another's must not read as "nothing
+        // needed changing".
+        $facts = $this->ticketFacts($ticket);
+        $facts += ['Tab' => McpPresentation::inline((string) $ticket->column?->tab?->name)];
+
         return [
             'Title' => McpPresentation::inline((string) $ticket->title, 200),
-            ...$this->ticketFacts($ticket),
+            ...$facts,
             'Description' => md5((string) $ticket->description_md),
         ];
     }

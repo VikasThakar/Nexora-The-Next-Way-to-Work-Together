@@ -76,6 +76,7 @@ Derived from the `EnsureUserHasRole` middleware on routes, `BoardPolicy`, `UserP
 | Rename or edit a board | **Yes** (+ password confirm) | No | No |
 | Delete a board | **Yes** | No | No |
 | Add or remove board members | **Yes** | No | No |
+| Create, rename, reorder, delete tabs | Yes | Member only | No |
 | Create, rename, reorder, delete columns | Yes | Member only | No |
 | Create, edit, delete labels | Yes | Member only | No |
 | Configure board AI settings | Yes | Member only | No — screen 404s |
@@ -98,7 +99,8 @@ Derived from `TicketPolicy`, `App\Actions\Tickets\CreateTicket` and `UpdateTicke
 | See a customer-visible ticket | Yes | Member only | Member only |
 | See an internal ticket | Yes | Member only | **Never** |
 | Create a ticket | Yes | Yes | **Yes** — with the constraints below |
-| Choose the column at creation | Yes | Yes | **No** — always the first column |
+| Choose the tab at creation | Yes | Yes | **Yes** — they see every tab's name |
+| Choose the column at creation | Yes | Yes | **No** — always the first column of its tab |
 | Set visibility at creation | Yes (defaults to customer-visible) | Yes (defaults to customer-visible) | **No** — always customer-visible |
 | Assign at creation | Yes | Yes | **No** — always unassigned |
 | Edit a ticket raised by somebody else | Yes | Yes | **No** |
@@ -108,6 +110,7 @@ Derived from `TicketPolicy`, `App\Actions\Tickets\CreateTicket` and `UpdateTicke
 | Change estimate | Yes | Yes | **No** — silently dropped |
 | Change customer visibility | Yes | Yes | **No** — silently dropped |
 | Move between columns (drag and drop) | Yes | Yes | **No** |
+| Move to another tab (drop on a tab, the Tab choice, AI, MCP) | Yes | Yes | **No** |
 | Add or remove labels | Yes | Yes | **No** |
 | Link tickets to one another | Yes | Yes | **No** |
 | Manage the checklist | Yes | Yes | Own tickets only |

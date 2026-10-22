@@ -759,16 +759,39 @@ html { scroll-behavior: smooth; }
         <p>
           A board carries a globally unique <strong>slug</strong> used in every URL and a globally
           unique <strong>ticket prefix</strong> of two to six characters. Primary keys are never
-          exposed. On creation it receives the standard workflow &mdash; Backlog, To&nbsp;Do,
-          In&nbsp;Progress, Review, Done &mdash; with <em>Done</em> marked terminal.
+          exposed. On creation it receives one tab, <em>Main</em>, with the standard workflow
+          &mdash; Backlog, To&nbsp;Do, In&nbsp;Progress, Review, Done &mdash; with <em>Done</em>
+          marked terminal.
         </p>
         <p>
           Board options live in a JSON <code>settings</code> column read through a helper that
           falls back to configuration defaults, so a new board option needs no migration and no
-          backfill. Columns are unique per board and reorderable; deleting one moves its tickets
+          backfill. Columns are unique per tab and reorderable; deleting one moves its tickets
           out one at a time and deliberately <strong>suppresses the &ldquo;moved to&rdquo;
           notification</strong>, because otherwise tidying a board would notify everyone assigned
           a card on it.
+        </p>
+      </div>
+
+      <h3>Tabs</h3>
+      <div class="prose">
+        <p>
+          A board can be split into <strong>tabs</strong> &mdash; &ldquo;Admin dashboard&rdquo;,
+          &ldquo;Public website&rdquo; &mdash; like browser tabs: one board, several boards&rsquo;
+          worth of work. Each tab has its own columns; the strip above the columns switches
+          between them without leaving the board, keeps the filters on, and shows each tab&rsquo;s
+          count of matching tickets. A ticket has no tab of its own: <strong>its tab is its
+          column&rsquo;s tab</strong>, enforced by a composite foreign key, so a ticket can never
+          sit in another tab&rsquo;s column.
+        </p>
+        <p>
+          The delivery team adds, renames, reorders and removes tabs from the strip itself. A
+          new tab copies the open tab&rsquo;s columns; deleting a tab never deletes its tickets
+          &mdash; they move to the tab chosen, by column name, then done to done, then the first
+          column, and the panel shows where each will go first. A ticket moves between tabs by
+          dragging its card onto a tab, from the ticket page, or through the assistant and MCP,
+          which take an optional <code>tab</code>. Customers see every tab&rsquo;s name, as they
+          see columns, but only their own tickets and counts.
         </p>
       </div>
 

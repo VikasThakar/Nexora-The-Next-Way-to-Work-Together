@@ -236,11 +236,30 @@ What it deliberately does **not** do:
   Every write tool disappears from the next `tools/list`; reads keep working. Do not roll
   the revoke migration back — un-revoking credentials is never the right way back.
 
+## The board tabs release
+
+Migrations `2026_10_22_000100`–`000300` give every board a **Main** tab and move its columns
+into it; nothing else in the data changes. No variable, package or service is added.
+
+- **Before deploying:** take a database backup; deploy in a quiet moment.
+- **During the deploy** the previous release keeps serving for the few seconds between the
+  last migration and the switch-over. In that window only *adding a board or a column* can
+  fail (the previous code does not set a column's tab), as a rolled-back request with nothing
+  lost; anything it did add before the last migration is given a tab by it. Everything else
+  keeps working, because every board still has exactly one tab.
+- **After deploying:** open a board — the strip shows to the delivery team with **Main** and
+  "+" — and check no board was left without a tab:
+  `select count(*) from boards where id not in (select board_id from board_tabs);` → 0.
+- **Rolling back:** run `php artisan migrate:rollback --step=3` from the *new* image **before**
+  redeploying the old one; the old image has no tab migrations to roll back. This works only
+  while every board still has one tab — once people have split boards, the down migration
+  refuses (which tab a column was in would be lost) and the way back is forward.
+
 ## Rollback considerations
 
 | Concern | Guidance |
 |---|---|
-| Code rollback | Redeploy the previous image. Configuration is re-cached at boot |
+| Code rollback | Redeploy the previous image. Configuration is re-cached at boot. After the board tabs release, roll the tab migrations back first — see above |
 | Schema rollback | **Read the `down()` method first.** Several are destructive by necessity — restoring a `NOT NULL` constraint requires deleting the rows that violate it |
 | `RUN_MIGRATIONS` during rollback | Leave it off on the rolled-back deploy unless you have read the down migrations |
 | Attachments | Unaffected — they live in object storage or on a volume, keyed by the disk recorded on each row |

@@ -63,7 +63,7 @@ final class DeleteTicketTool extends WriteTool
 
         $pending = $this->confirmation($input, $key, $board,
             '🗑️ This **permanently deletes** '.McpPresentation::ticketLink($ticket).' '.$title
-            .' ('.McpPresentation::status($ticket->column).', '.McpPresentation::assignee($ticket->assignee).') — with its '
+            .' ('.McpPresentation::place($ticket).', '.McpPresentation::assignee($ticket->assignee).') — with its '
             .$comments.' '.($comments === 1 ? 'comment' : 'comments').', '
             .$subtasks.' checklist '.($subtasks === 1 ? 'item' : 'items')
             .', history and files. It cannot be undone.'

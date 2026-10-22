@@ -17,6 +17,7 @@ MySQL in production; SQLite in memory for the test suite. 42 migrations, dated f
          | 1                       draft_by)           | *
       boards ------------------------------------- ai_chat_messages
          | 1                                           | 1
+         +-- board_tabs --- board_columns  (every column is in one tab)
          +-- board_columns          * ---+             | *
          +-- labels                      |        ai_tool_invocations
          +-- tickets  ------------------+
@@ -71,6 +72,40 @@ MySQL in production; SQLite in memory for the test suite. 42 migrations, dated f
 | `settings` | JSON | AI, Slack, SMS and board options |
 | `created_by_id` | FK users | `nullOnDelete` |
 | `archived_at` | timestamp, indexed | |
+
+### `board_tabs`
+
+A board's tabs, each with its own columns. Every board has at least one (existing boards were
+given **Main** by migration).
+
+| Column | Type | Notes |
+|---|---|---|
+| `board_id` | FK boards | `cascadeOnDelete` |
+| `name` | string(60) | **Unique with `board_id`** (ignoring case: the actions check, MySQL's collation agrees) |
+| `slug` | string(80) | **Unique with `board_id`.** Set once at creation, never changed on rename — the board URL's `?tab=` |
+| `position` | unsigned int | Sparse, not unique. The leftmost tab is the board's default |
+
+Indexes: `(board_id, name)` unique · `(board_id, slug)` unique · `(board_id, position)` ·
+`(id, board_id)` unique — the target of `board_columns`' composite foreign key.
+
+### `board_columns`
+
+| Column | Type | Notes |
+|---|---|---|
+| `board_id` | FK boards | `cascadeOnDelete` |
+| `board_tab_id` | unsigned big int, **NOT NULL** | The column's tab. `(board_tab_id, board_id) → board_tabs(id, board_id)`, `cascadeOnDelete`: the database refuses a column whose tab is on another board |
+| `name` | string(60) | **Unique with `board_tab_id`** — two tabs can both have a "To Do" |
+| `position` | unsigned int | Within the tab. Sparse, not unique |
+| `is_done` | boolean | Terminal column |
+
+Tickets have no tab column: a ticket's tab is its column's tab, so it can never be in a
+column of another tab. Deleting a tab cascades to its columns, which `tickets.board_column_id`
+(RESTRICT) refuses while any ticket is still in one — tickets move first.
+
+The tab migrations (`2026_10_22_000100`–`000300`) give every existing board a Main tab,
+assign its columns to it and change nothing else; each step checks before acting, so an
+interrupted run resumes. Rolling back refuses while any board has more than one tab (which
+tab a column was in would be lost).
 
 ### `board_members`
 

@@ -96,6 +96,13 @@ import './comment-thread'
 import './board-column'
 
 /*
+ * The board's tab strip, as the `boardTabs` Alpine component: arrow keys,
+ * Home and End move between tabs, Enter opens one, and the open tab is kept
+ * scrolled into view — see ./board-tabs.
+ */
+import './board-tabs'
+
+/*
  * Keeps a drag from being read as a navigation. wire:navigate takes the press
  * rather than the click, so dropping a card would otherwise open the ticket it
  * had just moved — see ./drag-navigation.

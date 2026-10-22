@@ -12,7 +12,9 @@ use App\Services\Statistics\FlowMetrics;
 use App\Services\Statistics\StatisticsScope;
 use App\Support\StatsPeriod;
 use App\Support\StatsPeriodPhrase;
+use App\Support\TicketPlace;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 /**
@@ -69,7 +71,8 @@ class GetCompletedTicketsTool implements AiToolContract
             .'Use it for "what did we finish yesterday / this week / last week". Returns the resolved date '
             .'range and timezone, the total, and one line per ticket with its completion time, newest first. '
             .'A ticket completed and later reopened is still listed, marked REOPENED. Omit "board" to cover '
-            .'every board the person can see. Pass either "period" or explicit "from"/"to" dates, not both. '
+            .'every board the person can see; add "tab" to keep to one tab of a board split into tabs. '
+            .'Pass either "period" or explicit "from"/"to" dates, not both. '
             .'For weekly counts use get_statistics; for open work use search_tickets.';
     }
 
@@ -97,6 +100,11 @@ class GetCompletedTicketsTool implements AiToolContract
                     'type' => 'string',
                     'maxLength' => 220,
                     'description' => 'Board slug to restrict to. Omit to cover every board the person can see.',
+                ],
+                'tab' => [
+                    'type' => 'string',
+                    'maxLength' => 120,
+                    'description' => 'Tab name, e.g. "Backend API", on boards split into tabs. Only tickets now in a tab whose name contains this.',
                 ],
                 'limit' => [
                     'type' => 'integer',
@@ -147,10 +155,13 @@ class GetCompletedTicketsTool implements AiToolContract
 
         $scope = $scope->withPeriod($period);
 
-        $closures = $this->visibleClosures($scope, $context);
+        $tab = isset($input['tab']) ? (string) $input['tab'] : null;
+
+        $closures = $this->visibleClosures($scope, $context, $tab);
         $total = $closures->count();
 
-        $where = $board instanceof Board ? 'board "'.$board->name.'"' : 'every board this person can see';
+        $where = ($board instanceof Board ? 'board "'.$board->name.'"' : 'every board this person can see')
+            .($tab !== null ? ', in a tab whose name contains "'.$tab.'"' : '');
         $target = 'completed · '.($board?->slug ?? 'workspace');
         $range = $this->rangeSentence($period, $key, isset($input['from']) || isset($input['to']));
 
@@ -169,7 +180,7 @@ class GetCompletedTicketsTool implements AiToolContract
         $tickets = Ticket::query()
             ->visibleTo($context->user)
             ->whereIn('tickets.id', $shown->keys()->all())
-            ->with(['board', 'column', 'assignee'])
+            ->with(['board', 'column.tab', 'assignee'])
             ->get()
             ->keyBy('id');
 
@@ -192,7 +203,7 @@ class GetCompletedTicketsTool implements AiToolContract
                 .' · completed '.$completedAt->setTimezone($period->timezone)->toIso8601String();
 
             if ($ticket->column !== null && ! $ticket->column->is_done) {
-                $line .= ' · REOPENED (now in '.$ticket->column->name.')';
+                $line .= ' · REOPENED (now in '.TicketPlace::of($ticket).')';
             }
 
             $lines[] = $line;
@@ -209,9 +220,13 @@ class GetCompletedTicketsTool implements AiToolContract
     /**
      * Closures in scope that name a ticket this person can read, newest first.
      *
+     * A tab narrows to the tickets in it now, because a ticket's tab is its
+     * column's tab — the same reading search_tickets uses. Loose like it too,
+     * so "backend" finds "Backend API".
+     *
      * @return Collection<int, CarbonImmutable>
      */
-    private function visibleClosures(StatisticsScope $scope, AiToolContext $context): Collection
+    private function visibleClosures(StatisticsScope $scope, AiToolContext $context, ?string $tab = null): Collection
     {
         $closures = $this->flow->closures($scope);
 
@@ -225,6 +240,10 @@ class GetCompletedTicketsTool implements AiToolContract
             foreach (Ticket::query()
                 ->visibleTo($context->user)
                 ->whereIn('tickets.id', $chunk->all())
+                ->when($tab !== null, fn (Builder $tickets) => $tickets->whereHas(
+                    'column.tab',
+                    fn (Builder $tabs) => $tabs->where('board_tabs.name', 'like', '%'.$tab.'%')
+                ))
                 ->pluck('tickets.id') as $id) {
                 $visible[] = (int) $id;
             }

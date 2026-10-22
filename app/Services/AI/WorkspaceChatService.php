@@ -152,6 +152,7 @@ class WorkspaceChatService
         private readonly AiToolRegistry $toolRegistry,
         private readonly AiToolRunner $toolRunner,
         private readonly BoardAccess $access,
+        private readonly ProposalTabDefaults $tabDefaults,
     ) {}
 
     /**
@@ -549,7 +550,9 @@ class WorkspaceChatService
 
         $proposal = $this->proposalFrom($completion->toolCalls, $completion->stopReason);
         if ($proposal !== null) {
-            $metadata['action'] = $proposal;
+            // A ticket asked for on a board tab goes in that tab — decided now,
+            // so the card shows it. See ProposalTabDefaults.
+            $metadata['action'] = $this->tabDefaults->apply($proposal, $scope, $pageHint, $asker);
         }
 
         return $this->store(

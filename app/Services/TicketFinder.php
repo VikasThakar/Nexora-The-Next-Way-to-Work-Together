@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\Board;
+use App\Models\BoardTab;
 use App\Models\Ticket;
 use App\Support\TicketFilters;
 use Illuminate\Contracts\Auth\Authenticatable;
@@ -41,11 +42,20 @@ class TicketFinder
      * column: a board with eight columns would otherwise cost eight round trips
      * plus eight more for the eager loads.
      *
+     * With a tab, only the tickets in that tab's columns — the board shows one
+     * tab at a time. A tab of another board is refused as 404, never quietly
+     * answered with nothing.
+     *
      * @return Collection<int, Ticket>
      */
-    public function forBoard(Board $board, ?Authenticatable $viewer, ?TicketFilters $filters = null): Collection
+    public function forBoard(Board $board, ?Authenticatable $viewer, ?TicketFilters $filters = null, ?BoardTab $tab = null): Collection
     {
+        if ($tab instanceof BoardTab && (int) $tab->board_id !== (int) $board->getKey()) {
+            throw new NotFoundHttpException;
+        }
+
         $query = $this->query($board, $viewer)
+            ->when($tab instanceof BoardTab, fn (Builder $query) => $query->inTab($tab))
             ->with([
                 'board',
                 'assignee',
@@ -65,6 +75,33 @@ class TicketFinder
         ($filters ?? new TicketFilters)->apply($query);
 
         return $query->get();
+    }
+
+    /**
+     * How many tickets each tab of the board holds for this viewer, under the
+     * same filters as the board — the counts on the tab strip.
+     *
+     * One grouped query over the same visibility scope as the cards
+     * themselves, so a count can never include a ticket its viewer could not
+     * open: a customer's counts leave out internal work exactly as their board
+     * does. Tabs with nothing matching are simply absent.
+     *
+     * @return array<int, int> tab id => ticket count
+     */
+    public function countsByTab(Board $board, ?Authenticatable $viewer, ?TicketFilters $filters = null): array
+    {
+        $query = $this->query($board, $viewer)
+            ->join('board_columns', 'board_columns.id', '=', 'tickets.board_column_id');
+
+        ($filters ?? new TicketFilters)->apply($query);
+
+        return $query
+            ->reorder()
+            ->groupBy('board_columns.board_tab_id')
+            ->selectRaw('board_columns.board_tab_id as tab_id, count(*) as aggregate')
+            ->pluck('aggregate', 'tab_id')
+            ->mapWithKeys(fn ($count, $tabId): array => [(int) $tabId => (int) $count])
+            ->all();
     }
 
     /**

@@ -115,8 +115,9 @@ class TicketObserver
     /**
      * "AQD-42 moved to In Progress", for the assignee and the reporter.
      *
-     * Skipped when the ticket says so. Deleting a column moves every ticket out
-     * of it one model at a time (App\Actions\Columns\DeleteColumn), and that
+     * Skipped when the ticket says so. Deleting a column or a tab moves every
+     * ticket out of it one model at a time (App\Actions\Columns\DeleteColumn,
+     * App\Actions\Tabs\DeleteTab), and that
      * arrives here as a status change per ticket — so tidying a board would
      * send a notification for every card on it, to everybody assigned one. The
      * flag is set on the instances that flow through that path and nowhere
@@ -151,9 +152,17 @@ class TicketObserver
 
     /**
      * Tell Slack when a ticket lands in a column the board marks as done.
+     *
+     * Not for a structural move: deleting a column or a tab carries its done
+     * tickets into another done column, and announcing each of them as newly
+     * finished would be both noisy and untrue.
      */
     private function announceIfDone(Ticket $ticket): void
     {
+        if ($ticket->withoutStatusNotification) {
+            return;
+        }
+
         $column = BoardColumn::query()->find($ticket->board_column_id);
 
         if (! $column instanceof BoardColumn || ! $column->is_done) {

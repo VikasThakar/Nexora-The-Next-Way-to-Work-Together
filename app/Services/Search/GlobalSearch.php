@@ -156,7 +156,7 @@ class GlobalSearch
             ->visibleTo($user)
             ->search($term)
             ->when($exactId !== null, fn (Builder $query) => $query->whereKeyNot($exactId))
-            ->with('board:id,name,slug,ticket_prefix')
+            ->with($this->ticketRelations())
             ->orderByDesc('tickets.updated_at')
             ->limit(self::PER_GROUP - count($hits))
             ->get();
@@ -192,16 +192,34 @@ class GlobalSearch
             ->visibleTo($user)
             ->whereIn('tickets.board_id', $boardIds)
             ->where('tickets.number', (int) $matches[2])
-            ->with('board:id,name,slug,ticket_prefix')
+            ->with($this->ticketRelations())
             ->first();
+    }
+
+    /**
+     * What a ticket hit needs: its board, and — so a board split into tabs
+     * can say which one — the tab count and the ticket's tab.
+     *
+     * @return array<int|string, mixed>
+     */
+    private function ticketRelations(): array
+    {
+        return [
+            'board' => fn ($query) => $query->select(['id', 'name', 'slug', 'ticket_prefix'])->withCount('tabs'),
+            'column:id,board_tab_id',
+            'column.tab:id,name',
+        ];
     }
 
     private function ticketHit(Ticket $ticket): SearchHit
     {
+        $tab = $ticket->board->hasMultipleTabs() ? $ticket->column?->tab : null;
+
         return new SearchHit(
             key: $ticket->key(),
             label: (string) $ticket->title,
-            hint: $ticket->board->name,
+            // "Gritch · Backend API" on a board split into tabs.
+            hint: $tab === null ? $ticket->board->name : $ticket->board->name.' · '.$tab->name,
             url: route('tickets.show', ['board' => $ticket->board->slug, 'number' => $ticket->number]),
             id: 'ticket-'.$ticket->getKey(),
         );

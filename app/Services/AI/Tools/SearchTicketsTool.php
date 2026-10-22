@@ -54,7 +54,7 @@ class SearchTicketsTool implements AiToolContract
 
     public function description(): string
     {
-        return 'Find tickets by text, status column, label, priority, assignee, due date or age. '
+        return 'Find tickets by text, tab, status column, label, priority, assignee, due date or age. '
             .'Use it for any question about more than one ticket: what is overdue, what is unassigned, '
             .'what is in review, what mentions a word. Omit "board" to search every board the person '
             .'can see; pass a board slug to narrow to one. Results are one line per ticket — follow up '
@@ -76,6 +76,11 @@ class SearchTicketsTool implements AiToolContract
                     'type' => 'string',
                     'maxLength' => 220,
                     'description' => 'Board slug to restrict to. Omit to search every board the person can see.',
+                ],
+                'tab' => [
+                    'type' => 'string',
+                    'maxLength' => 120,
+                    'description' => 'Tab name, e.g. "Backend API", on boards split into tabs. Only tickets in a tab whose name contains this. Combine with column for a column of one tab.',
                 ],
                 'column' => [
                     'type' => 'string',
@@ -158,7 +163,7 @@ class SearchTicketsTool implements AiToolContract
         $limit = (int) ($input['limit'] ?? self::DEFAULT_RESULTS);
 
         $tickets = $query
-            ->with(['board', 'column', 'assignee'])
+            ->with(['board', 'column.tab', 'assignee'])
             ->orderByDesc('tickets.updated_at')
             ->limit(min(self::MAX_RESULTS, max(1, $limit)))
             ->get();
@@ -222,6 +227,17 @@ class SearchTicketsTool implements AiToolContract
             $query->whereHas(
                 'column',
                 fn (Builder $columns) => $columns->where('board_columns.name', 'like', '%'.$name.'%')
+            );
+        }
+
+        if (isset($input['tab'])) {
+            // A ticket's tab is its column's tab. Loose like the column, so
+            // "backend" finds "Backend API".
+            $name = (string) $input['tab'];
+
+            $query->whereHas(
+                'column.tab',
+                fn (Builder $tabs) => $tabs->where('board_tabs.name', 'like', '%'.$name.'%')
             );
         }
 

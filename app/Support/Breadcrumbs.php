@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Support;
 
 use App\Models\Board;
+use App\Models\BoardTab;
 use App\Models\DocPage;
 use App\Models\Ticket;
 use App\Services\Gritch\GritchEmbed;
@@ -120,12 +121,21 @@ final class Breadcrumbs
     }
 
     /**
+     * A ticket — on a board split into tabs, with its tab between the board
+     * and the key, linking back to that tab.
+     *
+     * The caller passes the tab only when the board has several tabs, so this
+     * runs no queries of its own and a single-tab board's trail is unchanged.
+     *
      * @return list<array{label: string, href: string|null, mono: bool}>
      */
-    public static function ticket(Ticket $ticket): array
+    public static function ticket(Ticket $ticket, ?BoardTab $tab = null): array
     {
         return [
             ...self::board($ticket->board),
+            ...($tab instanceof BoardTab
+                ? [self::item($tab->name, route('boards.show', ['board' => $ticket->board, 'tab' => $tab->slug]))]
+                : []),
             self::item($ticket->key(), null, mono: true),
         ];
     }

@@ -141,6 +141,17 @@
         <div class="space-y-6">
             <x-ui.card title="Details">
                 <div class="space-y-4">
+                    @if ($showTabs)
+                        {{-- Live, because the Column choice below depends on it. --}}
+                        <x-ui.field label="Tab" for="new-tab">
+                            <x-ui.select id="new-tab" wire:model.live="tab">
+                                @foreach ($tabs as $option)
+                                    <option value="{{ $option->is($tabs->first()) ? '' : $option->slug }}">{{ $option->name }}</option>
+                                @endforeach
+                            </x-ui.select>
+                        </x-ui.field>
+                    @endif
+
                     <x-ui.field label="Type" for="new-type" :error="$errors->first('type')" required>
                         <x-ui.select id="new-type" wire:model="type">
                             @foreach ($typeOptions as $option)
@@ -159,7 +170,7 @@
 
                     @if ($isStaff)
                         <x-ui.field label="Column" for="new-column">
-                            <x-ui.select id="new-column" wire:model="columnId">
+                            <x-ui.select id="new-column" wire:model="columnId" wire:key="new-column-{{ $selectedTab?->id }}">
                                 @foreach ($columns as $column)
                                     <option value="{{ $column->id }}">{{ $column->name }}</option>
                                 @endforeach
@@ -243,7 +254,7 @@
 
             <div class="flex items-center gap-3">
                 <x-ui.button type="submit" wire:loading.attr="disabled" wire:target="save">Create ticket</x-ui.button>
-                <x-ui.button variant="secondary" :href="route('boards.show', $board)">Cancel</x-ui.button>
+                <x-ui.button variant="secondary" :href="$cancelUrl">Cancel</x-ui.button>
             </div>
         </div>
     </form>

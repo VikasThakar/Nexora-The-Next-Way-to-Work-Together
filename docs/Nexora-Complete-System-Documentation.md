@@ -414,6 +414,7 @@ Derived from the `EnsureUserHasRole` middleware on routes, `BoardPolicy`, `UserP
 | Rename or edit a board | **Yes** (+ password confirm) | No | No |
 | Delete a board | **Yes** | No | No |
 | Add or remove board members | **Yes** | No | No |
+| Create, rename, reorder, delete tabs | Yes | Member only | No |
 | Create, rename, reorder, delete columns | Yes | Member only | No |
 | Create, edit, delete labels | Yes | Member only | No |
 | Configure board AI settings | Yes | Member only | No — screen 404s |
@@ -436,7 +437,8 @@ Derived from `TicketPolicy`, `App\Actions\Tickets\CreateTicket` and `UpdateTicke
 | See a customer-visible ticket | Yes | Member only | Member only |
 | See an internal ticket | Yes | Member only | **Never** |
 | Create a ticket | Yes | Yes | **Yes** — with the constraints below |
-| Choose the column at creation | Yes | Yes | **No** — always the first column |
+| Choose the tab at creation | Yes | Yes | **Yes** — they see every tab's name |
+| Choose the column at creation | Yes | Yes | **No** — always the first column of its tab |
 | Set visibility at creation | Yes (defaults to customer-visible) | Yes (defaults to customer-visible) | **No** — always customer-visible |
 | Assign at creation | Yes | Yes | **No** — always unassigned |
 | Edit a ticket raised by somebody else | Yes | Yes | **No** |
@@ -446,6 +448,7 @@ Derived from `TicketPolicy`, `App\Actions\Tickets\CreateTicket` and `UpdateTicke
 | Change estimate | Yes | Yes | **No** — silently dropped |
 | Change customer visibility | Yes | Yes | **No** — silently dropped |
 | Move between columns (drag and drop) | Yes | Yes | **No** |
+| Move to another tab (drop on a tab, the Tab choice, AI, MCP) | Yes | Yes | **No** |
 | Add or remove labels | Yes | Yes | **No** |
 | Link tickets to one another | Yes | Yes | **No** |
 | Manage the checklist | Yes | Yes | Own tickets only |
@@ -1091,9 +1094,9 @@ There is **no native mobile application** and no offline mode.
 ## Purpose
 
 A board is the unit of work, the unit of access and the unit of configuration. Everything
-in Nexora hangs off one: tickets, documentation, labels, columns, repositories, Slack and
-SMS settings, AI settings, and statistics scope. **Access to Nexora is access to a set of
-boards.**
+in Nexora hangs off one: tickets, documentation, labels, tabs and columns, repositories,
+Slack and SMS settings, AI settings, and statistics scope. **Access to Nexora is access to a
+set of boards.**
 
 ## Who can do what
 
@@ -1102,7 +1105,7 @@ boards.**
 | See a board | Administrators (all), or anyone with a `board_members` row |
 | Create, rename, delete a board | Administrators only, with password confirmation |
 | Add or remove members | Administrators only |
-| Manage columns and labels | Any staff member of the board |
+| Manage tabs, columns and labels | Any staff member of the board |
 | Manage AI settings, repositories, integrations | Any staff member of the board |
 
 > [!NOTE]
@@ -1128,8 +1131,8 @@ boards.**
   auto-derived                   |                    GitHub links accumulate
       |                          v
       v                    Slack webhook + SMS rota
-  5 default columns              |
-  created:                       v
+  "Main" tab with                |
+  5 default columns:             v
   Backlog, To Do,          AI model, capability mode,
   In Progress,             project context, auto-run
   Review, Done                   policy
@@ -1152,9 +1155,11 @@ boards.**
 | Description | Optional |
 | Settings | A JSON column, empty at creation; every option falls back to `config/workspace.php` |
 
-On creation, `CreateDefaultColumns` gives the board the standard workflow — **Backlog, To
-Do, In Progress, Review, Done** — with `Done` marked `is_done`. The action is idempotent, so
-it can also repair a board that somehow ended up with no columns.
+On creation, `CreateDefaultColumns` gives the board one tab, **Main**, with the standard
+workflow — **Backlog, To Do, In Progress, Review, Done** — with `Done` marked `is_done`. The
+action is idempotent per tab, so it can also repair a tab that somehow ended up with no
+columns. Neither the tab nor the columns are logged or broadcast separately: they are part of
+creating the board.
 
 Primary keys are never exposed: `Board::getRouteKeyName()` returns `slug`.
 
@@ -1173,15 +1178,104 @@ a migration or a backfill.
 | `slack.*` | see section 14 | Encrypted webhook URL and per-event switches |
 | `sms.*` | see section 15 | On-call rota for this board |
 
-## Columns
+## Tabs
 
-`/boards/{board}/settings` — `App\Livewire\Boards\Settings`.
+A board is split into **tabs** — "Admin dashboard", "Public website", "Backend API" — like
+browser tabs: one board, several boards' worth of work. Each tab has **its own columns**; the
+board shows one tab at a time, and the tab strip above the columns switches between them
+without leaving the board. Every board has at least one tab (existing boards were given
+**Main**, holding all their columns).
+
+A ticket has no tab of its own: **its tab is the tab of its column**. So a ticket can never
+sit in a column of another tab, and moving it to another tab is moving it to a column of that
+tab — always an explicit act (see *Moving between tabs* below).
 
 | Property | Detail |
 |---|---|
-| Name | Up to 60 characters, **unique per board** |
-| Position | Integer, drag-and-drop reorderable |
+| Name | Up to 60 characters, trimmed, **unique per board ignoring case** (checked in the actions, the database unique is the backstop) |
+| Slug | Made from the name when the tab is created, unique per board (`backend-api`, `backend-api-2`) and **never changed on rename**, so a link to a tab keeps working. The board URL carries it: `/boards/{board}?tab=backend-api` |
+| Position | Leftmost first. The leftmost tab is the board's **default tab**: what the board opens on, and where a ticket filed without a tab lands |
+| Columns | Each tab's own — names unique per tab, so two tabs can both have a "To Do" |
+
+`board_tabs` (`App\Models\BoardTab`); `board_columns.board_tab_id` is NOT NULL, and the
+composite foreign key `(board_tab_id, board_id) → board_tabs(id, board_id)` makes the database
+itself refuse a column whose tab is on another board. A tab that still has tickets cannot be
+deleted underneath them: the cascade to its columns meets `tickets.board_column_id`'s
+RESTRICT.
+
+### The tab strip
+
+| Behaviour | Detail |
+|---|---|
+| Switching | Click a tab, or arrow / Home / End to a tab and Enter (manual activation: each switch is a round trip). `role="tablist"` / `tab` / `tabpanel` with `aria-selected` |
+| URL | `?tab=<slug>` (`#[Url(history: true)]`), so a tab is a link, refresh keeps it, and back/forward step between tabs. The default tab keeps the plain URL. An open page keeps showing the tab it was drawn with even if somebody else reorders the strip meanwhile; once that tab is no longer the leftmost, its slug appears in the URL. A slug that is not one of this board's tabs falls back to the default tab with a notice |
+| Remembered | A board opened without `?tab` shows the tab **this person last had open on it** (kept in their session), else the default tab |
+| Counts | Each tab shows how many tickets match the current filters — by the same visibility scope as the cards, so a customer's counts never include internal work |
+| Filters | Search, assignee, priority, labels and visibility belong to the board and stay on when switching tabs |
+| Shown | When the board has more than one tab, or to anyone who may manage tabs (so "+" is always there for them) |
+| Realtime | Tab and column changes broadcast `BoardUpdated` to the internal **and** customer channels (tab and column names are visible to customers). If the tab you have open is removed, the board falls back to the default tab and says so |
+
+### Managing tabs
+
+From the tab strip on the board — the same people who may manage columns
+(`BoardPolicy::manageTabs` → `manageColumns`: administrators, and staff members of the
+board). Every change is re-authorized and resolved within the board (404 otherwise), and
+recorded in the workspace feed (*Tab added / renamed / reordered / removed*, internal-only).
+
+| Action | Detail |
+|---|---|
+| Add ("+") | Asks for a name. The new tab starts with a **copy of the open tab's columns** (names, order, which count as done) and opens |
+| Rename | Tab menu → Rename. The slug stays |
+| Reorder | Drag a tab along the strip, or Tab menu → Move left / Move right (the keyboard's way) |
+| Edit columns | Tab menu → Edit columns: board configuration, on that tab |
+| Delete | Tab menu → Delete opens a panel built on the server. The last tab cannot be deleted. A tab holding tickets needs a destination tab, and the panel previews where each column's tickets will land |
+
+**Deleting a tab never deletes its tickets.** They move to the chosen tab, each to:
+
+1. the column with the **same name** (ignoring case);
+2. otherwise, if it was in a done column, the destination's **first done column**;
+3. otherwise the destination's **first column** —
+
+appended at the end, in the order they had. Each move is in the ticket's timeline with the
+reason (*its tab was removed*); nobody is notified per card and Slack is not told about tickets
+that were already done. A name match wins over the done rule, so a done ticket can land in a
+same-named column that is not done (the preview shows it). `App\Support\TabColumnMapping`
+holds the rule; `App\Actions\Tabs\DeleteTab` applies it in one transaction under the board
+lock.
+
+### Moving between tabs
+
+| From | How |
+|---|---|
+| The board | Drag a card onto another tab (staff). It lands by the rule above, at the end |
+| The ticket page | The **Tab** choice beside Status (staff with `move`). The Status list is always the columns of the ticket's own tab |
+| The assistant, MCP | `tab` on update — see section 9 |
+
+`App\Actions\Tickets\MoveTicketToTab` is the one way a ticket changes tab. `MoveTicket`
+itself refuses a column in another tab unless told the move is across tabs, so a stale or
+forged column id from a drag can never carry a ticket somewhere its board view does not show.
+
+### Customers
+
+Customers see **every tab's name** — the board's structure is not secret, as with columns —
+but inside a tab only the tickets they can already see, and the counts count only those. They
+may say which tab a request belongs in (New ticket form, quick add on the tab, MCP); it always
+starts in that tab's first column. They cannot move tickets between tabs.
+
+## Columns
+
+`/boards/{board}/settings` — `App\Livewire\Boards\Settings` — edits **one tab's columns at a
+time**: the tab in `?tab=`, chosen with the pills above the list (shown when the board has
+more than one tab).
+
+| Property | Detail |
+|---|---|
+| Name | Up to 60 characters, **unique per tab** |
+| Position | Integer within the tab, drag-and-drop reorderable |
 | `is_done` | Marks a column as terminal — drives *Ticket moved to done* notifications and closure statistics |
+
+A tab always keeps at least one column (enforced in `DeleteColumn`, under the board lock), and
+a deleted column's tickets can only move to another column **of the same tab**.
 
 Deleting a column moves every ticket out of it one model at a time. The move is recorded in
 each ticket's timeline and broadcast, but **the "moved to" notification is suppressed** —
@@ -1233,7 +1327,7 @@ what they see *inside* it:
 | Internal notes | No — and not their count |
 | Published documentation pages | Yes, if every ancestor is published too |
 | Internal documentation pages | No |
-| Columns and labels | Yes — the board structure is not secret |
+| Tabs, columns and labels | Yes — the board structure is not secret (tab counts include only what they can see) |
 | AI runs | No — 404 |
 | Attached repositories and GitHub activity | No |
 | Board AI chat, AI settings, integrations screens | No — 404 |
@@ -1249,9 +1343,10 @@ one.
 
 | Feature | Detail |
 |---|---|
-| Drag and drop | Cards between columns and within a column; columns themselves reorderable. Uses Alpine's `x-sort`, bundled with Livewire 4 |
-| Filtering | By search term, assignee, label, priority, type and visibility (`App\Support\TicketFilters`) |
-| Quick add | A ticket can be created inline from a column |
+| Tabs | One tab at a time; the strip switches between them and shows per-tab counts (see *Tabs*) |
+| Drag and drop | Cards between columns and within a column of the tab on screen, and onto another tab in the strip. Uses Alpine's `x-sort`, bundled with Livewire 4 |
+| Filtering | By search term, assignee, label, priority and visibility (`App\Support\TicketFilters`) — board-wide, kept across tabs |
+| Quick add | A ticket can be created inline from a column; it is filed in the tab on screen |
 | Realtime | The board re-reads when `BoardUpdated` is broadcast to a channel this viewer may join |
 | Access | Decided once in `mount()` by `BoardPolicy::view` (404 on denial); every ticket read then goes through `TicketFinder` |
 
@@ -1294,7 +1389,7 @@ key matches.
 | `estimate` | decimal(6,2) | Staff-only field |
 | `due_date` | date | Indexed |
 | `customer_visible` | boolean | **Defaults to `false`** — the customer boundary |
-| `board_column_id` | FK columns | Status. `restrictOnDelete` |
+| `board_column_id` | FK columns | Status — and, through the column, the ticket's **tab**. `restrictOnDelete` |
 | `position` | integer | Order within the column |
 | `created_by_id` | FK users | Nullable on user deletion |
 
@@ -1322,7 +1417,7 @@ same number, and a lost update cannot produce a duplicate key.
 ```diagram
    CREATED                                                    CLOSED
       |                                                          ^
-      |  board.firstColumn (customer) or chosen column (staff)   |
+      |  the tab's first column (customer) or chosen column      |
       v                                                          |
   +---------+    +-------+    +-------------+    +--------+   +------+
   | Backlog | -> | To Do | -> | In Progress | -> | Review |-> | Done |
@@ -1351,12 +1446,22 @@ matter which screen — or which AI proposal — calls it:
 | Rule | Customer | Staff |
 |---|---|---|
 | Visibility | **Always customer-visible** | Defaults to customer-visible (the board's `new_tickets_visible_to_customers`); untick for internal work |
-| Column | **Always the board's first column** | Any column on this board |
+| Tab | May choose (they see every tab's name) | May choose |
+| Column | **Always the first column of its tab** | Any column of its tab |
 | Assignee | **Always unassigned** | Any assignable member |
 | Estimate | Not settable | Settable |
 
-A tampered `board_column_id` cannot file a ticket into another customer's board: the action
-re-resolves the column against *this* board and refuses anything else.
+**Which tab.** `board_tab_id` if it is one of this board's tabs, else the tab of
+`board_column_id` if that column is on this board, else the board's default (leftmost) tab.
+Staff then get their column if it is in that tab, otherwise the tab's first column. The New
+ticket form starts in the tab the board was showing (its *New ticket* button passes `?tab=`)
+and offers a **Tab** choice when the board has several; quick add files into the tab on
+screen. The board row is locked before the tab and column are chosen, so a tab or column
+deleted at the same moment cannot pull the column out from under the insert.
+
+A tampered `board_tab_id` or `board_column_id` cannot file a ticket into another customer's
+board: the action re-resolves both against *this* board and falls back rather than trusting
+them.
 
 ## Editing a ticket
 
@@ -1369,6 +1474,12 @@ dropping `customer_visible`, `assignee_id` and `estimate`.
 The diff is taken from Eloquent's own dirty tracking, so an "update" that changes nothing
 records nothing and the timeline stays readable.
 
+**Status and tab.** The Status choice lists the columns of the ticket's own tab. On a board
+with several tabs, staff with `move` also get a **Tab** choice, which moves the ticket to that
+tab (`MoveTicketToTab`: the column with the same name, else a done column if it was done, else
+the tab's first column) and says where it landed; customers see the tab's name. Both choices
+re-read the ticket on every request, so a move somebody else made is never shown stale.
+
 ## Ticket addressing
 
 A ticket is addressed by its **per-board number**, so the URL reads the way the team talks:
@@ -1376,6 +1487,10 @@ A ticket is addressed by its **per-board number**, so the URL reads the way the 
 rather than as a model — resolving it is `TicketFinder`'s job, which applies board
 membership and the customer rule and raises 404 when either fails. An internal ticket and a
 number that was never used therefore look identical from outside.
+
+Tabs change nothing here: numbers and keys are per board, across all its tabs, and a ticket
+keeps its key when it moves between tabs. On a board with several tabs the trail reads
+*Board › Tab › KEY*, and *Back to board* opens the ticket's tab.
 
 ## Labels, checklists, links and attachments
 
@@ -2121,10 +2236,10 @@ without, about exactly the same material.
 
 | Tool | What it reads | Availability |
 |---|---|---|
-| `get_board` | Description, columns with counts, labels, prefix. With no argument, lists reachable boards | Everyone |
-| `get_ticket` | One ticket in full, plus recent conversation and history | Everyone — scoped |
-| `search_tickets` | By text, column, label, priority, assignee, due date, age | Everyone — scoped |
-| `get_completed_tickets` | Tickets completed — moved into a done column — in a named period or date range, from the history; flags tickets reopened since | Everyone — scoped |
+| `get_board` | Description, its tabs and each tab's columns with counts, labels, prefix. With no argument, lists reachable boards | Everyone |
+| `get_ticket` | One ticket in full — with its tab on a board split into tabs — plus recent conversation and history | Everyone — scoped |
+| `search_tickets` | By text, tab, column, label, priority, assignee, due date, age | Everyone — scoped |
+| `get_completed_tickets` | Tickets completed — moved into a done column — in a named period or date range, from the history, optionally in one tab; flags tickets reopened since | Everyone — scoped |
 | `search_documentation` | Page titles and bodies, with extracts | Everyone — scoped |
 | `get_documentation_page` | One page in full by slug | Everyone — scoped |
 | `get_statistics` | Eight aggregate metrics | Everyone; three metrics staff-only |
@@ -2169,9 +2284,9 @@ directly, through the **same code a confirmed proposal goes through** —
 
 | Tool | Staff | Customer | What it does |
 |---|---|---|---|
-| `create_ticket` | Every field: description, type, priority, status (column), assignee, labels, due date, estimate, visibility | Board, title, description, type, priority | Raise one ticket. A customer's ticket follows the customer rules: first column, nobody assigned, visible |
-| `create_tickets` | Up to 30, same fields | — | All or nothing; a refusal names the ticket at fault |
-| `update_ticket` | Any field, status, assignee (`nobody` unassigns), labels (replaces the set), due date (`none` clears) | Title and description of a ticket **they raised** | The answer lists what changed, old → new, read back from the saved row |
+| `create_ticket` | Every field: description, type, priority, tab, status (a column of that tab), assignee, labels, due date, estimate, visibility | Board, title, description, type, priority, tab | Raise one ticket. A customer's ticket follows the customer rules: first column of its tab, nobody assigned, visible |
+| `create_tickets` | Up to 30, same fields — each ticket its own `tab` | — | All or nothing; a refusal names the ticket at fault |
+| `update_ticket` | Any field, status, `tab` (move to another tab), assignee (`nobody` unassigns), labels (replaces the set), due date (`none` clears) | Title and description of a ticket **they raised** | The answer lists what changed, old → new — the tab included — read back from the saved row |
 | `update_checklist` | Add, complete, reopen, remove items by text or number | — | `TicketPolicy::manageSubtasks`, as on the ticket screen |
 | `add_comment` | Internal note by default; `visible_to_customer` posts on the customer thread | Customer thread only, where the board allows customer comments | |
 | `delete_ticket` | After confirmation | — | Permanent |
@@ -2227,8 +2342,29 @@ other half of the gate.
   without a deploy.
 
 **Not offered, deliberately:** changing visibility or publishing, moving or deleting pages,
-deleting comments, boards, columns, labels and members, AI code runs, bulk edits of existing
-tickets, and file uploads.
+deleting comments, boards, tabs, columns, labels and members, adding, renaming or reordering
+tabs, AI code runs, bulk edits of existing tickets, and file uploads.
+
+#### Tabs over MCP — the `tab` argument
+
+Boards can be split into tabs, each with its own columns (section 6). Other systems build on
+this argument — Gritch's admin AI passes it through — so it is a stable contract:
+
+- **What it takes.** A tab's display name, exactly as `get_board` lists it. Matched exactly
+  (ignoring case) first, then by a unique partial match; an unknown or ambiguous name changes
+  nothing and the error lists the board's tabs. Only this board's tabs are candidates.
+- **Always optional.** Without it a new ticket goes to the board's **first tab**, and `status`
+  moves a ticket **within its own tab** — exactly as before tabs existed. `status` is always a
+  column of the ticket's tab, or of `tab` when both are given.
+- **Moving.** `update_ticket` with `tab` moves the ticket; without `status` it lands in the
+  column with the same name, else a done column if it was done, else the tab's first column.
+  A column name alone never carries a ticket into another tab — if only another tab has it,
+  the error says which tab to name.
+- **Output.** On a board with several tabs, `get_board` prints `TABS AND COLUMNS` (a `TAB
+  "Name" — n tickets` block per tab), ticket lines read `🟡 Backend API › Doing`, ticket cards
+  and `get_ticket` add a `Tab` line, and the first column of **each tab** counts as not
+  started (⚪). A board with one tab prints exactly what it always did.
+- Customers get `tab` on `create_ticket` (they see tab names) but never on `update_ticket`.
 
 #### How results look in the chat
 
@@ -2250,7 +2386,7 @@ output is unchanged.
 | 🟢 | The column counts as done |
 | 🔴 | The column's name says blocked or on hold |
 | 🟣 | Review, QA, testing |
-| ⚪ | The board's first column, or a backlog / to-do name |
+| ⚪ | The first column of its tab, or a backlog / to-do name |
 | 🟡 | Anything else in between — the column's own name is always kept |
 | 🔥 ⬆️ ➖ ⬇️ 💤 | Priority Critical, High, Medium, Low, Nice to have (shapes, so they never clash with status colours) |
 | 🐞 ✨ 📋 · 👤 · 📅 / ⚠️ · 🔒 | Type; assignee or *Unassigned*; due or overdue; internal (staff only) |
@@ -2283,9 +2419,9 @@ does not perform the action.
 
 | Action | Destructive? | Notes |
 |---|---|---|
-| `propose_create_ticket` | No | Sets every field at once — title, description, priority, type, assignee, column, labels, and `customer_visible: false` to keep it internal |
+| `propose_create_ticket` | No | Sets every field at once — title, description, priority, type, assignee, tab, column, labels, and `customer_visible: false` to keep it internal |
 | `propose_create_tickets` | No | Several new tickets on one board, up to 30 per call; one preview, all or none. `source_page_slug` names the page they come from |
-| `propose_update_ticket` | No | Re-assign, move column, re-prioritise, re-label, edit title or body |
+| `propose_update_ticket` | No | Re-assign, move column or tab, re-prioritise, re-label, edit title or body |
 | `propose_comment_ticket` | No | Staff comments default to the **internal** stream |
 | `propose_create_doc_page` | No | New pages are **always internal** until somebody publishes them separately. `import_attachment_id` makes an attached file the body; `board` for a workspace conversation |
 | `propose_update_doc_page` | No | Title and body |
@@ -2303,12 +2439,33 @@ does not perform the action.
 > the people and the screens that already authorize it. There is no field that can name a viewer,
 > a user id, a column id or a label id.
 
-Assignees, columns and labels are named **in words** — "Alex Round", "In Progress", "bug" —
-rather than by id. That is what the model has to work with, since it is repeating what
-somebody said out loud; and a name has to be *resolved*, which is the step where
+Assignees, tabs, columns and labels are named **in words** — "Alex Round", "Backend API",
+"In Progress", "bug" — rather than by id. That is what the model has to work with, since it is
+repeating what somebody said out loud; and a name has to be *resolved*, which is the step where
 `ProposalTargets` can refuse an assignee who is not on the board and ask which of two
 matching columns was meant. An id would skip that step and land the change somewhere
 plausible and wrong.
+
+### Tabs
+
+On a board split into tabs the board context starts with `TABS AND COLUMNS` — each tab's
+columns with the asker's ticket counts — and every ticket line is tagged `[Tab › Column]`; a
+board with one tab gets a plain `COLUMNS (in board order)` line. The page hint carries the tab
+on screen (the board announces each switch to the panel), so CURRENT PAGE can say "…looking at
+the Backend API tab of the Gritch board"; the slug is re-resolved within the board like every
+other hint.
+
+- `tab` on create: the ticket goes in that tab, and `column` is a column of it. **When the
+  person names no tab, the tab on screen is filled in while the proposal is drafted**
+  (`App\Services\AI\ProposalTabDefaults`) — only for the board on screen, only on a board with
+  several tabs, and only if any column named is one of that tab's — so the card shows where the
+  ticket will go. When a change runs without a tab it goes to the board's first tab; nothing at
+  execution time looks at whatever page happens to be open.
+- `tab` on update moves the ticket (`MoveTicketToTab`), with `column` then naming a column of
+  the new tab. A column name alone is looked up **in the ticket's own tab only**
+  (`ProposalTargets::column(board, tab, name)`); a column only another tab has is refused with
+  "The Website tab has a "Design review" column — name that tab as well to use it."
+- The assistant cannot create, rename, reorder or delete tabs, as it cannot change columns.
 
 ### Confirmation
 
@@ -3497,7 +3654,7 @@ Everything here is a question about *now*, read from `tickets`.
 | Metric | Output |
 |---|---|
 | `counts` | Total, open, closed, created in the period |
-| `byColumn` | Tickets per status column, in board order |
+| `byColumn` | Tickets per status column, in board order — tab by tab, labelled `Tab › Column`, on a board split into tabs |
 | `byPriority` | Tickets per priority, most urgent first, including zeros |
 | `byAssignee` | Open tickets per assignee, busiest first — **staff only** |
 | `byLabel` | Tickets per label, most used first — **staff only** |
@@ -3507,6 +3664,11 @@ Everything here is a question about *now*, read from `tickets`.
 
 Each breakdown is **one grouped query**. A per-assignee table built by counting tickets per
 member in PHP would be one query per person on a page that already runs a dozen.
+
+Statistics are **board-wide**: a board split into tabs is still counted whole, with no tab
+filter. Where a column is named — `byColumn`, time in column, the CSV exports — it reads
+`Tab › Column` on a board with several tabs (two tabs can both have a "To Do"), and exactly as
+before on a board with one.
 
 ### Flow metrics — `FlowMetrics`
 
@@ -3523,7 +3685,7 @@ Read from `ticket_events`, the append-only history — **never from `tickets.boa
 
 | Metric | Output |
 |---|---|
-| `closures` | Tickets that entered a done column in the period |
+| `closures` | Tickets that entered a done column in the period — see below for deleted columns and tidying |
 | `throughputByWeek`, `throughputPerWeek` | Completion rate over time |
 | `cycleTime`, `cycleTimeTrend` | How long work takes, and whether that is moving |
 | `timeInColumn` | Where work waits |
@@ -3536,6 +3698,13 @@ Two limitations are **surfaced to the reader rather than hidden**:
   counting "so far" would make a healthy board look worse the longer it stays healthy;
 - the fold is bounded. A range wide enough to exceed it **reports that it was truncated**
   instead of quietly averaging a subset.
+
+**Restructuring a board is not finishing work.** Deleting a column or a tab moves its tickets
+(reason `column_deleted` / `tab_deleted` in the event); those moves never count as closures,
+so done tickets carried into another done column are not counted as closed again. And
+finished work does not drop out when its column is deleted: each transition records whether
+its column was done at the time (`to_done`), which is what decides for a column that no longer
+exists. (Events written before this was recorded cannot be recovered that way.)
 
 ### AI metrics — `AiStatistics`
 
@@ -3676,7 +3845,7 @@ that then rolls back would tell every open board to re-read something that never
 
 | Surface | Behaviour |
 |---|---|
-| Kanban board | Re-reads when a ticket on a joined channel changes |
+| Kanban board | Re-reads when a ticket on a joined channel changes, and when a tab or column is added, renamed, reordered or removed (`BoardBroadcaster::structureChanged`, both audiences — structure is not secret). Signals raised inside one transaction are coalesced per board and audience, so deleting a tab with fifty tickets wakes each open board once |
 | Ticket conversation | New comments appear without a reload |
 | Notification bell | Re-reads when `NotificationReceived` fires on the user channel |
 | Documentation autosave | **Deliberately does not broadcast** — see section 9 |
@@ -4045,6 +4214,7 @@ MySQL in production; SQLite in memory for the test suite. 42 migrations, dated f
          | 1                       draft_by)           | *
       boards ------------------------------------- ai_chat_messages
          | 1                                           | 1
+         +-- board_tabs --- board_columns  (every column is in one tab)
          +-- board_columns          * ---+             | *
          +-- labels                      |        ai_tool_invocations
          +-- tickets  ------------------+
@@ -4099,6 +4269,40 @@ MySQL in production; SQLite in memory for the test suite. 42 migrations, dated f
 | `settings` | JSON | AI, Slack, SMS and board options |
 | `created_by_id` | FK users | `nullOnDelete` |
 | `archived_at` | timestamp, indexed | |
+
+### `board_tabs`
+
+A board's tabs, each with its own columns. Every board has at least one (existing boards were
+given **Main** by migration).
+
+| Column | Type | Notes |
+|---|---|---|
+| `board_id` | FK boards | `cascadeOnDelete` |
+| `name` | string(60) | **Unique with `board_id`** (ignoring case: the actions check, MySQL's collation agrees) |
+| `slug` | string(80) | **Unique with `board_id`.** Set once at creation, never changed on rename — the board URL's `?tab=` |
+| `position` | unsigned int | Sparse, not unique. The leftmost tab is the board's default |
+
+Indexes: `(board_id, name)` unique · `(board_id, slug)` unique · `(board_id, position)` ·
+`(id, board_id)` unique — the target of `board_columns`' composite foreign key.
+
+### `board_columns`
+
+| Column | Type | Notes |
+|---|---|---|
+| `board_id` | FK boards | `cascadeOnDelete` |
+| `board_tab_id` | unsigned big int, **NOT NULL** | The column's tab. `(board_tab_id, board_id) → board_tabs(id, board_id)`, `cascadeOnDelete`: the database refuses a column whose tab is on another board |
+| `name` | string(60) | **Unique with `board_tab_id`** — two tabs can both have a "To Do" |
+| `position` | unsigned int | Within the tab. Sparse, not unique |
+| `is_done` | boolean | Terminal column |
+
+Tickets have no tab column: a ticket's tab is its column's tab, so it can never be in a
+column of another tab. Deleting a tab cascades to its columns, which `tickets.board_column_id`
+(RESTRICT) refuses while any ticket is still in one — tickets move first.
+
+The tab migrations (`2026_10_22_000100`–`000300`) give every existing board a Main tab,
+assign its columns to it and change nothing else; each step checks before acting, so an
+interrupted run resumes. Rolling back refuses while any board has more than one tab (which
+tab a column was in would be lost).
 
 ### `board_members`
 
@@ -4489,11 +4693,30 @@ What it deliberately does **not** do:
   Every write tool disappears from the next `tools/list`; reads keep working. Do not roll
   the revoke migration back — un-revoking credentials is never the right way back.
 
+## The board tabs release
+
+Migrations `2026_10_22_000100`–`000300` give every board a **Main** tab and move its columns
+into it; nothing else in the data changes. No variable, package or service is added.
+
+- **Before deploying:** take a database backup; deploy in a quiet moment.
+- **During the deploy** the previous release keeps serving for the few seconds between the
+  last migration and the switch-over. In that window only *adding a board or a column* can
+  fail (the previous code does not set a column's tab), as a rolled-back request with nothing
+  lost; anything it did add before the last migration is given a tab by it. Everything else
+  keeps working, because every board still has exactly one tab.
+- **After deploying:** open a board — the strip shows to the delivery team with **Main** and
+  "+" — and check no board was left without a tab:
+  `select count(*) from boards where id not in (select board_id from board_tabs);` → 0.
+- **Rolling back:** run `php artisan migrate:rollback --step=3` from the *new* image **before**
+  redeploying the old one; the old image has no tab migrations to roll back. This works only
+  while every board still has one tab — once people have split boards, the down migration
+  refuses (which tab a column was in would be lost) and the way back is forward.
+
 ## Rollback considerations
 
 | Concern | Guidance |
 |---|---|
-| Code rollback | Redeploy the previous image. Configuration is re-cached at boot |
+| Code rollback | Redeploy the previous image. Configuration is re-cached at boot. After the board tabs release, roll the tab migrations back first — see above |
 | Schema rollback | **Read the `down()` method first.** Several are destructive by necessity — restoring a `NOT NULL` constraint requires deleting the rows that violate it |
 | `RUN_MIGRATIONS` during rollback | Leave it off on the rolled-back deploy unless you have read the down migrations |
 | Attachments | Unaffected — they live in object storage or on a volume, keyed by the disk recorded on each row |
@@ -4937,8 +5160,8 @@ Three suites are declared in `phpunit.xml`.
 | Suite | Directory | Files | Purpose |
 |---|---|---|---|
 | **Unit** | `tests/Unit` | 17 | Pure logic: enums, value objects, parsers, cost calculation |
-| **Feature** | `tests/Feature` | 112 | End-to-end behaviour through routes and Livewire components |
-| **Security** | `tests/Security` | 32 | **Authorization and isolation, runnable alone as a fast CI gate** |
+| **Feature** | `tests/Feature` | 123 | End-to-end behaviour through routes and Livewire components |
+| **Security** | `tests/Security` | 33 | **Authorization and isolation, runnable alone as a fast CI gate** |
 
 Test environment: SQLite in memory, `array` cache and session, `sync` queue, `null`
 broadcasting, `array` mail, `BCRYPT_ROUNDS=4`, public registration off, and
@@ -4958,13 +5181,13 @@ php artisan test --filter=test_a_customer_cannot_see_internal_tickets
 
 ## Current status
 
-Measured at commit `9c0ff8b` on 20 October 2026:
+Measured on the board tabs branch on 22 October 2026:
 
 | Result | Count |
 |---|---|
-| **Passed** | **2,033** |
+| **Passed** | **2,137** |
 | Failed | 2 |
-| Assertions | 7,905 |
+| Assertions | 8,339 |
 
 The two failures are the `ThemePreferenceTest` pair below. The third test in the table is
 date-sensitive: it passes on days whose report period contains no `7`, as it did on this run.
@@ -5023,6 +5246,7 @@ asserting the absence of `(total 7)` — rather than to change any application b
 | `GlobalSearchVisibilityTest` | The palette cannot surface unreachable rows |
 | `NotificationVisibilityTest` | No notification is written for an ineligible recipient |
 | `ActivityVisibilityTest` | The feed refuses non-staff in SQL |
+| `BoardTabBoundaryTest` | A customer may pick a tab when raising a ticket but still lands in its first column; tab counts never include internal tickets; a tab slug or id from another board resolves to nothing on the board, the forms, Settings, the AI's page hint and MCP |
 | `RealtimeAuthorizationTest`, `RealtimeBroadcastAudienceTest` | Channel joins and broadcast audiences |
 | `RoleAccessTest` | Route-level role gates |
 
@@ -5047,11 +5271,11 @@ asserting the absence of `(total 7)` — rather than to change any application b
 
 | Area | Files |
 |---|---|
-| AI | 39 files — capability modes, chat modes, knowledge scope, sessions, context window and prompt caching, tools, attachments, voice, rich responses, apply mode, run caps, inheritance, Anthropic and OpenAI providers, token usage, audit log, batch tickets, importing a file into the docs, tickets from the page on screen |
-| MCP | 5 files — the endpoint and both protocol generations, OAuth and the consent screen, every write tool (confirmation codes, retries, stale reads, the AI mode, archived boards, the write limit, the kill switch), the display rules and badges with the in-app output held unchanged, the reconnect migration |
-| Tickets | 13 files — creation, editing, movement, filtering, links, subtasks, attachments, events, rich text, checklist conversion, quick add, live conversation |
+| AI | 40 files — board tabs (context, the tab on screen, strict per-tab columns), capability modes, chat modes, knowledge scope, sessions, context window and prompt caching, tools, attachments, voice, rich responses, apply mode, run caps, inheritance, Anthropic and OpenAI providers, token usage, audit log, batch tickets, importing a file into the docs, tickets from the page on screen |
+| MCP | 6 files — the endpoint and both protocol generations, OAuth and the consent screen, every write tool (confirmation codes, retries, stale reads, the AI mode, archived boards, the write limit, the kill switch), the display rules and badges with the in-app output held unchanged, the reconnect migration, the `tab` argument and the tab-aware board output |
+| Tickets | 16 files — creation, editing, movement, moving between tabs, filtering, links, subtasks, attachments, events, rich text, checklist conversion, quick add, live conversation, the Tab choice on the ticket and create pages |
 | Documentation | 8 files — editor, save state, drag and drop, tree, workspace, visibility, importing files as pages, the file-to-Markdown converters |
-| Boards | 6 files — management, deletion, columns, labels, integrations, drag and drop |
+| Boards | 14 files — management, deletion, columns, labels, integrations, drag and drop; for tabs: the migration of existing boards (run twice, rolled back and resumed), the tab actions and their locking, the tab strip, managing tabs from the board, dropping a card on a tab, per-tab columns in Settings, and "Tab › Column" labels in statistics, notifications, Slack and search |
 | Statistics | 6 files — team, customer, flow metrics, exports, chart export markup |
 | Notifications | 4 files — bell, ticket notifications, Slack, critical-ticket SMS |
 | Auth | 3 files — authentication, password reset, registration |
@@ -5068,14 +5292,17 @@ asserting the absence of `(total 7)` — rather than to change any application b
 | `FakeSmsProvider` | Captures messages instead of sending them |
 | `FakeFiles` | Deterministic uploads |
 
-13 model factories cover users, boards, columns, members, labels, tickets, subtasks,
-repositories, GitHub links, AI runs, AI sessions, AI attachments and AI usage records.
+14 model factories cover users, boards, board tabs, columns, members, labels, tickets,
+subtasks, repositories, GitHub links, AI runs, AI sessions, AI attachments and AI usage
+records. A column made by the factory goes into its board's first tab, which is created as
+"Main" when the board has none; `inTab()` picks another. `TestCase` adds `tabOn()` (a tab
+made through the real `CreateTab`), `defaultTab()` and an optional tab on `columnNamed()`.
 
 ## Gaps
 
 | Gap | Note |
 |---|---|
-| Browser / end-to-end tests | **None.** No Dusk, Playwright or Cypress. Drag-and-drop, the TipTap editor, the command palette and theme switching are tested only at the server boundary |
+| Browser / end-to-end tests | **None.** No Dusk, Playwright or Cypress. Drag-and-drop, the TipTap editor, the command palette and theme switching are tested only at the server boundary. Board tabs were walked through once in headless Chrome before release (switching, back/forward, the keyboard, dropping a card on a tab, deleting a tab, a 390 px phone width, the customer view), but that script is not part of the repository |
 | JavaScript unit tests | **None.** No Vitest or Jest; `resources/js` is untested in isolation |
 | Load or performance tests | None |
 | Mutation testing | None |
@@ -5560,13 +5787,13 @@ join a channel merely by knowing its name.**
 | `GET /dashboard` | `Dashboard\Index` | auth |
 | `GET /boards` | `Boards\Index` | auth |
 | `GET /boards/create` | `Boards\ManageBoard` | `role:admin` + confirm |
-| `GET /boards/{board}` | `Boards\Show` | auth + `BoardPolicy::view` |
+| `GET /boards/{board}` | `Boards\Show` | auth + `BoardPolicy::view`. `?tab=<slug>` opens that tab; without it, the tab this person last had open there, else the default tab |
 | `GET /boards/{board}/edit` | `Boards\ManageBoard` | `role:admin` + confirm |
-| `GET /boards/{board}/settings` | `Boards\Settings` | auth + `manageColumns` |
+| `GET /boards/{board}/settings` | `Boards\Settings` | auth + `manageColumns`. `?tab=<slug>` picks the tab whose columns are edited |
 | `GET /boards/{board}/ai` | `Ai\Chat` | `role:admin,team` + `useAiChat` |
 | `GET /boards/{board}/ai/settings` | `Boards\AiSettings` | `role:admin,team` + `manageAiSettings` |
 | `GET /boards/{board}/integrations` | `Boards\Integrations` | `role:admin,team` + `manageAiSettings` |
-| `GET /boards/{board}/tickets/create` | `Tickets\Create` | auth + `TicketPolicy::create` |
+| `GET /boards/{board}/tickets/create` | `Tickets\Create` | auth + `TicketPolicy::create`. `?tab=<slug>` starts the form in that tab |
 | `GET /boards/{board}/tickets/{number}` | `Tickets\Show` | auth + `TicketFinder` |
 | `GET /boards/{board}/docs` | `Docs\Show` | auth + `DocPagePolicy::viewAny` |
 | `GET /boards/{board}/docs/{slug}` | `Docs\Show` | auth + `DocPageFinder` |
@@ -5583,6 +5810,11 @@ join a channel merely by knowing its name.**
 Route ordering is deliberate: literal segments such as `/boards/create`, `/boards/{board}/ai`
 and `/boards/{board}/settings` are declared **before** `/boards/{board}`, so a literal is
 never treated as a slug.
+
+Board tabs add no route: switching, adding, renaming, reordering and removing tabs, and
+dropping a card on a tab, are Livewire actions of `Boards\Show`, each re-authorized. A `?tab=`
+slug is only ever resolved within the board in the URL; anything else falls back to the
+board's default tab.
 
 ## Outbound HTTP
 
@@ -5611,8 +5843,8 @@ never treated as a slug.
 | AI trust level | Set the workspace capability mode |
 | Spending | Set token limits and run caps |
 
-Everything else — columns, labels, documentation, board AI settings, integrations — is the
-delivery team's own work on their own boards.
+Everything else — tabs, columns, labels, documentation, board AI settings, integrations — is
+the delivery team's own work on their own boards.
 
 ## Managing users
 
@@ -5634,8 +5866,9 @@ delivery team's own work on their own boards.
 `/boards/create` and `/boards/{board}/edit` — both require re-entering your password.
 
 The slug and ticket prefix are derived automatically and are globally unique. New boards get
-the standard five columns. Add members from the board edit screen; **membership is the access
-grant**, and there is nothing else to configure for access.
+one tab, **Main**, with the standard five columns; the team can split the board into more tabs
+from the "+" on its tab strip. Add members from the board edit screen; **membership is the
+access grant**, and there is nothing else to configure for access.
 
 Adding a **customer** to a board lets them see that board's customer-visible tickets and
 published documentation, raise tickets, take part in the customer conversation, and use a
@@ -5739,7 +5972,27 @@ way to join one yourself.
 > `new_tickets_visible_to_customers` setting.
 
 The reverse also holds: a ticket a **customer** raises is always customer-visible, always
-lands in the first column, and is never pre-assigned.
+lands in the first column of its tab, and is never pre-assigned.
+
+## Splitting a board into tabs
+
+A board can hold several areas of work — "Admin dashboard", "Public website", "Backend API" —
+as **tabs**, each with its own columns and tickets, like tabs in a browser. Click a tab in the
+strip above the columns to switch; your filters stay on, and each tab shows how many tickets
+match them.
+
+1. **Add a tab** with "+": name it, and it starts with the same columns as the tab you are on.
+   Change its columns from the tab menu (⋯) → *Edit columns*.
+2. **Rename, move left/right, delete** from the tab menu, or drag tabs along the strip. The
+   leftmost tab is where the board opens and where tickets go when nobody picks a tab.
+3. **Move a ticket to another tab** by dragging its card onto that tab, or with the **Tab**
+   choice on the ticket page. It lands in the column with the same name — or a done column if
+   it was done, or else the first column.
+4. **Delete a tab** and its tickets move to the tab you choose — the panel shows where each
+   column's tickets will go before anything happens. Tickets are never deleted with a tab.
+
+A link to a board can name a tab (`…/boards/gritch?tab=backend-api`); without one, the board
+opens on the tab you last had open there.
 
 ## Working a ticket
 
@@ -5821,13 +6074,15 @@ name, email, password and light/dark appearance under **Settings → Profile**.
 
 After signing in you see the projects you have been added to. Opening one shows its board: a
 set of columns, with a card for each piece of work, arranged left to right roughly in the
-order work flows.
+order work flows. A large project may be split into **tabs** above the columns — one per area
+of work; click a tab to see its columns and the tickets in it that are shared with you.
 
 ## Raising a request
 
-1. Open your project.
+1. Open your project (and the tab the request belongs in, if it has tabs).
 2. Choose **New ticket**.
 3. Give it a clear title, describe what you need, set a priority, and attach any screenshots.
+   If the project has tabs, the form starts in the tab you were on; you can change it.
 4. Save.
 
 Your ticket is **immediately visible to you and to the team**, appears at the start of their
@@ -5900,7 +6155,7 @@ file — a specification, a spreadsheet, a screenshot — and ask questions abou
 
 ## What you cannot do
 
-For completeness: you cannot move tickets between columns, assign work, add or change labels,
+For completeness: you cannot move tickets between columns or tabs, assign work, add or change labels,
 link tickets together, delete tickets, edit somebody else's ticket, write documentation, see
 internal notes, or see the team's engineering activity. Those are the delivery team's
 workflow.
@@ -6152,6 +6407,7 @@ read before making a commitment to anybody about what Nexora does.
 | Three-role model with an absolute customer boundary | `UserRole`, `BoardAccess`, 28 security tests |
 | Board membership as the access-control list | `board_members`, `BoardPolicy` |
 | Kanban boards, columns, drag and drop | `Boards\Show`, `x-sort` |
+| Board tabs: own columns per tab, the tab strip, moving tickets between tabs, AI and MCP aware | `BoardTab`, `App\Actions\Tabs\*`, `MoveTicketToTab`, `TabColumnMapping` |
 | Tickets: type, priority, assignee, estimate, due date, position | `tickets` table, `TicketPolicy` |
 | Labels, checklists, ticket links, attachments | Four dedicated tables |
 | Two-stream conversation, enforced in the action | `CommentStream`, `PostComment` |
@@ -6282,10 +6538,11 @@ each is worth an owner.
 | **Reading mode** | The default chat mode. Lookup tools, no write tools |
 | **Run** | One AI working session on one ticket. Suggest or apply |
 | **Session (AI)** | One conversation. Belongs to **one person**, including against administrators |
-| **Slug** | The URL identifier for a board or documentation page. Primary keys are never exposed |
+| **Slug** | The URL identifier for a board, a board tab or a documentation page. Primary keys are never exposed |
 | **Staff** | Administrators and team members together. The set that may see internal content |
 | **Stream** | Which conversation a comment belongs to: `customer` or `internal` |
 | **Suggest mode** | An AI run that analyses and posts an internal note. Changes no code |
+| **Tab** | One area of work inside a board ("Admin dashboard", "Public website"), with its own columns. A ticket's tab is its column's tab. The leftmost tab is the board's default |
 | **Team member** | `team`. Full working access to boards they are a member of; not workspace administration |
 | **Ticket** | A unit of work. Addressed by `PREFIX-NUMBER`, e.g. `NL-42` |
 | **Ticket key** | The human identifier — the board's prefix, a hyphen, the per-board number. What GitHub branches and commits reference |

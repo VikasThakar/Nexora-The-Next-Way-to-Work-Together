@@ -695,7 +695,7 @@ class ActivityLoggingTest extends TestCase
 
         Activity::query()->delete();
 
-        $column = app(CreateColumn::class)->handle($board, ['name' => 'In Review']);
+        $column = app(CreateColumn::class)->handle($this->defaultTab($board), ['name' => 'In Review']);
         app(UpdateColumn::class)->handle($column, ['name' => 'Reviewing']);
 
         $created = $this->soleActivity(ActivityType::ColumnCreated);
@@ -728,10 +728,10 @@ class ActivityLoggingTest extends TestCase
 
         Activity::query()->delete();
 
-        app(ReorderColumns::class)->handle($board, $ordered);
+        app(ReorderColumns::class)->handle($this->defaultTab($board), $ordered);
         $this->assertSame(0, $this->activityCount(ActivityType::ColumnsReordered));
 
-        app(ReorderColumns::class)->handle($board, array_reverse($ordered));
+        app(ReorderColumns::class)->handle($this->defaultTab($board), array_reverse($ordered));
         $this->assertSame(1, $this->activityCount(ActivityType::ColumnsReordered));
     }
 

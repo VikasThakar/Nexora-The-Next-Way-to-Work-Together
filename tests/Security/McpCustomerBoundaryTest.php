@@ -203,7 +203,9 @@ class McpCustomerBoundaryTest extends TestCase
 
         $tools = collect($this->mcpAs($customer)->mcp('tools/list')->assertOk()->json('result.tools'))->keyBy('name');
 
-        $this->assertSame(['board', 'title', 'description', 'type', 'priority'], array_keys($tools['create_ticket']['inputSchema']['properties']));
+        // `tab`: customers see every tab's name, and may say which tab a
+        // request belongs in; it still starts in that tab's first column.
+        $this->assertSame(['board', 'title', 'description', 'type', 'priority', 'tab'], array_keys($tools['create_ticket']['inputSchema']['properties']));
         $this->assertSame(['ticket', 'title', 'description', 'if_unchanged_since'], array_keys($tools['update_ticket']['inputSchema']['properties']));
         $this->assertSame(['ticket', 'body'], array_keys($tools['add_comment']['inputSchema']['properties']));
 

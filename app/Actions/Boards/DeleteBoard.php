@@ -20,8 +20,9 @@ use Illuminate\Support\Facades\Storage;
  *   tickets.board_column_id is restrictOnDelete, so that removing a column can
  *   never destroy the tickets inside it. That protection also means the
  *   database refuses to cascade a board deletion into its columns while tickets
- *   still reference them. Tickets are therefore deleted explicitly first, and
- *   the remaining cascades then run cleanly.
+ *   still reference them. Tickets are therefore deleted explicitly first, then
+ *   the columns and the tabs that hold them, and the remaining cascades then
+ *   run cleanly.
  *
  * Stored objects are removed after the transaction commits. A rolled-back
  * transaction must not leave files deleted; the reverse failure only leaves
@@ -70,6 +71,7 @@ class DeleteBoard
 
             $board->tickets()->delete();
             $board->columns()->delete();
+            $board->tabs()->delete();
 
             $board->delete();
         });

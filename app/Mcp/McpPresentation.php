@@ -8,9 +8,11 @@ use App\Enums\TicketPriority;
 use App\Enums\TicketType;
 use App\Models\Board;
 use App\Models\BoardColumn;
+use App\Models\BoardTab;
 use App\Models\DocPage;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\TicketPlace;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Str;
 
@@ -37,7 +39,7 @@ use Illuminate\Support\Str;
  */
 final class McpPresentation
 {
-    /** @var array<int, int> lowest column position per board id, for this request */
+    /** @var array<int, int> lowest column position per tab id, for this request */
     private static array $firstPositions = [];
 
     // -----------------------------------------------------------------
@@ -49,8 +51,8 @@ final class McpPresentation
      *
      * The colour is derived, never stored: green for a column the board
      * counts as done, red for one that says blocked or on hold, purple for
-     * review and testing, white for where work has not started (the board's
-     * first column, or a backlog / to-do name), and yellow for everything in
+     * review and testing, white for where work has not started (the first
+     * column of its tab, or a backlog / to-do name), and yellow for everything in
      * between. The name always stays — a custom column called "With legal"
      * is yellow, and still says "With legal".
      */
@@ -73,6 +75,27 @@ final class McpPresentation
         };
 
         return $emoji.' '.$name;
+    }
+
+    /**
+     * Where a ticket is: its status, and — on a board split into tabs — which
+     * tab, between the colour and the column: "🟡 Backend API › Doing".
+     * Two tabs can both have a "To Do"; the tab is what tells them apart.
+     */
+    public static function place(Ticket $ticket): string
+    {
+        $ticket->loadMissing(['board', 'column.tab']);
+
+        $status = self::status($ticket->column);
+        $tab = $ticket->column?->tab;
+
+        if (! $tab instanceof BoardTab || ! $ticket->board->hasMultipleTabs()) {
+            return $status;
+        }
+
+        [$emoji, $name] = explode(' ', $status, 2) + [1 => ''];
+
+        return $emoji.' '.self::inline((string) $tab->name, 60).TicketPlace::SEPARATOR.$name;
     }
 
     public static function priority(?TicketPriority $priority): string
@@ -161,14 +184,16 @@ final class McpPresentation
      * One ticket on one line, in the vocabulary of the display rules.
      *
      * `[AQD-42](url) — Title · 🟡 In Progress · 👤 Vikas · ⬆️ High · 📅 2026-10-25 · 🔒 internal`
+     *
+     * On a board split into tabs the status names the tab: `🟡 Backend API › Doing`.
      */
     public static function ticketLine(Ticket $ticket, bool $staff, string $timezone): string
     {
-        $ticket->loadMissing(['board', 'column', 'assignee']);
+        $ticket->loadMissing(['board', 'column.tab', 'assignee']);
 
         $parts = [
             self::ticketLink($ticket).' — '.self::inline((string) $ticket->title),
-            self::status($ticket->column),
+            self::place($ticket),
             self::assignee($ticket->assignee),
             self::priority($ticket->priority),
         ];
@@ -216,7 +241,7 @@ final class McpPresentation
 
         return 'DISPLAY: '.match ($kind) {
             'ticket' => 'show "🎫 **[KEY](link) Title**", then bullets for Status, Assigned to, Priority, Type, Due, Board and Last updated, then a short **Summary** of facts. Keep each emoji with its words.',
-            'board' => 'show the columns as a short list with their emojis and counts; name who can be assigned work.',
+            'board' => 'show the columns as a short list with their emojis and counts — under each tab when the board has tabs; name who can be assigned work.',
             default => 'for 3 or more tickets use a table — Ticket (the linked key) | Title | Status | Assigned to | Priority | Due — keeping each emoji with its words; for 1–2 use bullets. Status and Assigned to are separate columns; write Unassigned when nobody has it.',
         }.$chat;
     }
@@ -241,7 +266,7 @@ final class McpPresentation
             .$scope.($canWrite ? ' Every change is recorded in Nexora\'s history as '.$name.' via this app.' : ''),
 
             "FINDING THINGS\n"
-            ."- Finished or completed in a period → get_completed_tickets. Counts, such as how many tickets are open → get_statistics with metric \"totals\". Finding tickets → search_tickets. One ticket's detail → get_ticket. A board's statuses, labels".($staff ? ' and people' : '')." → get_board.\n"
+            ."- Finished or completed in a period → get_completed_tickets. Counts, such as how many tickets are open → get_statistics with metric \"totals\". Finding tickets → search_tickets. One ticket's detail → get_ticket. A board's tabs, statuses, labels".($staff ? ' and people' : '')." → get_board.\n"
             ."- \"Today\", \"yesterday\" and weeks are reckoned in {$timezone}. Times without an offset are UTC.\n"
             ."- An empty or \"not found\" result means nothing {$name} can see matches. Say that, rather than that it does not exist.",
         ];
@@ -251,11 +276,13 @@ final class McpPresentation
                 ? "MAKING CHANGES\n"
                     ."- Act when the request and its target are clear. If two tickets, pages or people could match, ask which one first.\n"
                     ."- A ticket's status is its board column: set status to one of the column names get_board lists.\n"
+                    ."- Some boards are split into tabs, each with its own columns (get_board lists them). Pass tab to create a ticket in a tab or move one to another tab; status is then a column of that tab. Without tab a new ticket goes to the board's first tab, and status moves a ticket within its own tab.\n"
                     ."- Before editing a ticket, read it with get_ticket and pass its \"Last updated\" as if_unchanged_since, so a change somebody made in the meantime is not overwritten.\n"
                     ."- Deleting a ticket, posting a comment the customer will see, and editing a published page answer \"confirmation needed\" instead of acting: show the person exactly what will happen, wait for their yes, then call again with the confirmation code. Never confirm on their behalf.\n"
                     ."- Report only what the tool reports. Never say something was done unless the tool said it was; if it failed, say so and why."
                 : "MAKING CHANGES\n"
                     ."- You can raise tickets, edit the title and description of tickets {$name} raised, and reply on the customer thread. Nothing else can be changed from here.\n"
+                    ."- On a board with tabs, pass tab to say which tab a new ticket goes in.\n"
                     ."- If two tickets could match, ask which one first.\n"
                     ."- Report only what the tool reports. Never say something was done unless the tool said it was; if it failed, say so and why.";
         }
@@ -282,17 +309,21 @@ final class McpPresentation
 
     // -----------------------------------------------------------------
 
+    /**
+     * Is this the first column of its tab — where work there has not started?
+     * Per tab: every tab has a first column.
+     */
     private static function isFirstColumn(BoardColumn $column): bool
     {
-        $boardId = (int) $column->board_id;
+        $tabId = (int) $column->board_tab_id;
 
-        if (! array_key_exists($boardId, self::$firstPositions)) {
-            self::$firstPositions[$boardId] = (int) BoardColumn::query()
-                ->where('board_id', $boardId)
+        if (! array_key_exists($tabId, self::$firstPositions)) {
+            self::$firstPositions[$tabId] = (int) BoardColumn::query()
+                ->where('board_tab_id', $tabId)
                 ->min('position');
         }
 
-        return (int) $column->position === self::$firstPositions[$boardId];
+        return (int) $column->position === self::$firstPositions[$tabId];
     }
 
     /**

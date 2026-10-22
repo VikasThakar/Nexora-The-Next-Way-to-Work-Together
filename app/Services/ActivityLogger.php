@@ -11,11 +11,13 @@ use App\Enums\TicketPriority;
 use App\Models\Activity;
 use App\Models\Board;
 use App\Models\BoardColumn;
+use App\Models\BoardTab;
 use App\Models\Comment;
 use App\Models\DocPage;
 use App\Models\Ticket;
 use App\Models\TicketEvent;
 use App\Models\User;
+use App\Support\TicketPlace;
 use App\Support\WriteOrigin;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
@@ -210,7 +212,11 @@ class ActivityLogger
             ActivityType::TicketCreated => [
                 'created ticket '.$key.' '.$this->quoted($ticket->title),
                 [
-                    'to' => $this->text($payload['column'] ?? null),
+                    // "Backend API › To Do" when the board had several tabs then.
+                    'to' => $this->text(TicketPlace::names(
+                        $this->text($payload['tab'] ?? null),
+                        $this->text($payload['column'] ?? null),
+                    )),
                     'raised_by_customer' => (bool) ($payload['raised_by_customer'] ?? false),
                 ],
             ],
@@ -385,13 +391,24 @@ class ActivityLogger
      * sentence has to keep meaning what it meant. The ids are kept alongside
      * for anything that needs to group by column.
      *
+     * On a board split into tabs the payload names the tabs too. A move to
+     * another tab names both ends ("from Main › To Do to Backend API › To
+     * Do"); a move inside one tab says the tab once ("… in Backend API").
+     *
      * @param  array<string, mixed>  $payload
      * @return array{0: string, 1: array<string, mixed>}
      */
     private function describeMove(string $key, array $payload): array
     {
-        $from = $this->text($payload['from_column'] ?? null);
-        $to = $this->text($payload['to_column'] ?? null);
+        $fromTab = $this->text($payload['from_tab'] ?? null);
+        $toTab = $this->text($payload['to_tab'] ?? null);
+        $fromColumn = $this->text($payload['from_column'] ?? null);
+        $toColumn = $this->text($payload['to_column'] ?? null);
+
+        $acrossTabs = $fromTab !== null && $toTab !== null && $fromTab !== $toTab;
+
+        $from = $acrossTabs && $fromColumn !== null ? TicketPlace::names($fromTab, $fromColumn) : $fromColumn;
+        $to = $acrossTabs && $toColumn !== null ? TicketPlace::names($toTab, $toColumn) : $toColumn;
 
         $description = match (true) {
             $from !== null && $to !== null => 'moved '.$key.' from '.$from.' to '.$to,
@@ -399,18 +416,26 @@ class ActivityLogger
             default => 'moved '.$key,
         };
 
-        // The column-delete flow moves every card out of a column before
-        // removing it. Saying so stops a reader wondering who dragged fifteen
-        // tickets at four in the morning.
-        if (($payload['reason'] ?? null) === 'column_deleted') {
-            $description .= ' (its column was removed)';
+        if (! $acrossTabs && $toTab !== null && $toColumn !== null) {
+            $description .= ' in '.$toTab;
         }
+
+        // The column- and tab-delete flows move every card out before removing
+        // the column or tab. Saying so stops a reader wondering who dragged
+        // fifteen tickets at four in the morning.
+        $description .= match ($payload['reason'] ?? null) {
+            TicketActivity::REASON_COLUMN_DELETED => ' (its column was removed)',
+            TicketActivity::REASON_TAB_DELETED => ' (its tab was removed)',
+            default => '',
+        };
 
         return [$description, [
             'from' => $from,
             'to' => $to,
             'from_column_id' => $this->intOrNull($payload['from_column_id'] ?? null),
             'to_column_id' => $this->intOrNull($payload['to_column_id'] ?? null),
+            'from_tab' => $fromTab,
+            'to_tab' => $toTab,
             'reason' => $this->text($payload['reason'] ?? null),
         ]];
     }
@@ -993,12 +1018,38 @@ class ActivityLogger
     {
         return $this->write(
             ActivityType::ColumnCreated,
-            'added the column '.$this->trim($column->name),
+            'added the column '.$this->trim($column->name).$this->inTab($column),
             $column,
             (int) $column->board_id,
-            ['name' => $this->trim($column->name), 'is_done' => (bool) $column->is_done],
+            [
+                'name' => $this->trim($column->name),
+                'is_done' => (bool) $column->is_done,
+                'tab' => $this->tabName($column),
+            ],
             $actor,
         );
+    }
+
+    /**
+     * " in the Backend API tab" — only on a board split into several tabs, so
+     * a single-tab board's feed reads exactly as it always has.
+     */
+    private function inTab(BoardColumn $column): string
+    {
+        $tab = $this->tabName($column);
+
+        return $tab === null ? '' : ' in the '.$tab.' tab';
+    }
+
+    private function tabName(BoardColumn $column): ?string
+    {
+        $board = $column->board;
+
+        if (! $board instanceof Board || ! $board->hasMultipleTabs()) {
+            return null;
+        }
+
+        return $this->text($column->tab?->name);
     }
 
     /**
@@ -1013,12 +1064,12 @@ class ActivityLogger
         $from = isset($changes['name']) ? $this->text($changes['name'][0]) : null;
         $to = isset($changes['name']) ? $this->text($changes['name'][1]) : null;
 
-        $description = $from !== null && $to !== null
+        $description = ($from !== null && $to !== null
             ? 'renamed the column '.$from.' to '.$to
             : 'changed the '.$this->sentenceList(array_map(
                 fn (string $f): string => $this->fieldLabel($f),
                 array_keys($changes)
-            )).' of the column '.$this->trim($column->name);
+            )).' of the column '.$this->trim($column->name)).$this->inTab($column);
 
         return $this->write(
             ActivityType::ColumnUpdated,
@@ -1030,6 +1081,7 @@ class ActivityLogger
                 'to' => $to,
                 'old' => array_map(fn (array $c) => $c[0], $changes),
                 'attributes' => array_map(fn (array $c) => $c[1], $changes),
+                'tab' => $this->tabName($column),
             ],
             $actor,
         );
@@ -1045,13 +1097,21 @@ class ActivityLogger
      * App\Actions\Columns\DeleteColumn going through TicketActivity — so the
      * feed shows both the removal and where the work went.
      */
+    /**
+     * @param  string|null  $tab  the tab the column was in — pass it only on a
+     *                            board split into several tabs
+     */
     public function columnDeleted(
         Board $board,
         string $name,
         ?BoardColumn $destination = null,
         ?User $actor = null,
+        ?string $tab = null,
     ): ?Activity {
+        $tab = $this->text($tab);
+
         $description = 'removed the column '.$this->trim($name)
+            .($tab === null ? '' : ' from the '.$tab.' tab')
             .($destination === null ? '' : ', moving its tickets to '.$this->trim($destination->name));
 
         return $this->write(
@@ -1059,19 +1119,88 @@ class ActivityLogger
             $description,
             $board,
             (int) $board->getKey(),
-            ['name' => $this->trim($name), 'moved_to' => $destination?->name],
+            ['name' => $this->trim($name), 'moved_to' => $destination?->name, 'tab' => $tab],
             $actor,
         );
     }
 
-    public function columnsReordered(Board $board, ?User $actor = null): ?Activity
+    public function columnsReordered(BoardTab $tab, ?User $actor = null): ?Activity
     {
+        $board = $tab->board;
+
+        $where = $board->hasMultipleTabs()
+            ? 'in the '.$this->trim($tab->name).' tab of the board '.$this->trim($board->name)
+            : 'on the board '.$this->trim($board->name);
+
         return $this->write(
             ActivityType::ColumnsReordered,
-            'reordered the columns on the board '.$this->trim($board->name),
+            'reordered the columns '.$where,
+            $board,
+            (int) $board->getKey(),
+            $board->hasMultipleTabs() ? ['tab' => $this->trim($tab->name)] : [],
+            $actor,
+        );
+    }
+
+    public function tabCreated(BoardTab $tab, ?User $actor = null): ?Activity
+    {
+        return $this->write(
+            ActivityType::TabCreated,
+            'added the tab '.$this->trim($tab->name),
+            $tab,
+            (int) $tab->board_id,
+            ['name' => $this->trim($tab->name)],
+            $actor,
+        );
+    }
+
+    public function tabRenamed(BoardTab $tab, string $from, ?User $actor = null): ?Activity
+    {
+        return $this->write(
+            ActivityType::TabRenamed,
+            'renamed the tab '.$this->trim($from).' to '.$this->trim($tab->name),
+            $tab,
+            (int) $tab->board_id,
+            ['from' => $this->trim($from), 'to' => $this->trim($tab->name)],
+            $actor,
+        );
+    }
+
+    public function tabsReordered(Board $board, ?User $actor = null): ?Activity
+    {
+        return $this->write(
+            ActivityType::TabsReordered,
+            'reordered the tabs on the board '.$this->trim($board->name),
             $board,
             (int) $board->getKey(),
             [],
+            $actor,
+        );
+    }
+
+    /**
+     * A tab being removed. Like a deleted column, the subject is the board,
+     * because the tab row is about to disappear; each ticket that had to move
+     * out is recorded separately, as a movement in its own timeline.
+     */
+    public function tabDeleted(
+        Board $board,
+        string $name,
+        ?BoardTab $destination = null,
+        int $moved = 0,
+        ?User $actor = null,
+    ): ?Activity {
+        $description = 'removed the tab '.$this->trim($name)
+            .($destination === null || $moved === 0
+                ? ''
+                : ', moving its '.$moved.' '.Str::plural('ticket', $moved).' to '.$this->trim($destination->name));
+
+        return $this->write(
+            ActivityType::TabDeleted,
+            $description,
+            $board,
+            (int) $board->getKey(),
+            ['name' => $this->trim($name), 'moved_to' => $destination?->name, 'moved' => $moved],
             $actor,
         );
     }

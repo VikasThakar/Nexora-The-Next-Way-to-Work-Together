@@ -11,6 +11,7 @@ use App\Actions\Comments\PostComment;
 use App\Actions\Docs\CreatePage;
 use App\Actions\Docs\SetPageVisibility;
 use App\Actions\Labels\CreateLabel;
+use App\Actions\Tabs\CreateTab;
 use App\Actions\Tickets\CreateTicket;
 use App\Actions\Tickets\LinkTickets;
 use App\Actions\Tickets\ManageSubtasks;
@@ -166,6 +167,23 @@ class DevelopmentSeeder extends Seeder
                 'title' => $title,
                 'description_md' => $this->description($title),
                 'priority' => $priority,
+            ], $team);
+        }
+
+        // A second tab on the shared board, so a fresh local workspace shows
+        // the tab strip in use: the same columns, its own tickets.
+        $website = app(CreateTab::class)->handle($shared, 'Public website', $shared->defaultTab(), $team);
+
+        foreach ([
+            ['Refresh the pricing page copy', TicketPriority::Medium],
+            ['Fix the contact form on mobile', TicketPriority::High],
+        ] as [$title, $priority]) {
+            $createTicket->handle($shared, [
+                'title' => $title,
+                'description_md' => $this->description($title),
+                'priority' => $priority,
+                'customer_visible' => true,
+                'board_tab_id' => $website->getKey(),
             ], $team);
         }
 

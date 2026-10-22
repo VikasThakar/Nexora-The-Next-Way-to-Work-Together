@@ -1,5 +1,5 @@
 <div>
-    <x-ui.page-header :title="$ticket->title" :trail="\App\Support\Breadcrumbs::ticket($ticket)">
+    <x-ui.page-header :title="$ticket->title" :trail="\App\Support\Breadcrumbs::ticket($ticket, $showTabs ? $ticketTab : null)">
         <x-slot:actions>
             @if ($ticket->customer_visible)
                 <x-ui.badge variant="emerald">Customer-visible</x-ui.badge>
@@ -7,7 +7,7 @@
                 <x-ui.internal-badge label="Internal only" />
             @endif
 
-            <x-ui.button :href="route('boards.show', $board)" variant="secondary" size="sm">Back to board</x-ui.button>
+            <x-ui.button :href="$boardUrl" variant="secondary" size="sm">Back to board</x-ui.button>
 
             @if ($canEdit && ! $editing)
                 <x-ui.button type="button" size="sm" wire:click="startEditing">Edit</x-ui.button>
@@ -209,8 +209,31 @@
         <div class="space-y-6">
             <x-ui.card title="Details">
                 <div class="space-y-4">
+                    @if ($showTabs)
+                        {{-- Moving a ticket to another tab is its own choice; the
+                             Status list below is always the columns of its tab. --}}
+                        @if ($canMove)
+                            <x-ui.field label="Tab" for="ticket-tab">
+                                <x-ui.select id="ticket-tab" wire:model.live="tabId">
+                                    @foreach ($tabs as $option)
+                                        <option value="{{ $option->id }}">{{ $option->name }}</option>
+                                    @endforeach
+                                </x-ui.select>
+                            </x-ui.field>
+                        @else
+                            <div>
+                                <p class="text-sm font-medium text-slate-700">Tab</p>
+                                <p class="mt-1 text-sm text-slate-900">{{ $ticketTab?->name }}</p>
+                            </div>
+                        @endif
+
+                        @if ($tabNotice)
+                            <p role="status" class="-mt-2 text-xs text-emerald-700">{{ $tabNotice }}</p>
+                        @endif
+                    @endif
+
                     <x-ui.field label="Status" for="ticket-column">
-                        <x-ui.select id="ticket-column" wire:model.live="columnId" :disabled="! $canMove">
+                        <x-ui.select id="ticket-column" wire:model.live="columnId" :disabled="! $canMove" wire:key="ticket-column-{{ $ticketTab?->id }}">
                             @foreach ($columns as $column)
                                 <option value="{{ $column->id }}">{{ $column->name }}</option>
                             @endforeach

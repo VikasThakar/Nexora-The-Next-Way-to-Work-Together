@@ -72,7 +72,7 @@ final class NexoraServer extends Server
 {
     protected string $name = 'Nexora';
 
-    protected string $version = '1.1.0';
+    protected string $version = '1.2.0';
 
     protected string $instructions = 'Nexora boards, tickets, documentation and statistics, read and changed as the signed-in person.';
 
